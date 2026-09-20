@@ -1,0 +1,2 @@
+# One generated function name per line for deliberate N64Recomp fallbacks.
+# Add a name only with a recompiler diagnostic and a documented reason.

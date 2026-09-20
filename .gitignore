@@ -1,0 +1,68 @@
+# Copyrighted game data: supply a legally dumped ROM locally; never commit it.
+*.z64
+*.n64
+*.v64
+*.rom
+*.eeprom
+*.mpk
+*.pak
+
+# ROM-derived recompiler output.
+RecompiledFuncs/
+data_dump.toml
+src/aspMain.cpp
+worlddriverchampionship.syms.toml
+worlddriverchampionship.us.toml
+
+# CMake, Android, and release output.
+build/
+build2/
+build-*/
+out/
+dist/
+CMakeUserPresets.json
+compile_commands.json
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Editor and operating-system files.
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs, captures, dumps, and temporary files.
+*.log
+*.stackdump
+*.bin
+*.bmp
+*.tmp
+*.astate
+*.lstate
+recordings/_*.jsonl
+Testing/
+__pycache__/
+gdb_bt*.txt
+verify_*/
+artifacts/
+scratch/
+tools/emulators/
+tools/emu_instrumentation/
+
+# Local agent state and machine-specific notes.
+.claude/settings.local.json
+.claude/worktrees/
+.claude/*.gdb
+.codex/
+.commandcode/
+.agents/
+CLAUDE.local.md
+nextsessionprompt.md
+.worktreeinclude

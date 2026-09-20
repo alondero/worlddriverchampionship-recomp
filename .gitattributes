@@ -1,0 +1,4 @@
+* text=auto
+*.patch text eol=lf
+patches/*.patch whitespace=-blank-at-eol
+*.sh text eol=lf

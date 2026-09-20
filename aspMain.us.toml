@@ -1,0 +1,5 @@
+# Hand-maintained RSPRecomp input.
+# Identify WDC's audio microcode and fill this file from ROM evidence before
+# running RSPRecomp. Never copy the address or task layout from a sibling game.
+
+# TODO: add the RSPRecomp input sections for the confirmed WDC audio ucode.

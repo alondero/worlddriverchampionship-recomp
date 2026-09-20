@@ -1,0 +1,3 @@
+/* Bootstrap stylesheet. Establish WDC-specific colors and layout after the
+   first frontend integration pass. */
+body { font-family: Lato; }
