@@ -20,15 +20,21 @@ done
 
 ROM="${ROM_FILENAME:-World Driver Championship (USA).z64}"
 [[ -f "$ROM" ]] || die "missing ROM: $ROM (supply your own USA dump)"
-if [[ "$CLEAN" == 1 && -d build ]]; then rm -rf build; fi
+if [[ "$CLEAN" == 1 && -f build-player/build.ninja ]]; then cmake --build build-player --target clean; fi
 
 echo "[submodules]"
 git submodule update --init --recursive
-echo "[dependency worktrees]"
-for submodule in lib/N64ModernRuntime lib/rt64 lib/rt64/src/contrib/plume lib/RecompFrontend; do
-    git -C "$submodule" checkout -- .
-done
 echo "[dependency patches]"
+apply_patch_once() {
+    local submodule="$1" patch="$ROOT/$2"
+    if git -C "$submodule" apply --ignore-whitespace --reverse --check "$patch" 2>/dev/null; then
+        return
+    fi
+    git -C "$submodule" apply --ignore-whitespace --check "$patch" || die "patch conflicts with local edits: $patch"
+    git -C "$submodule" apply --ignore-whitespace "$patch"
+}
+apply_patch_once lib/N64ModernRuntime patches/0006-runtime-lle-interrupt-ownership.patch
+apply_patch_once lib/N64ModernRuntime/N64Recomp patches/0007-rsprecomp-boss-support.patch
 windows_host=0
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) windows_host=1 ;;
@@ -49,14 +55,14 @@ if [[ "${WDC_APPLY_WINDOWS_PATCHES:-0}" == 1 || "$windows_host" == 1 ]]; then
     done
 fi
 echo "[configure: first pass]"
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF
 echo "[host tools]"
-cmake --build build --target N64RecompCLI RSPRecomp
+cmake --build build-player --target N64RecompCLI RSPRecomp -j 8
 echo "[symbol/config generation]"
 python3 -B scripts/gen_syms_toml.py
 
-N64="build/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp"
-RSP="build/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp"
+N64="build-player/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp"
+RSP="build-player/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp"
 [[ -x "$N64" ]] || die "N64Recomp was not built at $N64"
 [[ -x "$RSP" ]] || die "RSPRecomp was not built at $RSP"
 echo "[recompile CPU]"
@@ -69,7 +75,7 @@ else
 fi
 
 echo "[configure: second pass]"
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF
 echo "[build port]"
-cmake --build build --target worlddriverchampionship_modern
-echo "Bootstrap build complete: build/worlddriverchampionship_modern"
+cmake --build build-player --target worlddriverchampionship_modern -j 8
+echo "Build complete: build-player/worlddriverchampionship_modern"

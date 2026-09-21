@@ -24,7 +24,10 @@ if (-not $pythonScripts -and $env:LOCALAPPDATA) {
     }
 }
 $mingwBin = $env:WDC_MINGW_BIN
-if (-not $mingwBin) { $mingwBin = "C:\ProgramData\mingw64\mingw64\bin" }
+if (-not $mingwBin) {
+    $compiler = Get-Command g++.exe -ErrorAction SilentlyContinue
+    if ($compiler) { $mingwBin = Split-Path $compiler.Source }
+}
 $prefix = @($pythonScripts, $mingwBin) | Where-Object { $_ -and (Test-Path $_) }
 if ($prefix.Count -gt 0) { $env:PATH = ($prefix -join ";") + ";" + $env:PATH }
 
@@ -35,6 +38,8 @@ function Require-Command([string]$name) {
 }
 function Invoke-Step([string]$name, [scriptblock]$body) {
     Write-Host "[$name]" -ForegroundColor Cyan
+    # Native tools may write warnings to stderr; their exit status is decisive.
+    $ErrorActionPreference = 'Continue'
     & $body
     if ($LASTEXITCODE -ne 0) { throw "Step '$name' failed with exit code $LASTEXITCODE" }
 }
@@ -42,49 +47,66 @@ function Invoke-Step([string]$name, [scriptblock]$body) {
 foreach ($tool in @("cmake.exe", "ninja.exe", "gcc.exe", "g++.exe", "git.exe", "python.exe")) { Require-Command $tool }
 $cmake = (Get-Command cmake.exe).Source
 $python = (Get-Command python.exe).Source
+if ($pythonScripts -and (Test-Path (Join-Path (Split-Path $pythonScripts) 'python.exe'))) {
+    $python = Join-Path (Split-Path $pythonScripts) 'python.exe'
+}
+function Test-Patch([string]$submodule, [string]$patch, [switch]$Reverse) {
+    # Windows PowerShell converts redirected native stderr into error records.
+    # A failed applicability probe is expected, not a terminating build error.
+    $ErrorActionPreference = 'Continue'
+    $options = @('apply', '--ignore-whitespace', '--check')
+    if ($Reverse) { $options += '--reverse' }
+    git -C $submodule @options $patch 2>$null
+    return $LASTEXITCODE -eq 0
+}
 $rom = (Resolve-Path $RomPath -ErrorAction SilentlyContinue)
 if (-not $rom) { throw "Missing ROM '$RomPath'. Supply your own USA dump at the repository root." }
 
-if ($Clean -and (Test-Path build)) { Remove-Item -Recurse -Force -LiteralPath build }
+$expectedRom = Join-Path $repo 'World Driver Championship (USA).z64'
+if ($rom.Path -ne $expectedRom) {
+    if (Test-Path -LiteralPath $expectedRom) {
+        if ((Get-FileHash $expectedRom).Hash -ne (Get-FileHash $rom.Path).Hash) {
+            throw 'A different ROM already exists at the expected path; it was not overwritten.'
+        }
+    } else { Copy-Item -LiteralPath $rom.Path -Destination $expectedRom }
+}
+if ($Clean -and (Test-Path build-player/build.ninja)) {
+    Invoke-Step 'clean build products' { & $cmake --build build-player --target clean }
+}
 
 Invoke-Step "submodules" { git submodule update --init --recursive }
-Invoke-Step "reset dependency worktrees" {
-    foreach ($submodule in @("lib/N64ModernRuntime", "lib/rt64", "lib/rt64/src/contrib/plume", "lib/RecompFrontend")) {
-        git -C $submodule checkout -- .
-    }
-}
-if ($IsWindows -or $env:OS -eq "Windows_NT") {
-    Invoke-Step "apply Windows dependency patches" {
+Invoke-Step "apply dependency patches (preserving local edits)" {
         $patches = @(
             @{ Sub = "lib/rt64"; Patch = "patches/0005-rt64-mingw-gcc-compat.patch" },
-            @{ Sub = "lib/rt64/src/contrib/plume"; Patch = "patches/0004-plume-d3d12-mingw-com-abi-struct-return.patch" }
+            @{ Sub = "lib/rt64/src/contrib/plume"; Patch = "patches/0004-plume-d3d12-mingw-com-abi-struct-return.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0006-runtime-lle-interrupt-ownership.patch" },
+            @{ Sub = "lib/N64ModernRuntime/N64Recomp"; Patch = "patches/0007-rsprecomp-boss-support.patch" }
         )
         foreach ($item in $patches) {
             $patchPath = Join-Path $repo $item.Patch
-            git -C $item.Sub apply --ignore-whitespace --check $patchPath 2>$null
-            if ($LASTEXITCODE -eq 0) {
+            if (Test-Patch $item.Sub $patchPath -Reverse) { continue }
+            if (Test-Patch $item.Sub $patchPath) {
                 git -C $item.Sub apply --ignore-whitespace $patchPath
+                if ($LASTEXITCODE -ne 0) { throw "Failed to apply $($item.Patch)" }
             } else {
-                git -C $item.Sub apply --ignore-whitespace --reverse --check $patchPath 2>$null
-                if ($LASTEXITCODE -ne 0) { throw "Patch does not apply cleanly: $($item.Patch)" }
+                throw "Patch conflicts with local edits: $($item.Patch)"
             }
         }
-    }
 }
 Invoke-Step "configure (first pass)" {
-    & $cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+    & $cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF `
         -DCMAKE_C_COMPILER=gcc.exe -DCMAKE_CXX_COMPILER=g++.exe `
         "-DPython3_EXECUTABLE=$python"
 }
 Invoke-Step "build host tools" {
-    & $cmake --build build --target N64RecompCLI RSPRecomp
+    & $cmake --build build-player --target N64RecompCLI RSPRecomp -j 8
 }
 Invoke-Step "generate symbol/config inputs" {
-    python -B scripts/gen_syms_toml.py
+    & $python -B scripts/gen_syms_toml.py
 }
 
-$n64 = Join-Path $repo "build/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp.exe"
-$rsp = Join-Path $repo "build/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp.exe"
+$n64 = Join-Path $repo "build-player/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp.exe"
+$rsp = Join-Path $repo "build-player/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp.exe"
 if (-not (Test-Path $n64)) { throw "N64Recomp was not built at $n64" }
 if (-not (Test-Path $rsp)) { throw "RSPRecomp was not built at $rsp" }
 Invoke-Step "recompile CPU" { & $n64 worlddriverchampionship.us.toml }
@@ -95,11 +117,11 @@ if ((Get-Content aspMain.us.toml -Raw) -notmatch "TODO") {
 }
 
 Invoke-Step "configure (second pass)" {
-    & $cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+    & $cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF `
         -DCMAKE_C_COMPILER=gcc.exe -DCMAKE_CXX_COMPILER=g++.exe `
         "-DPython3_EXECUTABLE=$python"
 }
 Invoke-Step "build port" {
-    & $cmake --build build --target worlddriverchampionship_modern
+    & $cmake --build build-player --target worlddriverchampionship_modern -j 8
 }
-Write-Host "Bootstrap build complete: build/worlddriverchampionship_modern.exe" -ForegroundColor Green
+Write-Host "Build complete. Run ./play.ps1" -ForegroundColor Green

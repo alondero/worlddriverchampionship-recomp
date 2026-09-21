@@ -1,0 +1,85 @@
+diff --git a/RSPRecomp/src/rsp_recomp.cpp b/RSPRecomp/src/rsp_recomp.cpp
+index 518477d..20b94c5 100644
+--- a/RSPRecomp/src/rsp_recomp.cpp
++++ b/RSPRecomp/src/rsp_recomp.cpp
+@@ -16,6 +16,10 @@ using InstrId = rabbitizer::InstrId::UniqueId;
+ using Cop0Reg = rabbitizer::Registers::Rsp::Cop0;
+ constexpr size_t instr_size = sizeof(uint32_t);
+ constexpr uint32_t rsp_mem_mask = 0x1FFF;
++// Opt-in register integration for graphics microcodes. Audio keeps the original
++// constant-register behavior unless explicitly enabled by its configuration.
++static bool cop0_callbacks = false;
++static bool all_indirect_targets = false;
+ 
+ // Can't use rabbitizer's operand types because we need to be able to provide a register reference or a register index
+ enum class RspOperand {
+@@ -531,11 +535,25 @@ bool process_instruction(size_t instr_index, const std::vector<rabbitizer::Instr
+         case InstrId::rsp_break:
+             print_line("return RspExitReason::Broke", instr_vram);
+             break;
++        case InstrId::rsp_cfc2:
++            print_line("rsp.CFC2({}{}, {})", ctx_gpr_prefix(rt), rt, rd);
++            break;
++        case InstrId::rsp_ctc2:
++            print_line("rsp.CTC2({}{}, {})", ctx_gpr_prefix(rt), rt, rd);
++            break;
+         case InstrId::rsp_mfc0:
+-            print_line("{}{} = {}", ctx_gpr_prefix(rt), rt, expected_c0_reg_value(rd));
++            if (cop0_callbacks) {
++                print_line("{}{} = rsp_read_cop0({})", ctx_gpr_prefix(rt), rt, rd);
++            } else {
++                print_line("{}{} = {}", ctx_gpr_prefix(rt), rt, expected_c0_reg_value(rd));
++            }
+             break;
+         case InstrId::rsp_mtc0:
+             {
++                if (cop0_callbacks && rd >= 4) {
++                    print_line("rsp_write_cop0({}, {}{})", rd, ctx_gpr_prefix(rt), rt);
++                    break;
++                }
+                 std::string_view write_action = c0_reg_write_action(rd);
+                 if (has_overlays && is_c0_reg_write_dma_read(rd)) {
+                     // DMA read, do overlay swap if reading into IMEM
+@@ -554,8 +572,7 @@ bool process_instruction(size_t instr_index, const std::vector<rabbitizer::Instr
+             }
+         default:
+             fmt::print(stderr, "Unhandled instruction: {}\n", instr.getOpcodeName());
+-            assert(false);
+-            return false;
++            throw std::runtime_error("Unhandled RSP instruction");
+         }
+     }
+ 
+@@ -678,6 +695,8 @@ bool read_config(const std::filesystem::path& config_path, RSPRecompilerConfig&
+ 
+     try {
+         const toml::table config_data = toml::parse_file(config_path.u8string());
++        cop0_callbacks = config_data["cop0_callbacks"].value_or(false);
++        all_indirect_targets = config_data["all_indirect_targets"].value_or(false);
+         std::filesystem::path basedir = std::filesystem::path{ config_path }.parent_path();
+ 
+         std::optional<uint32_t> text_offset = config_data["text_offset"].value<uint32_t>();
+@@ -1004,6 +1023,11 @@ void create_overlay_swap_function(const std::string& function_name, std::ofstrea
+ void create_function(const std::string& function_name, std::ofstream& output_file, const std::vector<rabbitizer::InstructionRsp>& instrs, const RSPRecompilerConfig& config, const ResumeTargets& resume_targets, bool is_permutation, bool is_initial) {
+     // Collect indirect jump targets (return addresses for linked jumps)
+     BranchTargets branch_targets = get_branch_targets(instrs);
++    if (all_indirect_targets) {
++        for (const auto& instr : instrs) {
++            branch_targets.indirect_targets.insert(instr.getVram());
++        }
++    }
+ 
+     // Add any additional indirect branch targets that may not be found directly in the code (e.g. from a jump table)
+     for (uint32_t target : config.extra_indirect_branch_targets) {
+@@ -1178,6 +1202,11 @@ int main(int argc, const char** argv) {
+     fmt::print(output_file,
+         "#include \"librecomp/rsp.hpp\"\n"
+         "#include \"librecomp/rsp_vu_impl.hpp\"\n");
++    if (cop0_callbacks) {
++        fmt::print(output_file,
++            "extern uint32_t rsp_read_cop0(uint32_t reg);\n"
++            "extern void rsp_write_cop0(uint32_t reg, uint32_t value);\n");
++    }
+     
+     // Write function(s)
+     if (overlay_slots.empty()) {

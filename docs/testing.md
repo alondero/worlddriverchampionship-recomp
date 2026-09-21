@@ -22,9 +22,15 @@ git diff --check
 Once the ROM and generated image exist:
 
 ```bash
-ctest --test-dir build --output-on-failure
+cmake --build build-player --target wdc_guest_math_tests
+ctest --test-dir build-player --output-on-failure
 ```
 
 Headless runs must have a bounded frame/VI budget and a machine-readable result
 when they are used in CI. A passing process exit alone is not proof that the
 game reached the intended scene or submitted a graphics/audio task.
+
+The first-playable headless diagnostic exits 2 on its 15-second limit and is
+not a CI success gate. See [acceptance evidence](first-playable.md) for the
+separately verified windowed practice-driving path. Synthetic tests cover
+guest-memory math/string contracts and startup cache-marker transformation.

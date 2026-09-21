@@ -16,3 +16,4 @@ Start with:
 
 Player-facing pages should stay short and avoid internal terms. Developer pages
 should record stable facts and commands, not session chronology or guesses.
+- [First playable](first-playable.md) - tested route, controls, limitations, next work.

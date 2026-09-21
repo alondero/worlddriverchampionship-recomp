@@ -1,10 +1,11 @@
 # Hand-maintained ROM analysis input. Do not copy values from another project.
-# Fill every value after inspecting the actual World Driver Championship USA ROM.
+# Values measured from the verified USA dump; see docs/research/first-playable.md.
 
 [rom]
 filename = "World Driver Championship (USA).z64"
 entrypoint = 0x80000400
 section_rom = 0x1000
-code_rom_start = 0x00000000 # TODO: measured CPU text start
-code_rom_end = 0x00000000   # TODO: measured CPU text end
-rom_size = 0x00000000       # TODO: exact file size
+code_rom_start = 0x1000
+code_rom_end = 0x7D2B0 # RSP boot begins immediately after the CPU div routine.
+rom_size = 0x1000000
+sha256 = "e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97"

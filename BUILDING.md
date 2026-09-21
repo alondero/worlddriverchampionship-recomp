@@ -1,98 +1,68 @@
 # Building from source
 
-This is a development checkout, not a release package. A source build needs
-the repository, its recursive submodules, and your own legally dumped ROM.
-The ROM is read during translation and at runtime; it is never committed.
+The tested host is Windows x64 with MinGW-w64 GCC 15.2, native CMake, Ninja,
+Python 3.11+ (tomllib), Git, and a Direct3D 12 GPU. The SDL and shader compiler
+DLLs come from the pinned RT64 dependencies. Internet access is needed for
+initial recursive submodules and DirectX-Headers.
 
-## Supported development hosts
+Place your own big-endian 16 MiB USA dump at the repository root as
+`World Driver Championship (USA).z64`. The generator checks SHA-256:
+`e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`.
+Other revisions and byte orders are rejected.
 
-| Host | Toolchain | Renderer | Status |
-| --- | --- | --- | --- |
-| 64-bit Windows | MinGW-w64 GCC/G++, CMake, Ninja | RT64 / Direct3D 12 | Planned |
-| 64-bit Linux | GCC/G++, CMake, Ninja | RT64 / Vulkan | Planned |
-| ARM64 Android | Android NDK + Gradle | RT64 / Vulkan | Planned |
-
-macOS is not a supported target until this port has explicit SDL window/input
-and renderer coverage.
-
-## Prerequisites
-
-All desktop builds need Git with recursive submodules, CMake 3.20+, Python 3,
-Ninja, and a C17/C++20 compiler. Linux additionally needs SDL2, Vulkan,
-FreeType, X11, and dbus development packages. Windows needs MinGW-w64, CMake,
-and Ninja; enable long paths when RT64's dependency tree requires it:
+## Windows
 
 ```powershell
-git config --global core.longpaths true
+./build.ps1
+./play.ps1
 ```
 
-## Bootstrap sequence
+The build script prefers the native Python CMake installation and MinGW.
+Override discovery with `WDC_PYTHON_SCRIPTS` and `WDC_MINGW_BIN` if necessary.
+Close the running player before rebuilding. `-Clean` cleans build products
+through CMake without resetting source files. `-RomPath` imports an alternate
+local ROM path without overwriting a different existing dump.
 
-The supported scripts deliberately use two CMake passes:
+Output: `build-player/worlddriverchampionship_modern.exe`, with SDL2, DXC,
+and MinGW runtime DLLs beside it. `play.ps1` runs from the repository root
+and accepts an optional `-RomPath`. Double-clicking the executable alone
+requires a ROM argument or the expected working directory; use the launcher.
 
-1. validate tools and the ROM;
-2. initialise and reset dependency submodules;
-3. apply the patch series listed in `patches/README.md`;
-4. configure and build N64Recomp, RSPRecomp, and host tools;
-5. generate `RecompiledFuncs/` and `src/aspMain.cpp` from the ROM;
-6. configure again so CMake discovers generated sources; and
-7. build `worlddriverchampionship_modern`.
+## Build stages
 
-Run from the repository root:
+1. Initialise recursive pinned submodules without resetting local changes.
+2. Apply [dependency patches](patches/README.md) idempotently; fail on conflicts.
+3. Configure and build N64Recomp/RSPRecomp host tools.
+4. Validate the ROM and generate symbols/configuration from measured inputs.
+5. Translate CPU code and BOSS RSP code.
+6. Reconfigure for newly generated sources and build the player.
+7. Copy required Windows DLLs next to the executable.
+
+Generated files are ignored: `RecompiledFuncs/`, `src/aspMain.cpp`, and
+the CPU symbol/configuration TOMLs. Edit `rom-symbols.toml`,
+`scripts/gen_syms_toml.py`, or `aspMain.us.toml`, never generated C/C++.
+
+The script carries two Windows compatibility patches and two BOSS/runtime
+patches. Pinned dependency edits are exported under `patches/`; dirty
+submodules after applying those patches are expected.
+
+## Checks
 
 ```powershell
-.\build.ps1
-.\build.ps1 -Clean
+cmake --build build-player --target wdc_guest_math_tests
+ctest --test-dir build-player --output-on-failure
+python -m unittest discover tests
+python scripts/check_docs.py
+git diff --check
 ```
 
-```bash
-./build.sh
-./build.sh --clean
-```
+A separate `-DWDC_HEADLESS=ON` build provides a 15-second CPU/RSP diagnostic.
+It deliberately exits with code 2 at its time limit: this is not a gameplay
+pass. Setting `WDC_DIAGNOSTIC=1` applies the same time limit to the player.
 
-The default ROM filename is `World Driver Championship (USA).z64`. Override it
-with `-RomPath` on Windows or `ROM_FILENAME` on Linux/CI.
+## Other platforms
 
-## ROM analysis and generated inputs
-
-Do not invent symbol boundaries or copy addresses from another N64 game. First
-measure the actual dump and fill `rom-analysis.toml`; then:
-
-```bash
-python scripts/gen_syms_toml.py
-```
-
-The generator writes the ignored `worlddriverchampionship.syms.toml` and
-`worlddriverchampionship.us.toml`. Review them, run N64Recomp, and investigate
-every recompiler error by changing a checked-in input rather than generated C.
-`aspMain.us.toml` is the hand-maintained RSPRecomp input and should be filled
-only after the audio microcode is identified.
-
-## Dependency patches
-
-Patch files are the source of truth for local dependency changes. Start from
-the pinned submodule commit, apply the documented series, make the smallest
-change, add a focused test, and compare any reusable fix with upstream. If a
-patch stops applying, stop and investigate dependency drift; do not leave a
-dirty submodule as an undocumented dependency fork.
-
-## Manual stages
-
-When the full script is too broad for an investigation:
-
-```bash
-git submodule update --init --recursive
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target N64RecompCLI RSPRecomp
-python scripts/gen_syms_toml.py
-build/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp worlddriverchampionship.us.toml
-if ! grep -q TODO aspMain.us.toml; then
-    build/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp aspMain.us.toml
-fi
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target worlddriverchampionship_modern
-```
-
-The final two translation commands are expected to remain unavailable until
-ROM analysis has supplied valid inputs. That is an explicit bootstrap gate,
-not a reason to fabricate placeholder generated files.
+`build.sh` follows the same translation pipeline with SDL2/Vulkan, but Linux
+has not been built or tested in this milestone. It requires the default ROM
+filename at the repository root. Android remains scaffold-only; do not treat
+this Windows milestone as Android validation.

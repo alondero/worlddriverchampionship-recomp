@@ -1,31 +1,30 @@
 # World Driver Championship: Recompiled
 
-World Driver Championship: Recompiled is a planned native PC/Android port of
-the Nintendo 64 game using N64Recomp, N64ModernRuntime, RT64, and RecompFrontend.
+Experimental native Windows build of the Nintendo 64 game using N64Recomp,
+N64ModernRuntime, and RT64. CPU code and the custom BOSS graphics microcode
+are statically recompiled; RT64 renders the resulting low-level RDP commands.
 
-This repository is the development scaffold. The ROM identity and translated
-game image have not been established yet; the first implementation milestone is
-to analyse a legally dumped USA ROM and fill in `rom-analysis.toml`.
+## First playable
 
-## Current status
+Windows x64 / Direct3D 12 has been tested through the intro, menus, and
+Hawaii practice driving (acceleration, steering, automatic gears, pause/resume).
+This is an early development build, not a finished port.
 
-- Repository structure, build contract, documentation rules, and CI scaffolding
-  are in place.
-- No ROM, generated C/C++, save data, or release binary is included.
-- The executable target is a bootstrap placeholder until the ROM-specific
-  entrypoint, symbol map, RSP input, and host/runtime wiring are implemented.
+Supply your own USA ROM, then run:
 
-## Start here
+```powershell
+./build.ps1
+./play.ps1
+```
 
-1. Read [BUILDING.md](BUILDING.md), [Architecture](docs/architecture.md), and
-   [Testing](docs/testing.md).
-2. Supply your own `World Driver Championship (USA).z64` at the repository root.
-3. Measure the ROM header, code extent, entrypoint, and audio microcode before
-   changing the generated inputs; record confirmed facts in
-   `docs/reference/rom.md`.
-4. Fill `rom-analysis.toml`, then run `python scripts/gen_syms_toml.py`.
-5. Build and inspect the first generated translation before adding port hooks.
+Enter is Start/pause, X is A/accelerate, Z is B/brake, and arrows/WASD steer.
+At the Controller Pak warning, select **Play Anyway** with Down then X.
+For the tested path: skip intro with Enter, press Enter at the title, then
+X for Quick Race, Down and X for Practice Laps, X for Hawaii, and X for automatic transmission.
 
-The complete toolchain and platform prerequisites are documented in
-[BUILDING.md](BUILDING.md). The sibling-project conventions that informed this
-scaffold are recorded in [Peer projects](docs/peer-projects.md).
+Known limitations: no saving/Controller Pak, keyboard only,
+and rendering glitches. SDL audio output is experimental. Linux and Android
+are not validated. No ROM, generated game code, or binary is committed.
+
+See [Building](BUILDING.md), [First-playable evidence](docs/first-playable.md),
+[Testing](docs/testing.md), and [Peer research](docs/research/first-playable.md).

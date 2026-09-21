@@ -1,11 +1,181 @@
-// Bootstrap entrypoint. This intentionally builds a named executable before
-// ROM analysis is complete. Replace it with the real SDL/runtime bridge after
-// recomp_entrypoint, VI, input, audio, and renderer contracts are measured.
-
+// Bounded startup diagnostic for the real translated USA game.
+#include <atomic>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <thread>
+#include <vector>
+#include "librecomp/game.hpp"
+#include "ultramodern/events.hpp"
+#include "ultramodern/error_handling.hpp"
+#include "xxHash/xxh3.h"
+#include "boss_rsp.h"
+#ifdef WDC_PLAYER
+#include <SDL.h>
+#include <SDL_syswm.h>
+#include "audio.h"
+std::unique_ptr<ultramodern::renderer::RendererContext> wdc_create_renderer(
+    uint8_t*, ultramodern::renderer::WindowHandle, bool);
+static SDL_Window* window;
+static std::atomic<uint16_t> buttons{};
+static std::atomic<int> stick_x{}, stick_y{};
+#endif
 
-int main() {
-    std::fprintf(stderr,
-        "World Driver Championship: Recompiled bootstrap; ROM-specific port not initialized.\n");
-    return 0;
+extern "C" void recomp_entrypoint(uint8_t*, recomp_context*);
+void register_overlays();
+extern "C" [[noreturn]] void wdc_unimplemented(const char*);
+static std::atomic<unsigned> threads{}, vis{}, graphics{};
+static std::atomic<bool> booted{};
+
+class BootRenderer final : public ultramodern::renderer::RendererContext {
+    uint8_t* rdram;
+public:
+    explicit BootRenderer(uint8_t* memory) : rdram(memory) { setup_result = ultramodern::renderer::SetupResult::Success; }
+    bool owns_task_interrupts() const override { return true; }
+    bool valid() override { return true; }
+    bool update_config(const ultramodern::renderer::GraphicsConfig&, const ultramodern::renderer::GraphicsConfig&) override { return false; }
+    void enable_instant_present() override {}
+    void send_dl(const OSTask* task) override {
+        ++graphics;
+        std::fprintf(stderr, "[wdc] graphics task: ucode=%08x data=%08x size=%x\n",
+                     task->t.ucode, task->t.data_ptr, task->t.data_size);
+        wdc::rsp::run(rdram, task, [](void*, uint8_t*, uint32_t start, uint32_t end) {
+            static unsigned batches = 0;
+            if (++batches < 10) std::fprintf(stderr, "[wdc] RDP output %08x..%08x\n", start, end);
+        }, nullptr);
+        wdc::rsp::signal_dp_complete();
+    }
+    void send_dummy_workload(uint32_t) override {}
+    void update_screen() override {}
+    void shutdown() override {}
+    uint32_t get_display_framerate() const override { return 60; }
+    float get_resolution_scale() const override { return 1; }
+};
+
+int main(int argc, char** argv) {
+#ifdef WDC_PLAYER
+    SDL_SetMainReady();
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER)) {
+        std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
+        return 1;
+    }
+#endif
+    const auto rom_path = argc > 1 ? std::filesystem::path(argv[1]) :
+        std::filesystem::path("World Driver Championship (USA).z64");
+    std::ifstream input(rom_path, std::ios::binary | std::ios::ate);
+    if (!input || input.tellg() != 0x1000000) {
+        std::fprintf(stderr, "Supply the 16 MiB USA ROM as the first argument.\n");
+        return 1;
+    }
+    std::vector<uint8_t> rom(0x1000000);
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(rom.data()), rom.size());
+    const auto hash = XXH3_64bits(rom.data(), rom.size());
+    std::fprintf(stderr, "[wdc] ROM XXH3=%016llx; experimental recompiled player\n", (unsigned long long)hash);
+    register_overlays();
+    const auto config_path = std::filesystem::current_path() / "build" / "user-data";
+    std::filesystem::create_directories(config_path);
+    recomp::register_config_path(config_path);
+    recomp::GameEntry game{};
+    game.rom_hash = 0x1BF1E67DCFA21FB8ULL;
+    game.internal_name = std::string(reinterpret_cast<const char*>(rom.data() + 0x20), 20);
+    game.display_name = "World Driver Championship";
+    game.game_id = u8"worlddriverchampionship.us";
+    game.is_enabled = true;
+    game.entrypoint_address = (int32_t)0x80000400;
+    game.entrypoint = recomp_entrypoint;
+    game.on_init_callback = [](uint8_t*, recomp_context*) {
+        booted = true;
+        std::fprintf(stderr, "[wdc] entering translated ROM entrypoint\n");
+    };
+    game.thread_create_callback = [](uint8_t*, recomp_context*) {
+        std::fprintf(stderr, "[wdc] guest thread started: %u\n", ++threads);
+    };
+    recomp::register_game(game);
+    if (recomp::select_rom(rom_path, game.game_id) != recomp::RomValidationError::Good) return 1;
+    recomp::Configuration cfg{};
+    cfg.project_version = {0, 1, 0};
+    cfg.rsp_callbacks.get_rsp_microcode = [](const OSTask*) -> RspUcodeFunc* {
+        wdc_unimplemented("unidentified RSP task");
+    };
+    cfg.renderer_callbacks.create_render_context = [](uint8_t* memory, ultramodern::renderer::WindowHandle, bool)
+        -> std::unique_ptr<ultramodern::renderer::RendererContext> { return std::make_unique<BootRenderer>(memory); };
+    cfg.gfx_callbacks.create_window = [](void*) { return ultramodern::renderer::WindowHandle{}; };
+    cfg.gfx_callbacks.update_gfx = [](void*) {};
+#ifdef WDC_PLAYER
+    cfg.renderer_callbacks.create_render_context = wdc_create_renderer;
+    cfg.gfx_callbacks.create_window = [](void*) {
+        window = SDL_CreateWindow("World Driver Championship: Recompiled", SDL_WINDOWPOS_CENTERED,
+            SDL_WINDOWPOS_CENTERED, 960, 720, SDL_WINDOW_RESIZABLE);
+        if (!window) wdc_unimplemented(SDL_GetError());
+#ifdef _WIN32
+        SDL_SysWMinfo info{};
+        SDL_VERSION(&info.version);
+        if (!SDL_GetWindowWMInfo(window, &info)) wdc_unimplemented(SDL_GetError());
+        return ultramodern::renderer::WindowHandle{info.info.win.window, GetCurrentThreadId()};
+#else
+        return window;
+#endif
+    };
+    cfg.gfx_callbacks.update_gfx = [](void*) {
+        wdc::audio::pump();
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) {
+                std::fflush(nullptr);
+                std::_Exit(0);
+            }
+        }
+        auto* keys = SDL_GetKeyboardState(nullptr);
+        buttons = (keys[SDL_SCANCODE_RETURN] ? 0x1000 : 0) | (keys[SDL_SCANCODE_X] ? 0x8000 : 0) |
+                  (keys[SDL_SCANCODE_Z] ? 0x4000 : 0) | (keys[SDL_SCANCODE_SPACE] ? 0x2000 : 0) |
+                  (keys[SDL_SCANCODE_RSHIFT] ? 0x10 : 0);
+        stick_x = (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D]) - (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A]);
+        stick_y = (keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W]) - (keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S]);
+    };
+#endif
+    cfg.events_callbacks.vi_callback = [] { ++vis; };
+    cfg.error_handling_callbacks.message_box = [](const char* message) { std::fprintf(stderr, "[wdc] %s\n", message); };
+    cfg.input_callbacks.poll_input = [] {};
+    cfg.input_callbacks.get_input = [](int port, uint16_t* buttons, float* x, float* y) {
+        *buttons = 0; *x = *y = 0; return port == 0;
+    };
+#ifdef WDC_PLAYER
+    cfg.input_callbacks.get_input = [](int port, uint16_t* out_buttons, float* x, float* y) {
+        *out_buttons = buttons.load(); *x = float(stick_x.load()); *y = float(stick_y.load());
+        return port == 0;
+    };
+#endif
+    cfg.input_callbacks.get_connected_device_info = [](int port) {
+        return ultramodern::input::connected_device_info_t{
+            port == 0 ? ultramodern::input::Device::Controller : ultramodern::input::Device::None,
+            ultramodern::input::Pak::None};
+    };
+    cfg.audio_callbacks.queue_samples = [](int16_t*, size_t) {};
+    cfg.audio_callbacks.get_frames_remaining = []() -> size_t { return 0; };
+    cfg.audio_callbacks.set_frequency = [](uint32_t frequency) { std::fprintf(stderr, "[wdc] audio Hz=%u\n", frequency); };
+#ifdef WDC_PLAYER
+    cfg.audio_callbacks.set_frequency = wdc::audio::set_frequency;
+    cfg.audio_callbacks.queue_samples = wdc::audio::queue_samples;
+    cfg.audio_callbacks.get_frames_remaining = wdc::audio::frames_remaining;
+#endif
+    std::thread([] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        recomp::start_game(u8"worlddriverchampionship.us", "");
+    }).detach();
+    if (std::getenv("WDC_DIAGNOSTIC")
+#ifndef WDC_PLAYER
+        || true
+#endif
+    ) std::thread([] {
+        std::this_thread::sleep_for(std::chrono::seconds(15));
+        std::fprintf(stderr, "[wdc] diagnostic timeout: boot=%u threads=%u vis=%u graphics=%u\n",
+                     (unsigned)booted.load(), threads.load(), vis.load(), graphics.load());
+        std::fflush(nullptr);
+        std::_Exit(2);
+    }).detach();
+    recomp::start(cfg);
+    return 2;
 }

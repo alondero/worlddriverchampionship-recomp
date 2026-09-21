@@ -32,7 +32,7 @@ def main() -> int:
         # Dependency submodules are vendored build inputs, not this repository's
         # documentation contract. Their links and platform examples are owned
         # upstream and commonly refer to files omitted from a shallow checkout.
-        if any(part in {"build", "build-android", ".git", "lib"} for part in path.parts):
+        if any(part in {"build", ".git", "lib", ".claude"} or part.startswith("build-") for part in path.relative_to(ROOT).parts):
             continue
         contents = path.read_text(encoding="utf-8", errors="replace")
         if DRIVE_PATH_RE.search(contents):

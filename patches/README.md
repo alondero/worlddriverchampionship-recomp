@@ -28,14 +28,16 @@ the WDC runtime demonstrates the same need.
 | --- | --- | --- | --- |
 | `0004-plume-d3d12-mingw-com-abi-struct-return.patch` | RT64/Plume | Windows | Adapt D3D12 COM struct-return calls for MinGW's ABI. |
 | `0005-rt64-mingw-gcc-compat.patch` | RT64 | Windows | Compile RT64's texture hasher with MinGW GCC. |
+| `0006-runtime-lle-interrupt-ownership.patch` | N64ModernRuntime | All | Allow the BOSS renderer to own SP/DP completion and intermediate interrupts. |
+| `0007-rsprecomp-boss-support.patch` | N64Recomp | All | COP0 callbacks, CFC2/CTC2, exhaustive indirect dispatch option, fail-loud unsupported instructions. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | none yet |
-| Windows | 0005, 0004 |
+| Linux | 0006, 0007 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007 |
 | Android | none yet |
 
-The empty matrix is deliberate bootstrap state. A build script must not claim
-that a patch exists when no reviewed patch file is present.
+The BOSS options default off; existing runtime renderers retain their original
+interrupt behavior. Patches are checked against the pinned dependency commits.

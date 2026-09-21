@@ -1,5 +1,14 @@
-# Hand-maintained RSPRecomp input.
-# Identify WDC's audio microcode and fill this file from ROM evidence before
-# running RSPRecomp. Never copy the address or task layout from a sibling game.
-
-# TODO: add the RSPRecomp input sections for the confirmed WDC audio ucode.
+# BOSS combined graphics/audio microcode, measured from OSTask builder
+# 0x80024F08. See docs/research/first-playable.md for the CPU evidence.
+text_offset = 0x7D380
+text_size = 0xF60
+text_address = 0x04001080
+rom_file_path = "World Driver Championship (USA).z64"
+output_file_path = "src/aspMain.cpp"
+output_function_name = "bossMain"
+cop0_callbacks = true
+# BOSS computes continuation PCs as well as loading pointers from DMEM. Allow
+# dispatch to every translated instruction; out-of-image targets still fail.
+all_indirect_targets = true
+# Aligned IMEM pointers present in the task's ROM-backed DMEM data block.
+extra_indirect_branch_targets = [0x10f8, 0x1188, 0x11ac, 0x11e8, 0x11ec, 0x1210, 0x1218, 0x1258, 0x12fc, 0x1444, 0x1570, 0x1610, 0x1664, 0x16f8, 0x1704, 0x1720, 0x1758, 0x1790, 0x17a4, 0x17dc, 0x17ec, 0x17f4, 0x180c, 0x1810, 0x18e4, 0x18f8, 0x1bcc, 0x1bf0, 0x1cd4, 0x1cf0, 0x1d20, 0x1fbc]
