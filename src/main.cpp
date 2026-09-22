@@ -16,6 +16,8 @@
 #include <SDL.h>
 #include <SDL_syswm.h>
 #include "audio.h"
+#include "graphics_config.h"
+#include "graphics_window.h"
 std::unique_ptr<ultramodern::renderer::RendererContext> wdc_create_renderer(
     uint8_t*, ultramodern::renderer::WindowHandle, bool);
 static SDL_Window* window;
@@ -78,6 +80,9 @@ int main(int argc, char** argv) {
     const auto config_path = std::filesystem::current_path() / "build" / "user-data";
     std::filesystem::create_directories(config_path);
     recomp::register_config_path(config_path);
+#ifdef WDC_PLAYER
+    wdc::graphics::load(config_path / "graphics.json");
+#endif
     recomp::GameEntry game{};
     game.rom_hash = 0x1BF1E67DCFA21FB8ULL;
     game.internal_name = std::string(reinterpret_cast<const char*>(rom.data() + 0x20), 20);
@@ -110,6 +115,7 @@ int main(int argc, char** argv) {
         window = SDL_CreateWindow("World Driver Championship: Recompiled", SDL_WINDOWPOS_CENTERED,
             SDL_WINDOWPOS_CENTERED, 960, 720, SDL_WINDOW_RESIZABLE);
         if (!window) wdc_unimplemented(SDL_GetError());
+        wdc::graphics::attach_window(window);
 #ifdef _WIN32
         SDL_SysWMinfo info{};
         SDL_VERSION(&info.version);
@@ -123,13 +129,14 @@ int main(int argc, char** argv) {
         wdc::audio::pump();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            wdc::graphics::handle_event(window, event);
             if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) {
                 std::fflush(nullptr);
                 std::_Exit(0);
             }
         }
         auto* keys = SDL_GetKeyboardState(nullptr);
-        buttons = (keys[SDL_SCANCODE_RETURN] ? 0x1000 : 0) | (keys[SDL_SCANCODE_X] ? 0x8000 : 0) |
+        buttons = (keys[SDL_SCANCODE_RETURN] && !(SDL_GetModState() & KMOD_ALT) ? 0x1000 : 0) | (keys[SDL_SCANCODE_X] ? 0x8000 : 0) |
                   (keys[SDL_SCANCODE_Z] ? 0x4000 : 0) | (keys[SDL_SCANCODE_SPACE] ? 0x2000 : 0) |
                   (keys[SDL_SCANCODE_RSHIFT] ? 0x10 : 0);
         stick_x = (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D]) - (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A]);

@@ -26,5 +26,12 @@ Known limitations: no saving/Controller Pak, keyboard only,
 and rendering glitches. SDL audio output is experimental. Linux and Android
 are not validated. No ROM, generated game code, or binary is committed.
 
+Graphics: automatic or 1-8x resolution scaling, MSAA, output filtering, saved
+settings, and fullscreen (F11 / Alt+Enter). Use the Windows Graphics menu or
+F1 for shortcuts. Experimental aspect and presentation-rate controls are also
+available; true wider-camera rendering and interpolated motion remain future
+work. See [Graphics settings](docs/configuration.md) and the
+[peer capability review](docs/graphics-capabilities.md).
+
 See [Building](BUILDING.md), [First-playable evidence](docs/first-playable.md),
 [Testing](docs/testing.md), and [Peer research](docs/research/first-playable.md).

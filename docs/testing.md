@@ -22,7 +22,7 @@ git diff --check
 Once the ROM and generated image exist:
 
 ```bash
-cmake --build build-player --target wdc_guest_math_tests
+cmake --build build-player --target wdc_guest_math_tests wdc_graphics_config_tests
 ctest --test-dir build-player --output-on-failure
 ```
 

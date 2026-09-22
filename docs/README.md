@@ -6,6 +6,7 @@ Start with:
 - [Testing](testing.md) — evidence levels and test selection.
 - [Debugging](debugging.md) — reproduce, minimise, instrument, verify.
 - [Configuration](configuration.md) — host settings and environment knobs.
+- [Graphics capabilities](graphics-capabilities.md) — peer comparison and WDC limits.
 - [Peer projects](peer-projects.md) — conventions distilled from AeroGauge and
   Automobili Lamborghini.
 - [ROM reference](reference/rom.md) — measured identity, layout, and symbols.

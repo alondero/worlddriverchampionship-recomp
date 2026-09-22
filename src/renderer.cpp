@@ -2,8 +2,11 @@
 #define HLSL_CPU
 #include "hle/rt64_application.h"
 #include "hle/rt64_state.h"
+#include "render/rt64_shader_library.h"
 #include "ultramodern/renderer_context.hpp"
 #include "boss_rsp.h"
+#include "graphics_rt64.h"
+#include <algorithm>
 #include <cstdio>
 #include <memory>
 
@@ -19,6 +22,25 @@ void interrupts() {
 class Renderer final : public ultramodern::renderer::RendererContext {
     std::unique_ptr<RT64::Application> app;
     uint8_t* rdram;
+    wdc::graphics::Settings settings;
+    void sync_settings() {
+        const auto next = wdc::graphics::snapshot();
+        if (next == settings) return;
+        const auto old_samples = app->userConfig.antialiasing;
+        const auto color_format = app->userConfig.internalColorFormat;
+        wdc::graphics::configure(app->userConfig, next);
+        // RT64 allocates color-format-dependent shaders during setup only.
+        app->userConfig.internalColorFormat = color_format;
+        const auto counts = app->device->getSampleCountsSupported(RT64::RenderTarget::colorBufferFormat(app->shaderLibrary->usesHDR)) &
+            app->device->getSampleCountsSupported(RT64::RenderTarget::depthBufferFormat());
+        if (!(counts & app->userConfig.msaaSampleCount())) {
+            app->userConfig.antialiasing = RT64::UserConfiguration::Antialiasing::None;
+            std::fprintf(stderr, "[wdc] requested MSAA unsupported; using no MSAA\n");
+        }
+        app->updateUserConfig(true);
+        if (old_samples != app->userConfig.antialiasing) app->updateMultisampling();
+        settings = next;
+    }
 public:
     Renderer(uint8_t* memory, ultramodern::renderer::WindowHandle window) : rdram(memory) {
         RT64::Application::Core core{};
@@ -55,10 +77,8 @@ public:
         // WDC switches between 320x240 racing and 320x480 menu buffers. Both
         // represent the same 4:3 TV output, not square-pixel framebuffers.
         app->enhancementConfig.presentation.removeBlackBorders = false;
-        app->userConfig.resolution = RT64::UserConfiguration::Resolution::Manual;
-        app->userConfig.resolutionMultiplier = 1;
-        app->userConfig.aspectRatio = RT64::UserConfiguration::AspectRatio::Original;
-        app->userConfig.refreshRate = RT64::UserConfiguration::RefreshRate::Original;
+        settings = wdc::graphics::snapshot();
+        wdc::graphics::configure(app->userConfig, settings);
 #ifdef _WIN32
         app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::D3D12;
         auto result = app->setup(window.thread_id);
@@ -72,6 +92,8 @@ public:
         // This pinned RT64 version incorrectly reports Success on DLL failure.
         if (result == RT64::Application::SetupResult::Success && (!app->state || !app->device))
             setup_result = ultramodern::renderer::SetupResult::DynamicLibrariesNotFound;
+        if (valid() && app->userConfig.msaaSampleCount() != unsigned(settings.samples))
+            std::fprintf(stderr, "[wdc] requested MSAA unsupported; using no MSAA\n");
         std::fprintf(stderr, "[wdc] RT64 setup=%d\n", int(result));
     }
     bool valid() override { return setup_result == ultramodern::renderer::SetupResult::Success; }
@@ -79,12 +101,14 @@ public:
     bool update_config(const ultramodern::renderer::GraphicsConfig&, const ultramodern::renderer::GraphicsConfig&) override { return false; }
     void enable_instant_present() override {}
     void send_dl(const OSTask* task) override {
+        sync_settings();
         wdc::rsp::run(rdram, task, [](void* context, uint8_t* memory, uint32_t start, uint32_t end) {
             static_cast<Renderer*>(context)->app->processDisplayLists(memory, start, end, false);
         }, this);
     }
     void send_dummy_workload(uint32_t) override {}
     void update_screen() override {
+        sync_settings();
         static uint64_t reported = ~uint64_t{};
         auto* vi = ultramodern::renderer::get_vi_regs();
         uint64_t signature = uint64_t(vi->VI_WIDTH_REG) << 32 | vi->VI_Y_SCALE_REG;
@@ -97,8 +121,17 @@ public:
         app->updateScreen();
     }
     void shutdown() override { app->end(); }
-    uint32_t get_display_framerate() const override { return 60; }
-    float get_resolution_scale() const override { return 1; }
+    uint32_t get_display_framerate() const override {
+        std::lock_guard lock(app->sharedQueueResources->configurationMutex);
+        const auto rate = app->sharedQueueResources->swapChainRate;
+        return rate ? rate : 60;
+    }
+    float get_resolution_scale() const override {
+        // RT64's actual VI-derived scale handles both 240-line racing and
+        // 480-line menus; a hard-coded reference height would misreport menus.
+        std::lock_guard lock(app->sharedQueueResources->configurationMutex);
+        return std::max(float(app->sharedQueueResources->resolutionScale.y), 1.0f);
+    }
 };
 }
 std::unique_ptr<ultramodern::renderer::RendererContext> wdc_create_renderer(
