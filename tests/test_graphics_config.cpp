@@ -39,7 +39,7 @@ int main() {
         { std::ofstream out(path); out << R"({"resolution":999,"aspect":-3,"rate":999,"samples":3,"filtering":-1,"precision":99})"; }
         load(path);
         const auto bounded = snapshot();
-        require(bounded.resolution == 8 && bounded.aspect == 0 && bounded.rate == 360 &&
+        require(bounded.resolution == 8 && bounded.aspect == 0 && bounded.rate == 0 &&
             bounded.samples == 1 && bounded.filtering == 1 && bounded.precision == 0, "values not bounded");
         // A failed save still publishes a whole snapshot and leaves old data intact.
         load(dir / "missing-directory" / "graphics.json");

@@ -19,7 +19,7 @@ std::filesystem::path file;
 Settings normalize(Settings s) {
     s.resolution = std::clamp(s.resolution, 0, 8);
     if (s.aspect < 0 || s.aspect > 2) s.aspect = 0;
-    if (s.rate != 0 && s.rate != -1) s.rate = std::clamp(s.rate, 30, 360);
+    if (s.rate != 0 && s.rate != -1 && (s.rate < 30 || s.rate > 360)) s.rate = 0;
     if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8) s.samples = 1;
     if (s.filtering < 0 || s.filtering > 2) s.filtering = 1;
     if (s.precision < 0 || s.precision > 2) s.precision = 0;
