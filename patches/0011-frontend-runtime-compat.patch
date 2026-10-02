@@ -1,0 +1,71 @@
+diff --git a/recompui/include/recompui/renderer.h b/recompui/include/recompui/renderer.h
+index 33f79ab..7785498 100644
+--- a/recompui/include/recompui/renderer.h
++++ b/recompui/include/recompui/renderer.h
+@@ -21,3 +21,3 @@ namespace recompui {
+             ~RT64Context() override;
+-            RT64Context(uint8_t *rdram, ultramodern::renderer::WindowHandle window_handle, ultramodern::renderer::PresentationMode presentation_mode, bool developer_mode);
++            RT64Context(uint8_t *rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode);
+ 
+@@ -45,3 +45,3 @@ namespace recompui {
+ 
+-        std::unique_ptr<ultramodern::renderer::RendererContext> create_render_context(uint8_t *rdram, ultramodern::renderer::WindowHandle window_handle, ultramodern::renderer::PresentationMode presentation_mode, bool developer_mode);
++        std::unique_ptr<ultramodern::renderer::RendererContext> create_render_context(uint8_t *rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode);
+ 
+diff --git a/recompui/lib/FindFreetype.cmake b/recompui/lib/FindFreetype.cmake
+index bbb8d6a..784e7a3 100644
+--- a/recompui/lib/FindFreetype.cmake
++++ b/recompui/lib/FindFreetype.cmake
+@@ -2,2 +2,7 @@ set(FREETYPE_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../freetype-windows-binari
+ set(FREETYPE_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}/../freetype-windows-binaries/release static/vs2015-2022/win64/freetype.lib")
++if(MINGW)
++    # The MSVC static library requires its CRT. Use the shipped DLL import
++    # library with MinGW and stage freetype.dll alongside the executable.
++    set(FREETYPE_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}/../freetype-windows-binaries/release dll/win64/freetype.lib")
++endif()
+ add_library(Freetype::Freetype STATIC IMPORTED)
+diff --git a/recompui/src/api/ui_api_events.cpp b/recompui/src/api/ui_api_events.cpp
+index 8ee95c5..161d82f 100644
+--- a/recompui/src/api/ui_api_events.cpp
++++ b/recompui/src/api/ui_api_events.cpp
+@@ -25,4 +25,3 @@
+ 
+-// TODO: Forced game includes
+-#include "../../../../../patches/ui_funcs.h"
++#include "recompui/event_structs.h"
+ 
+diff --git a/recompui/src/renderer/rt64_render_context.cpp b/recompui/src/renderer/rt64_render_context.cpp
+index a7954c7..5388fca 100644
+--- a/recompui/src/renderer/rt64_render_context.cpp
++++ b/recompui/src/renderer/rt64_render_context.cpp
+@@ -129,13 +129,2 @@ RT64::UserConfiguration::InternalColorFormat to_rt64(ultramodern::renderer::High
+ 
+-RT64::EnhancementConfiguration::Presentation::Mode to_rt64(ultramodern::renderer::PresentationMode mode) {
+-    switch (mode) {
+-        case ultramodern::renderer::PresentationMode::Console:
+-            return RT64::EnhancementConfiguration::Presentation::Mode::Console;
+-        case ultramodern::renderer::PresentationMode::SkipBuffering:
+-            return RT64::EnhancementConfiguration::Presentation::Mode::SkipBuffering;
+-        case ultramodern::renderer::PresentationMode::PresentEarly:
+-            return RT64::EnhancementConfiguration::Presentation::Mode::PresentEarly;
+-    }
+-}
+-
+ void set_application_user_config(RT64::Application* application, const ultramodern::renderer::GraphicsConfig& config) {
+@@ -219,3 +208,3 @@ ultramodern::renderer::GraphicsApi map_graphics_api(RT64::UserConfiguration::Gra
+ 
+-renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, ultramodern::renderer::PresentationMode presentation_mode, bool debug) {
++renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool debug) {
+     static unsigned char dummy_rom_header[0x40];
+@@ -283,4 +272,2 @@ renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::Window
+     app->enhancementConfig.textureLOD.scale = true;
+-    // Set the target presentation mode.
+-    app->enhancementConfig.presentation.mode = to_rt64(presentation_mode);
+     // Pick an API if the user has set an override.
+@@ -496,4 +483,4 @@ RT64::UserConfiguration::Antialiasing renderer::RT64MaxMSAA() {
+ 
+-std::unique_ptr<ultramodern::renderer::RendererContext> renderer::create_render_context(uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, ultramodern::renderer::PresentationMode presentation_mode, bool developer_mode) {
+-    return std::make_unique<renderer::RT64Context>(rdram, window_handle, presentation_mode, developer_mode);
++std::unique_ptr<ultramodern::renderer::RendererContext> renderer::create_render_context(uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode) {
++    return std::make_unique<renderer::RT64Context>(rdram, window_handle, developer_mode);
+ }

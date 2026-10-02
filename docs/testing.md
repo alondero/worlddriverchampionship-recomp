@@ -22,7 +22,7 @@ git diff --check
 Once the ROM and generated image exist:
 
 ```bash
-cmake --build build-player --target wdc_guest_math_tests wdc_graphics_config_tests wdc_audio_tests wdc_audio_dma_tests wdc_rsp_packed_load_tests
+cmake --build build-player
 ctest --test-dir build-player --output-on-failure
 ```
 
@@ -39,3 +39,13 @@ not require a physical audio endpoint. Graphics tests include migration of
 old widescreen preferences to the verified 4:3 output policy.
 The RSP packed-load test runs the actual dependency helpers on synthetic DMEM,
 covering all unsigned byte values, vector elements, byte alignment and wrapping.
+
+`wdc_controller_pak` covers device reporting, raw-image byte order, block and
+guest-buffer boundaries, ID protection, bank selection, failed publication,
+and preservation of malformed files. `wdc_pfs_rom` is registered only when
+the local USA ROM and generated CPU sources exist. It extracts the translated
+SDK call closure into the build tree and exercises initialization/checking,
+note allocation, write, reload with fresh guest RAM, read, free space and file
+metadata. SI lock queues and the timer count are replaced in this
+single-threaded harness; no Pak filesystem call is mocked. Missing translated
+bodies fail generation.

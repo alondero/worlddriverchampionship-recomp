@@ -26,9 +26,14 @@
 0x8007175C = "osSpTaskLoad"
 0x800718EC = "osSpTaskStartGo"
 0x80071930 = "osGetCount"
-0x80071E10 = "osPfsInitPak"
-0x80072560 = "osPfsFreeBlocks"
-0x800726B0 = "osPfsNumFiles"
+# Retain the ROM filesystem: SDK names would route to the pinned runtime's
+# no-Pak stubs. Identity verified by masked SDK comparison and call inspection.
+0x80071E10 = "wdc_pfs_init"
+0x800723A0 = "wdc_pfs_find_file"
+0x80072560 = "wdc_pfs_free_blocks"
+0x800726B0 = "wdc_pfs_num_files"
+0x80072800 = "wdc_pfs_allocate_file"
+0x800730AC = "wdc_pfs_read_write_file"
 0x80071C00 = "__d_to_ll"
 0x80071C1C = "__f_to_ll"
 0x80071C38 = "__d_to_ull"
@@ -90,3 +95,8 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x80071620 = "wdc_sp_yield"
 0x80077500 = "wdc_sp_set_status"
 0x800748F0 = "wdc_pfs_is_plug"
+# Only hardware status/block transfers are native. a2 is a 32-byte block
+# index; write's fifth argument protects ID blocks 1..6 unless force == 1.
+0x800779A0 = "wdc_pak_status"
+0x80078940 = "wdc_pak_read"
+0x80079700 = "wdc_pak_write"

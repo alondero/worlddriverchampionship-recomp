@@ -1,0 +1,14 @@
+diff --git a/recompui/src/config/ui_config_option.cpp b/recompui/src/config/ui_config_option.cpp
+index 86428c9..6aa0e9c 100644
+--- a/recompui/src/config/ui_config_option.cpp
++++ b/recompui/src/config/ui_config_option.cpp
+@@ -121,6 +121,9 @@ ConfigOptionEnum::ConfigOptionEnum(
+     name_label->set_margin_bottom(4.0f);
+ 
+     radio = context.create_element<Radio>(wrapper);
++    // Long enum lists wrap instead of squeezing labels into one row.
++    radio->set_flex_wrap(FlexWrap::Wrap);
++    radio->set_flex_grow(1.0f);
+     radio->set_focus_callback([this](bool active) {
+         if (active) {
+             this->on_hover(this->option_id);

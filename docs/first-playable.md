@@ -19,12 +19,18 @@ Windows x64 MinGW/D3D12 verification with the same USA dump established:
   turned `0x80` into `0xC000` instead of `0x4000`, corrupting BOSS shade
   coefficients. Patch 0013 removes cyan road colouring and restores the
   green starting lights and sign colours in the observed Hawaii scene.
-- The final player reached 73-74 mph in fourth gear during practice,
+- The tested player reached 72-74 mph in fourth gear during practice,
   paused/resumed, and exited normally with code 0. Native 1x and automatic
   resolution, plus MSAA switching, were exercised.
 
-All seven CTest entries and four Python tests passed, along with documentation
-and whitespace checks. The full Windows player built successfully. The complete
+The checks were repeated after integrating the current settings overlay and
+Controller Pak support: Hawaii practice reached 72 mph in fourth gear, the
+overlay displayed only Original 4:3, resized/fullscreen race presentation kept
+its proportions, a fresh five-second stereo recording had no zero or clipped
+samples, and the player exited normally with code 0.
+
+All ten integrated CTest entries and four Python tests passed, along with
+documentation and whitespace checks. The full Windows player built successfully. The complete
 dependency patch series applied to clean pinned source copies, and repeat
 application checks succeeded. Standards and Spec reviews found no blocking
 code findings in the audio, aspect, and packed-load fixes.
@@ -77,20 +83,35 @@ The original first-playable session ended without branch publication or a PR.
 
 ## Controls and reproduction
 
-Run `./play.ps1` from the checkout. At the no-pak warning use Down, X.
+Run `./play.ps1` from the checkout. Controller Pak support is now enabled on port 1.
 Enter skips the intro and starts from the title. X selects Quick Race;
 Down, X selects Practice Laps; X selects Hawaii; X selects automatic gears.
-Hold X to accelerate; Z brakes; arrows/WASD steer; Enter pauses; Escape exits.
+Hold X to accelerate; Z brakes; arrows/WASD steer; Enter pauses.
+Current builds use Escape/F1 for settings; quit from the overlay or close the
+window. The earlier milestone's Escape-to-exit behavior is historical.
 Space maps Z trigger and right Shift maps R. Gamepad and C-button mappings
 have not been implemented.
 
-Saving is unavailable: the host reports no Controller Pak. No save-file
-compatibility is claimed. SDL audio streams word-swapped stereo samples at
-the guest AI cadence; audio quality still needs listening tests. Remaining
-geometry/texture glitches are separate from the fixed cyan road colouring.
+Controller Pak storage uses a raw 32 KiB MPK image under `build/user-data/saves`.
+The ROM-backed SDK test verifies initialization, allocation, writing, reopening
+with fresh guest RAM, reading and metadata. Native tests cover failed writes,
+guest ranges and malformed-image preservation. See [configuration](configuration.md)
+and [peer comparison](peer-projects.md). SDL audio streams word-swapped stereo samples at the guest AI cadence; audio
+quality still needs listening tests. Remaining geometry/texture glitches are
+separate from the fixed cyan road colouring.
 The narrow 2D menu presentation was fixed by retaining 4:3 TV output for
 the game's 320x480 buffers. Track completion and race opponents have
 not been acceptance-tested. Android/Linux have not been validated.
+
+On 2026-10-02, the Windows MinGW/D3D12 player booted with an attached Pak
+without the no-Pak warning. A new championship driver `G` accepted the
+Speedcraft / '97 Stallion SR C offer and saved into slot 1; the game displayed
+"DATA SAVED". After closing normally (exit 0) and starting a fresh process,
+Championship / Load Game listed `G`, rank 30, zero events and `00:00:00` race
+time. Selecting slot 1 displayed "DATA LOADED".
+The raw MPK hash remained unchanged across the fresh boot. Keyboard events
+were injected into the SDL window for this menu check; screenshots stay in
+the ignored build tree and are acceptance evidence, not regression tests.
 
 ## Durable fixes and provenance
 
@@ -115,7 +136,7 @@ All ROM-derived output remains ignored.
 
 Investigate the remaining sky and triangle-seam glitches using a complete
 frame's RDP state. Validate audio fidelity, then full laps/opponents, gamepad,
-Controller Pak saves, and additional tracks. Do not replace the LLE path
+additional tracks, and full race/championship save flows. Do not replace the LLE path
 with a generic graphics microcode: WDC uses BOSS, not Fast3D.
 
 Suggested continuation: "Continue from docs/first-playable.md. Reproduce the

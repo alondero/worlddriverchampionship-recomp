@@ -1,0 +1,11 @@
+diff --git a/ultramodern/include/ultramodern/input.hpp b/ultramodern/include/ultramodern/input.hpp
+--- a/ultramodern/include/ultramodern/input.hpp
++++ b/ultramodern/include/ultramodern/input.hpp
+@@ -15,6 +15,6 @@ namespace ultramodern {
+         enum class Pak {
+             None,
+             RumblePak,
+-            // ControllerPak,
++            ControllerPak,
+             // TransferPak
+         };
