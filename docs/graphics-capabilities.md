@@ -14,7 +14,7 @@ also describe frame-pacing and high-precision framebuffer improvements.
 | --- | --- | --- |
 | Higher resolution | Auto window scale, original/2x, downsampling | Auto or explicit native 1-8x scaling |
 | Anti-aliasing | MSAA off/2x/4x/8x | Same requested sample counts, device fallback |
-| Widescreen / ultrawide | RT64 aspect plus game projection, sky and HUD handling | Experimental RT64 aspect controls only; wider camera/HUD work remains |
+| Widescreen / ultrawide | RT64 aspect plus game projection, sky and HUD handling | Original 4:3 enforced; wider camera/HUD work remains |
 | High rendering rates | Original/display/manual targets and RT64 interpolation | Experimental targets only; no new interpolated WDC motion |
 | Fullscreen | SDL window mode, F11 and Alt+Enter | Desktop fullscreen with saved preference |
 | Color precision | Auto/standard/high internal framebuffer | Saved startup option; requires restart |
@@ -32,6 +32,12 @@ already been projected. RT64's `Projection::Type::Triangle` path draws raw
 triangles, unlike the perspective/orthographic path with transform metadata.
 Changing an RT64 setting cannot recover missing world geometry, unclipped
 vertices, or stable object identities.
+
+Race captures at 1280x720 confirmed that Expand/16:9 widened the stationary car
+by one third without changing its height, while the HUD and scissor retained
+their original proportions. These modes are disabled and legacy settings
+normalize to original 4:3. The original output fits both 320x240 racing and
+320x480 menus to the same TV aspect ratio.
 
 True widescreen requires identifying WDC camera/projection and visibility
 boundaries, extending world coverage and scissoring, then handling HUD, menus,

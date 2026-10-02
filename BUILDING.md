@@ -43,15 +43,16 @@ Generated files are ignored: `RecompiledFuncs/`, `src/aspMain.cpp`, and
 the CPU symbol/configuration TOMLs. Edit `rom-symbols.toml`,
 `scripts/gen_syms_toml.py`, or `aspMain.us.toml`, never generated C/C++.
 
-The script carries two Windows compatibility patches, two BOSS/runtime
-patches, a Controller Pak device-kind patch, and four settings-overlay patches.
+The script carries two Windows compatibility patches, three BOSS/runtime
+patches, a Controller Pak device-kind patch, four settings-overlay patches,
+and a raw RDP screen-clipping patch.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 
 ## Checks
 
 ```powershell
-cmake --build build-player --target wdc_guest_math_tests
+cmake --build build-player
 ctest --test-dir build-player --output-on-failure
 python -m unittest discover tests
 python scripts/check_docs.py

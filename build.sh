@@ -34,6 +34,8 @@ apply_patch_once() {
     git -C "$submodule" apply --ignore-whitespace "$patch"
 }
 apply_patch_once lib/N64ModernRuntime patches/0006-runtime-lle-interrupt-ownership.patch
+apply_patch_once lib/N64ModernRuntime patches/0013-runtime-rsp-unsigned-packed-loads.patch
+apply_patch_once lib/rt64 patches/0014-rt64-rdp-screen-clipping.patch
 apply_patch_once lib/N64ModernRuntime patches/0008-runtime-controller-pak-kind.patch
 apply_patch_once lib/N64ModernRuntime/N64Recomp patches/0007-rsprecomp-boss-support.patch
 apply_patch_once lib/N64ModernRuntime patches/0009-runtime-host-config-storage.patch

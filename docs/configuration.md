@@ -27,7 +27,7 @@ controls while it is open. F11 / Alt+Enter works in either mode.
 | Shortcut | Setting | Choices |
 | --- | --- | --- |
 | F2 | Internal resolution | Auto (default), 1x, 2x, 3x, 4x, 6x, 8x |
-| F3 | Aspect | Original 4:3 (default), experimental Expand, experimental 16:9 |
+| Fixed | Aspect | Original 4:3, fitted to the window or fullscreen display |
 | F4 | Presentation target | Original (default), display, 60, 120, 144, 240 Hz |
 | F5 | Anti-aliasing | Off (default), MSAA 2x, 4x, 8x |
 | F6 | Output filter | Nearest, linear (default), pixel scaling |
@@ -40,12 +40,13 @@ Unsupported MSAA falls back to off and is reported in the log; the title shows
 the requested value. Output filtering affects presentation, not texture assets.
 Higher precision is an internal framebuffer setting, not HDR monitor output.
 
-Widescreen expansion and non-original presentation targets are experimental.
+Original 4:3 preserves racing and menu proportions at every window size.
+Old Expand/16:9 preferences normalize to original aspect; F3 is reserved.
+Non-original presentation targets are experimental.
 WDC currently supplies raw RDP triangles without camera matrices or persistent
-object transforms. These controls do **not** add a wider camera view, HUD
-repositioning, or interpolated motion. They may produce incorrect framing or
-extra presentation work without smoother motion. Use original aspect and rate
-for normal play. Guest simulation and VI timing are unchanged. See the
+object transforms. Higher targets do not add interpolated motion and may add
+presentation work without smoother motion. Use original rate for normal play.
+Guest simulation and VI timing are unchanged. See the
 [capability review](graphics-capabilities.md) for the remaining game-specific work.
 
 The overlay offers every resolution multiplier from 1x to 8x and a Custom
@@ -65,8 +66,8 @@ You can also edit the file while the player is closed. Schema version 1:
 }
 ```
 
-Resolution accepts 0 (auto) or 1-8; aspect accepts 0 (original), 1 (expand),
-2 (16:9); rate accepts 0 (original), -1 (display), or 30-360 Hz; samples accepts
+Resolution accepts 0 (auto) or 1-8; aspect normalizes to 0 (original);
+rate accepts 0 (original), -1 (display), or 30-360 Hz; samples accepts
 1, 2, 4, 8. Filtering accepts 0 (nearest), 1 (linear), 2 (pixel scaling);
 precision accepts 0 (auto), 1 (standard), 2 (high). Unknown enum values use
 defaults, numeric ranges are bounded, and wrong types reject the file.

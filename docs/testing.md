@@ -22,7 +22,7 @@ git diff --check
 Once the ROM and generated image exist:
 
 ```bash
-cmake --build build-player --target wdc_guest_math_tests wdc_graphics_config_tests wdc_controller_pak_tests wdc_pfs_rom_tests
+cmake --build build-player
 ctest --test-dir build-player --output-on-failure
 ```
 
@@ -34,6 +34,19 @@ The first-playable headless diagnostic exits 2 on its 15-second limit and is
 not a CI success gate. See [acceptance evidence](first-playable.md) for the
 separately verified windowed practice-driving path. Synthetic tests cover
 guest-memory math/string contracts and startup cache-marker transformation.
+Audio tests use a synthetic circular buffer and an SDL device stub; they do
+not require a physical audio endpoint. Graphics tests include migration of
+old widescreen preferences to the verified 4:3 output policy.
+The RSP packed-load test runs the actual dependency helpers on synthetic DMEM,
+covering all unsigned byte values, vector elements, byte alignment and wrapping.
+The raw RDP clipping test uses a synthetic triangle and the vertex shader's
+homogeneous GPU clipping rule to reproduce visible coverage loss from an
+off-screen negative W. It verifies restored coverage and perspective texture,
+depth and shade values, clips positive-W off-screen coverage, and preserves
+fully visible and visible-singularity cases. Extreme finite inputs exercise
+bounded polygon storage and attribute-overflow fallback.
+An offset-aware standard four-sample MSAA fixture checks that conservative
+clipping retains edge coverage at 1x, 2x and 3x, including fractional scissors.
 
 `wdc_controller_pak` covers device reporting, raw-image byte order, block and
 guest-buffer boundaries, ID protection, bank selection, failed publication,

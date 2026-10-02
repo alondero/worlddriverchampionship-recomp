@@ -67,8 +67,8 @@ void create_settings() {
         {{0, "Windowed"}, {1, "Fullscreen"}}, 0u);
     page.add_enum_option("resolution", "Internal resolution", "Auto follows the window. Fixed values multiply the original resolution; higher values require more GPU power.",
         {{0, "Auto"}, {1, "1x"}, {2, "2x"}, {3, "3x"}, {4, "4x"}, {5, "5x"}, {6, "6x"}, {7, "7x"}, {8, "8x"}}, 0u);
-    page.add_enum_option("aspect", "Aspect ratio", "Original 4:3 is recommended. Expand and 16:9 are experimental and can frame the image incorrectly; they do not add a wider camera view.",
-        {{0, "Original", "Original 4:3"}, {1, "Expand", "Expand (experimental)"}, {2, "Wide", "16:9 (experimental)"}}, 0u);
+    page.add_enum_option("aspect", "Aspect ratio", "Original 4:3 preserves the racing camera and HUD proportions in every window size.",
+        {{0, "Original", "Original 4:3"}}, 0u);
     page.add_enum_option("rate_mode", "Presentation rate", "Original is recommended. Display and Custom are experimental. They do not smooth motion or change game speed.",
         {{0, "Original"}, {1, "Display"}, {2, "Custom"}}, 0u);
     page.add_number_option("rate", "Custom presentation target (Hz)", "A presentation target from 30 to 360 Hz. This does not add motion interpolation.", 30, 360, 1, 0, false, 60);

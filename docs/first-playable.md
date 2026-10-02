@@ -1,5 +1,59 @@
 # First-playable evidence
 
+## Race quality fixes verified on 2026-10-02
+
+Windows x64 MinGW/D3D12 verification with the same USA dump established:
+
+- AI now consumes the circular stereo buffer at 22000 frames/s, rather than
+  copying 4096 frames on every graphics update. Several minutes of live
+  output stayed below the 250 ms host queue limit; the original queue reached
+  97 seconds after approximately 22 seconds of play.
+- Synthetic SDL failures recover on retry; resets discard stale sound even
+  when the selected frequency is unchanged. A five-second WASAPI recording
+  during Hawaii driving contained both stereo channels, with no zero frames
+  or clipped samples. This measures output continuity, not console fidelity.
+- Racing, pause menus, window resizing to 1024x768 and 1600x900, and desktop
+  fullscreen retained original 4:3 presentation. Legacy Expand/16:9 preferences
+  migrate to 4:3, and F3 cannot re-enable the stretched camera.
+- RSP packed loads now zero-extend unsigned bytes. The original LUV helper
+  turned `0x80` into `0xC000` instead of `0x4000`, corrupting BOSS shade
+  coefficients. Patch 0013 removes cyan road colouring and restores the
+  green starting lights and sign colours in the observed Hawaii scene.
+- Patch 0014 clips reconstructed off-screen RDP triangles before GPU projection,
+  preserving perspective texture, depth and shade planes. Conservative bounds
+  retain MSAA edge samples after the shader's half-pixel offset. The final
+  player restores Hawaii's textured sunset, including at native 1x with 4x MSAA.
+- The tested player reached 72-74 mph in fourth gear during practice,
+  paused/resumed, and exited normally with code 0. Native 1x and automatic
+  resolution, plus MSAA switching, were exercised.
+
+The checks were repeated after integrating the current settings overlay and
+Controller Pak support: Hawaii practice reached 72 mph in fourth gear, the
+overlay displayed only Original 4:3, resized/fullscreen race presentation kept
+its proportions, a fresh five-second stereo recording had no zero or clipped
+samples, and the player exited normally with code 0.
+
+After the screen-clipping fix, the unmodified final player reached 67 mph in
+fourth gear with the textured sky visible, retained 4:3 through resizing and
+fullscreen, exercised native 1x/4x MSAA, restored defaults, and exited with code 0.
+One five-second WASAPI capture reported recording discontinuities and about
+3% zero samples. A five-second retry and an eight-second confirmation had
+no discontinuity warnings, zero samples or clipping in their float loopback
+data. The cause of the single capture failure is unconfirmed; longer output
+and capture stress checks are still needed.
+
+All eleven integrated CTest entries and four Python tests passed, along with
+documentation and whitespace checks. The full Windows player built successfully. The complete
+dependency patch series applied to clean pinned source copies, and repeat
+application checks succeeded. Standards and Spec reviews found no blocking
+code findings in the audio, aspect, packed-load and screen-clipping fixes.
+
+Full laps, other tracks, opponents, split-screen, Linux/Android, and subjective
+audio/reference-console comparisons remain unverified. Small triangle seams
+and pinholes remain visible in road, wall and sky geometry; the fixes do not
+establish complete graphics fidelity. Local captures and probes are ignored
+under `artifacts/review/`.
+
 ## Verified milestone
 
 On 2026-09-21, the Windows x64 MinGW/D3D12 player using the verified USA dump:
@@ -37,8 +91,8 @@ and peer-project research. The DLL packaging concern was verified by launching
 the final player with only Windows system directories on PATH. Full race/audio
 quality acceptance remains explicitly outside the verified milestone.
 
-Current findings: Standards 0 unresolved; Spec 0 blockers. Source changes remain
-local and uncommitted; no branch publication or PR was performed.
+At that milestone, Standards had 0 unresolved findings and Spec had 0 blockers.
+The original first-playable session ended without branch publication or a PR.
 
 ## Controls and reproduction
 
@@ -55,8 +109,9 @@ Controller Pak storage uses a raw 32 KiB MPK image under `build/user-data/saves`
 The ROM-backed SDK test verifies initialization, allocation, writing, reopening
 with fresh guest RAM, reading and metadata. Native tests cover failed writes,
 guest ranges and malformed-image preservation. See [configuration](configuration.md)
-and [peer comparison](peer-projects.md). SDL audio queues word-swapped stereo samples; audio
-quality needs listening tests. Visible geometry/texture glitches remain.
+and [peer comparison](peer-projects.md). SDL audio streams word-swapped stereo samples at the guest AI cadence; audio
+quality still needs listening tests. Remaining geometry/texture glitches are
+separate from the fixed cyan road colouring and large flat sky polygon.
 The narrow 2D menu presentation was fixed by retaining 4:3 TV output for
 the game's 320x480 buffers. Track completion and race opponents have
 not been acceptance-tested. Android/Linux have not been validated.
@@ -92,8 +147,9 @@ All ROM-derived output remains ignored.
 
 ## Next work
 
-Investigate remaining rendering glitches using RDP image/scissor state.
-Validate audio, then full laps/opponents, gamepad,
+Investigate the remaining triangle seams and pinholes using a complete
+frame's RDP state. Stress-check audio output/capture and validate fidelity,
+then full laps/opponents, gamepad,
 additional tracks, and full race/championship save flows. Do not replace the LLE path
 with a generic graphics microcode: WDC uses BOSS, not Fast3D.
 

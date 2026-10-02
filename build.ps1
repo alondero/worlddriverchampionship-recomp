@@ -85,7 +85,9 @@ Invoke-Step "apply dependency patches (preserving local edits)" {
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0009-runtime-host-config-storage.patch" },
             @{ Sub = "lib/RecompFrontend"; Patch = "patches/0010-frontend-enum-wrap.patch" },
             @{ Sub = "lib/RecompFrontend"; Patch = "patches/0011-frontend-runtime-compat.patch" },
-            @{ Sub = "lib/RecompFrontend"; Patch = "patches/0012-frontend-host-services.patch" }
+            @{ Sub = "lib/RecompFrontend"; Patch = "patches/0012-frontend-host-services.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0013-runtime-rsp-unsigned-packed-loads.patch" },
+            @{ Sub = "lib/rt64"; Patch = "patches/0014-rt64-rdp-screen-clipping.patch" }
         )
         foreach ($item in $patches) {
             $patchPath = Join-Path $repo $item.Patch

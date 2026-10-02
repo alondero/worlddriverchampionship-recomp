@@ -1,0 +1,158 @@
+diff --git a/src/gbi/rt64_gbi_rdp.cpp b/src/gbi/rt64_gbi_rdp.cpp
+index 6255872..9621677 100644
+--- a/src/gbi/rt64_gbi_rdp.cpp
++++ b/src/gbi/rt64_gbi_rdp.cpp
+@@ -3,6 +3,7 @@
+ //
+ 
+ #include "rt64_gbi_rdp.h"
++#include "rt64_rdp_triangle_clip.h"
+ 
+ #include "../include/rt64_extended_gbi.h"
+ 
+@@ -584,7 +585,28 @@ namespace RT64 {
+                 break;
+             }
+ 
+-            state->rdp->drawTris(1, &posWorkBuffer.data()[0][0], &texcoordWorkBuffer.data()[0][0], &colorWorkBuffer[0][0], tile, level);
++            std::array<TriangleVertex, 3> triangle;
++            for (uint32_t i = 0; i < 3; i++) {
++                for (uint32_t c = 0; c < 4; c++) {
++                    triangle[i].position[c] = posWorkBuffer[i][c];
++                    triangle[i].color[c] = colorWorkBuffer[i][c];
++                }
++                for (uint32_t c = 0; c < 2; c++) triangle[i].uv[c] = texcoordWorkBuffer[i][c];
++            }
++            const auto& scissor = state->rdp->scissorRectStack[state->rdp->scissorStackSize - 1];
++            const auto clipped = clipTriangle(triangle, rasterClipBounds({scissor.ulx / 4.0f, scissor.uly / 4.0f, scissor.lrx / 4.0f, scissor.lry / 4.0f}));
++            std::array<interop::float4, 15> clippedPositions, clippedColors;
++            std::array<interop::float2, 15> clippedUVs;
++            for (uint32_t i = 0; i < clipped.vertexCount; i++) {
++                for (uint32_t c = 0; c < 4; c++) {
++                    clippedPositions[i][c] = clipped.vertices[i].position[c];
++                    clippedColors[i][c] = clipped.vertices[i].color[c];
++                }
++                for (uint32_t c = 0; c < 2; c++) clippedUVs[i][c] = clipped.vertices[i].uv[c];
++            }
++            if (clipped.vertexCount != 0) {
++                state->rdp->drawTris(clipped.vertexCount / 3, &clippedPositions[0][0], &clippedUVs[0][0], &clippedColors[0][0], tile, level);
++            }
+ 
+             return trianglesEnd;
+         }
+diff --git a/src/gbi/rt64_rdp_triangle_clip.h b/src/gbi/rt64_rdp_triangle_clip.h
+new file mode 100644
+--- /dev/null
++++ b/src/gbi/rt64_rdp_triangle_clip.h
+@@ -0,0 +1,111 @@
++//
++// RT64
++//
++#pragma once
++#include <array>
++#include <cmath>
++#include <cstdint>
++#include <limits>
++
++namespace RT64::GBI_RDP {
++    struct TriangleVertex {
++        std::array<float, 4> position;
++        std::array<float, 2> uv;
++        std::array<float, 4> color;
++    };
++    struct TriangleScissor { float left, top, right, bottom; };
++    inline TriangleScissor rasterClipBounds(TriangleScissor scissor) {
++        if (!(scissor.right > scissor.left) || !(scissor.bottom > scissor.top)) return scissor;
++        // RasterVS adds half a GPU pixel after decoding, and raster scissors
++        // round to pixel edges. Keep a one-native-pixel guard at >=1x scale;
++        // the unchanged GPU scissor, not this conservative polygon, clips samples.
++        return {std::floor(scissor.left) - 1, std::floor(scissor.top) - 1,
++                std::ceil(scissor.right) + 1, std::ceil(scissor.bottom) + 1};
++    }
++    struct ClippedTriangle {
++        // A triangle clipped by four screen edges has at most seven vertices.
++        std::array<TriangleVertex, 15> vertices{};
++        uint32_t vertexCount = 0;
++    };
++    inline ClippedTriangle clipTriangle(const std::array<TriangleVertex, 3>& triangle, TriangleScissor scissor) {
++        ClippedTriangle original;
++        bool fullyInside = true;
++        for (uint32_t i = 0; i < 3; i++) {
++            original.vertices[i] = triangle[i];
++            const auto& p = triangle[i].position;
++            fullyInside &= p[0] >= scissor.left && p[0] <= scissor.right &&
++                           p[1] >= scissor.top && p[1] <= scissor.bottom && p[3] > 0;
++        }
++        original.vertexCount = 3;
++        if (fullyInside || !(scissor.right > scissor.left) || !(scissor.bottom > scissor.top)) return original;
++
++        // The RDP clips coverage in screen space. A reconstructed vertex can
++        // have negative W outside that coverage, making GPU homogeneous clipping
++        // retain the wrong side of the triangle. Clip before RasterVS multiplies
++        // screen coordinates by W, preserving the perspective attribute planes.
++        // Layout: x, y, z, reciprocal W, UV/W, RGBA/W. Double precision avoids
++        // cancellation when a distant vertex is far beyond the visible window.
++        using ClipVertex = std::array<double, 10>;
++        std::array<ClipVertex, 7> polygon{};
++        uint32_t count = 3;
++        for (uint32_t i = 0; i < count; i++) {
++            const auto& input = triangle[i];
++            if (input.position[3] == 0) return original;
++            auto& vertex = polygon[i];
++            const double reciprocalW = 1.0 / input.position[3];
++            for (uint32_t c = 0; c < 3; c++) vertex[c] = input.position[c];
++            vertex[3] = reciprocalW;
++            for (uint32_t c = 0; c < 2; c++) vertex[c + 4] = input.uv[c] * reciprocalW;
++            for (uint32_t c = 0; c < 4; c++) vertex[c + 6] = input.color[c] * reciprocalW;
++            for (double value : vertex) if (!std::isfinite(value)) return original;
++        }
++        auto clip = [&](uint32_t axis, double edge, bool upper) {
++            std::array<ClipVertex, 7> output{};
++            uint32_t outputCount = 0;
++            auto inside = [&](const ClipVertex& vertex) { return upper ? vertex[axis] <= edge : vertex[axis] >= edge; };
++            for (uint32_t i = 0; i < count; i++) {
++                const auto& a = polygon[i];
++                const auto& b = polygon[(i + 1) % count];
++                const bool aInside = inside(a), bInside = inside(b);
++                if (aInside) {
++                    if (outputCount == output.size()) return false;
++                    output[outputCount++] = a;
++                }
++                if (aInside != bInside) {
++                    if (outputCount == output.size()) return false;
++                    const double t = (edge - a[axis]) / (b[axis] - a[axis]);
++                    auto& intersection = output[outputCount++];
++                    for (uint32_t c = 0; c < intersection.size(); c++) intersection[c] = a[c] + (b[c] - a[c]) * t;
++                    intersection[axis] = edge;
++                }
++            }
++            polygon = output;
++            count = outputCount;
++            return true;
++        };
++        if (!clip(0, scissor.left, false) || !clip(0, scissor.right, true) ||
++            !clip(1, scissor.top, false) || !clip(1, scissor.bottom, true)) return original;
++        // Singular/negative perspective inside visible coverage needs RDP
++        // texture-divide emulation. Preserve existing behavior for that case.
++        for (uint32_t i = 0; i < count; i++) if (!(polygon[i][3] > 0)) return original;
++        ClippedTriangle result;
++        auto emit = [&](const ClipVertex& input) {
++            const double w = 1.0 / input[3];
++            auto reconstructed = input;
++            reconstructed[3] = w;
++            for (uint32_t c = 4; c < reconstructed.size(); c++) reconstructed[c] *= w;
++            for (double value : reconstructed) {
++                if (!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max()) return false;
++            }
++            auto& vertex = result.vertices[result.vertexCount++];
++            for (uint32_t c = 0; c < 4; c++) vertex.position[c] = float(reconstructed[c]);
++            for (uint32_t c = 0; c < 2; c++) vertex.uv[c] = float(reconstructed[c + 4]);
++            for (uint32_t c = 0; c < 4; c++) vertex.color[c] = float(reconstructed[c + 6]);
++            return true;
++        };
++        for (uint32_t i = 1; i + 1 < count; i++) {
++            if (!emit(polygon[0]) || !emit(polygon[i]) || !emit(polygon[i + 1])) return original;
++        }
++        return result;
++    }
++}

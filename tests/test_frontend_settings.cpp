@@ -50,14 +50,13 @@ int main() {
         page.revert_temp_config();
         require(!page.is_dirty() && !requested && read(path) == original_file, "Discard changed live settings");
         page.update_option_value("resolution", uint32_t(3));
-        page.update_option_value("aspect", uint32_t(2));
         page.update_option_value("rate", double(144));
         page.update_option_value("samples", uint32_t(8));
         page.update_option_value("filtering", uint32_t(0));
         page.update_option_value("precision", uint32_t(1));
         page.update_option_value("fullscreen", uint32_t(1));
         require(page.save_config() && requested.has_value(), "Apply did not hand settings to SDL");
-        wdc::graphics::Settings expected{3, 2, 144, 8, 0, 1, true};
+        wdc::graphics::Settings expected{3, 0, 144, 8, 0, 1, true};
         require(*requested == expected && read(path) == original_file, "Apply mapped settings incorrectly or wrote from UI thread");
         require(wdc::graphics::apply(*requested), "SDL-side publish failed");
         requested.reset();
