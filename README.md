@@ -30,8 +30,9 @@ and rendering glitches. SDL audio output is experimental. Linux and Android
 are not validated. No ROM, generated game code, or binary is committed.
 
 Graphics: automatic or 1-8x resolution scaling, MSAA, output filtering, saved
-settings, and fullscreen (F11 / Alt+Enter). Use the Windows Graphics menu or
-F1 for shortcuts. Experimental aspect and presentation-rate controls are also
+settings, and fullscreen (F11 / Alt+Enter). Press Escape or F1 for the tabbed
+settings overlay, with Apply/Discard, Restore Defaults and a control reference.
+Experimental aspect and presentation-rate controls are also
 available; true wider-camera rendering and interpolated motion remain future
 work. See [Graphics settings](docs/configuration.md) and the
 [peer capability review](docs/graphics-capabilities.md).

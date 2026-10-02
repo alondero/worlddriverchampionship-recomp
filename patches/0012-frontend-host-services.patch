@@ -1,0 +1,179 @@
+diff --git a/recompui/include/recompui/recompui.h b/recompui/include/recompui/recompui.h
+index 30c463b..f1749e6 100644
+--- a/recompui/include/recompui/recompui.h
++++ b/recompui/include/recompui/recompui.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include <memory>
++#include <functional>
+ #include <string>
+ #include <string_view>
+ #include <list>
+@@ -25,6 +26,17 @@ namespace Rml {
+ }
+ 
+ namespace recompui {
++    // Set before renderer startup. Hosts that render on a worker can provide
++    // SDL-free UI services and queue platform operations to their main thread.
++    struct HostCallbacks {
++        std::function<std::unique_ptr<Rml::SystemInterface>()> create_system_interface;
++        std::function<void(int&, int&)> get_window_size;
++        std::function<bool(Rml::Context*, SDL_Event&)> handle_input;
++        std::function<void(bool)> set_background_input;
++        std::function<void(const char*, const char*)> message_box;
++    };
++    void set_host_callbacks(HostCallbacks callbacks);
++    void message_box(const char* message, const char* title);
+     // Required! Make sure to set the font-family in your rcss to this font's family.
+     // the font-family will typically will not be in the filename.
+     void register_primary_font(const std::string& font_filename, const std::string& font_family);
+diff --git a/recompui/src/base/ui_state.cpp b/recompui/src/base/ui_state.cpp
+index 277a421..2b0dd13 100644
+--- a/recompui/src/base/ui_state.cpp
++++ b/recompui/src/base/ui_state.cpp
+@@ -34,6 +34,13 @@
+ #include "util/file.h"
+ 
+ static std::atomic_bool cursor_enabled = true;
++static recompui::HostCallbacks host_callbacks;
++void recompui::set_host_callbacks(HostCallbacks callbacks) {
++    host_callbacks = std::move(callbacks);
++}
++static bool handle_host_input(Rml::Context* context, SDL_Event& event) {
++    return host_callbacks.handle_input ? host_callbacks.handle_input(context, event) : RmlSDL::InputEventHandler(context, event);
++}
+ 
+ void recompui::open_quit_game_prompt() {
+     recompui::open_choice_prompt(
+@@ -212,7 +219,7 @@ public:
+     bool await_stick_return_x = false;
+     bool await_stick_return_y = false;
+     int last_active_mouse_position[2] = {0, 0};
+-    std::unique_ptr<SystemInterface_SDL> system_interface;
++    std::unique_ptr<Rml::SystemInterface> system_interface;
+     recompui::RmlRenderInterface_RT64 render_interface;
+     Rml::Context* context;
+     recompui::UiEventListenerInstancer event_listener_instancer;
+@@ -224,8 +231,13 @@ public:
+ 
+     UIState(SDL_Window* window, plume::RenderInterface* interface, plume::RenderDevice* device) {
+ 
+-        system_interface = std::make_unique<SystemInterface_SDL>();
+-        system_interface->SetWindow(window);
++        if (host_callbacks.create_system_interface) {
++            system_interface = host_callbacks.create_system_interface();
++        } else {
++            auto sdl_interface = std::make_unique<SystemInterface_SDL>();
++            sdl_interface->SetWindow(window);
++            system_interface = std::move(sdl_interface);
++        }
+         render_interface.init(interface, device);
+ 
+         Rml::SetSystemInterface(system_interface.get());
+@@ -240,7 +252,7 @@ public:
+         recompui::apply_color_hack();
+ 
+         int width, height;
+-        SDL_GetWindowSizeInPixels(window, &width, &height);
++        recompui::get_window_size(width, height);
+         
+         context = Rml::CreateContext("main", Rml::Vector2i(width, height));
+ 
+@@ -499,7 +511,8 @@ std::recursive_mutex ui_state_mutex{};
+ extern SDL_Window* window;
+ 
+ void recompui::get_window_size(int& width, int& height) {
+-    SDL_GetWindowSizeInPixels(window, &width, &height);
++    if (host_callbacks.get_window_size) host_callbacks.get_window_size(width, height);
++    else SDL_GetWindowSizeInPixels(window, &width, &height);
+ }
+ 
+ inline const std::string read_file_to_string(std::filesystem::path path) {
+@@ -624,10 +637,8 @@ void apply_background_input_mode() {
+     bool cur_input_mode = recompui::config::general::get_background_input_mode_enabled();
+ 
+     if (!initialized || last_input_mode != cur_input_mode) {
+-        SDL_SetHint(
+-            SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS,
+-            cur_input_mode ? "1" : "0"
+-        );
++        if (host_callbacks.set_background_input) host_callbacks.set_background_input(cur_input_mode);
++        else SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, cur_input_mode ? "1" : "0");
+         initialized = true;
+     }
+     last_input_mode = cur_input_mode;
+@@ -798,12 +809,12 @@ void draw_hook(plume::RenderCommandList* command_list, plume::RenderFramebuffer*
+             // Send the event to RmlUi if this type of event is being captured.
+             if (is_mouse_input) {
+                 if (context_capturing_mouse) {
+-                    RmlSDL::InputEventHandler(ui_state->context, cur_event);
++                    handle_host_input(ui_state->context, cur_event);
+                 }
+             }
+             else {
+                 if (context_capturing_input) {
+-                    RmlSDL::InputEventHandler(ui_state->context, cur_event);
++                    handle_host_input(ui_state->context, cur_event);
+                 }
+             }
+         }
+@@ -904,7 +915,12 @@ void recompui::set_render_hooks() {
+ }
+ 
+ void recompui::message_box(const char* msg) {
+-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, recompui::programconfig::get_program_name().data(), msg, nullptr);
++    message_box(msg, recompui::programconfig::get_program_name().data());
++}
++
++void recompui::message_box(const char* msg, const char* title) {
++    if (host_callbacks.message_box) host_callbacks.message_box(title, msg);
++    else SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, msg, nullptr);
+     printf("[ERROR] %s\n", msg);
+ }
+ 
+diff --git a/recompui/src/util/file.cpp b/recompui/src/util/file.cpp
+index 7ee84ed..c48bc65 100644
+--- a/recompui/src/util/file.cpp
++++ b/recompui/src/util/file.cpp
+@@ -5,6 +5,7 @@
+ #include "RmlUi/Core.h"
+ 
+ #include "recompui/program_config.h"
++#include "recompui/recompui.h"
+ 
+ #include <filesystem>
+ #include <fstream>
+@@ -114,7 +115,12 @@ namespace recompui {
+         return recomp_dir;
+     }
+ 
++    static std::optional<std::filesystem::path> program_path_override;
++    void file::set_program_path(std::filesystem::path path) {
++        program_path_override = std::move(path);
++    }
+     std::filesystem::path file::get_program_path() {
++        if (program_path_override) return *program_path_override;
+ #if defined(__APPLE__)
+         return file::apple::get_bundle_resource_directory();
+ #elif defined(__linux__) && defined(RECOMP_FLATPAK)
+@@ -157,7 +163,7 @@ namespace recompui {
+         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title_copy.c_str(), message_copy.c_str(), nullptr);
+     });
+ #else
+-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, nullptr);
++        recompui::message_box(message, title);
+ #endif
+     }
+ }
+diff --git a/recompui/src/util/file.h b/recompui/src/util/file.h
+index 2f224aa..7314405 100644
+--- a/recompui/src/util/file.h
++++ b/recompui/src/util/file.h
+@@ -11,6 +11,7 @@ namespace recompui {
+     namespace file {
+         std::filesystem::path get_app_folder_path();
+         std::filesystem::path get_program_path();
++        void set_program_path(std::filesystem::path path); // Before renderer startup.
+         std::filesystem::path get_asset_path(const char* asset);
+         void open_file_dialog(std::function<void(bool success, const std::filesystem::path& path)> callback);
+         void open_file_dialog_multiple(std::function<void(bool success, const std::list<std::filesystem::path>& paths)> callback);

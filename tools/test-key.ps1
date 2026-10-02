@@ -1,4 +1,4 @@
-param([int]$Key = 88, [int]$Milliseconds = 150)
+param([int]$Key = 88, [int]$Milliseconds = 150, [int]$ProcessId = 0)
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -7,7 +7,9 @@ public class WdcTestKey {
  [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint type);
 }
 '@
-$game = Get-Process worlddriverchampionship_modern | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+$game = if ($ProcessId) { Get-Process -Id $ProcessId } else {
+    Get-Process worlddriverchampionship_modern | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+}
 if (!$game) { throw 'Game window not found' }
 $scan = [WdcTestKey]::MapVirtualKey($Key, 0)
 $flags = 1 -bor ($scan -shl 16)
