@@ -1,4 +1,4 @@
-param([string]$Output = 'build-player/window.png')
+param([string]$Output = 'build-player/window.png', [int]$ProcessId = 0)
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
 using System;
@@ -9,7 +9,9 @@ public class WdcWindowCapture {
  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
 }
 '@
-$game = Get-Process worlddriverchampionship_modern | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+$game = if ($ProcessId) { Get-Process -Id $ProcessId } else {
+    Get-Process worlddriverchampionship_modern | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+}
 if (!$game) { throw 'Game window not found' }
 $rect = New-Object WdcWindowCapture+Rect
 [void][WdcWindowCapture]::GetWindowRect($game.MainWindowHandle, [ref]$rect)

@@ -81,7 +81,11 @@ Invoke-Step "apply dependency patches (preserving local edits)" {
             @{ Sub = "lib/rt64/src/contrib/plume"; Patch = "patches/0004-plume-d3d12-mingw-com-abi-struct-return.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0006-runtime-lle-interrupt-ownership.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0008-runtime-controller-pak-kind.patch" },
-            @{ Sub = "lib/N64ModernRuntime/N64Recomp"; Patch = "patches/0007-rsprecomp-boss-support.patch" }
+            @{ Sub = "lib/N64ModernRuntime/N64Recomp"; Patch = "patches/0007-rsprecomp-boss-support.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0009-runtime-host-config-storage.patch" },
+            @{ Sub = "lib/RecompFrontend"; Patch = "patches/0010-frontend-enum-wrap.patch" },
+            @{ Sub = "lib/RecompFrontend"; Patch = "patches/0011-frontend-runtime-compat.patch" },
+            @{ Sub = "lib/RecompFrontend"; Patch = "patches/0012-frontend-host-services.patch" }
         )
         foreach ($item in $patches) {
             $patchPath = Join-Path $repo $item.Patch
@@ -95,7 +99,7 @@ Invoke-Step "apply dependency patches (preserving local edits)" {
         }
 }
 Invoke-Step "configure (first pass)" {
-    & $cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF `
+    & $cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON `
         -DCMAKE_C_COMPILER=gcc.exe -DCMAKE_CXX_COMPILER=g++.exe `
         "-DPython3_EXECUTABLE=$python"
 }
@@ -118,7 +122,7 @@ if ((Get-Content aspMain.us.toml -Raw) -notmatch "TODO") {
 }
 
 Invoke-Step "configure (second pass)" {
-    & $cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF `
+    & $cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON `
         -DCMAKE_C_COMPILER=gcc.exe -DCMAKE_CXX_COMPILER=g++.exe `
         "-DPython3_EXECUTABLE=$python"
 }

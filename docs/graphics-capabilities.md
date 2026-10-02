@@ -19,7 +19,7 @@ also describe frame-pacing and high-precision framebuffer improvements.
 | Fullscreen | SDL window mode, F11 and Alt+Enter | Desktop fullscreen with saved preference |
 | Color precision | Auto/standard/high internal framebuffer | Saved startup option; requires restart |
 | Filtering | Renderer/presentation options | Nearest/linear/pixel-scaled output |
-| Settings | Persistent host configuration and frontend | JSON, Windows menu, portable shortcuts and help |
+| Settings | Persistent host configuration and frontend | Tabbed overlay, Apply/Discard, defaults, JSON, Windows menu and shortcuts |
 | Texture replacement | Paths and RT64 cache registration | Not added; needs WDC-specific asset validation |
 | Draw distance, fog, camera | Game-specific hooks | Not copied; requires WDC ROM evidence |
 

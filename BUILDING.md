@@ -24,7 +24,8 @@ through CMake without resetting source files. `-RomPath` imports an alternate
 local ROM path without overwriting a different existing dump.
 
 Output: `build-player/worlddriverchampionship_modern.exe`, with SDL2, DXC,
-and MinGW runtime DLLs beside it. `play.ps1` runs from the repository root
+FreeType, and MinGW runtime DLLs beside it, plus the overlay's `assets` directory.
+`play.ps1` runs from the repository root
 and accepts an optional `-RomPath`. Double-clicking the executable alone
 requires a ROM argument or the expected working directory; use the launcher.
 
@@ -43,8 +44,8 @@ the CPU symbol/configuration TOMLs. Edit `rom-symbols.toml`,
 `scripts/gen_syms_toml.py`, or `aspMain.us.toml`, never generated C/C++.
 
 The script carries two Windows compatibility patches, two BOSS/runtime
-patches, and a Controller Pak device-kind patch. Pinned dependency edits
-are exported under `patches/`; dirty
+patches, a Controller Pak device-kind patch, and four settings-overlay patches.
+Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 
 ## Checks
@@ -58,6 +59,9 @@ git diff --check
 ```
 
 A separate `-DWDC_HEADLESS=ON` build provides a 15-second CPU/RSP diagnostic.
+The desktop scripts explicitly enable `WDC_ENABLE_FRONTEND`; direct CMake
+builds can set it to `OFF` to retain the graphics-shortcut-only player. Headless
+builds omit the frontend automatically.
 It deliberately exits with code 2 at its time limit: this is not a gameplay
 pass. Setting `WDC_DIAGNOSTIC=1` applies the same time limit to the player.
 

@@ -31,14 +31,38 @@ the WDC runtime demonstrates the same need.
 | `0006-runtime-lle-interrupt-ownership.patch` | N64ModernRuntime | All | Allow the BOSS renderer to own SP/DP completion and intermediate interrupts. |
 | `0007-rsprecomp-boss-support.patch` | N64Recomp | All | COP0 callbacks, CFC2/CTC2, exhaustive indirect dispatch option, fail-loud unsupported instructions. |
 | `0008-runtime-controller-pak-kind.patch` | N64ModernRuntime | All | Expose the ControllerPak enum for status reporting; WDC owns block storage and retains its ROM filesystem. |
+| `0009-runtime-host-config-storage.patch` | N64ModernRuntime | Desktop | Let the overlay use configuration schemas without overwriting host-owned graphics.json. |
+| `0010-frontend-enum-wrap.patch` | RecompFrontend | Desktop | Wrap resolution/other choices to fit the overlay's option column. |
+| `0011-frontend-runtime-compat.patch` | RecompFrontend | Desktop | Use the shipped event header, match the pinned runtime renderer callback, and link the FreeType DLL with MinGW. |
+| `0012-frontend-host-services.patch` | RecompFrontend | Desktop | Allow main-thread SDL services and an explicit executable-relative asset directory. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
 interrupt behavior. Patches are checked against the pinned dependency commits.
+
+The overlay patches are shared host UI behavior, copied from the Lamborghini
+peer's storage and enum-layout patches at the same dependency pins. The WDC
+frontend integration test verifies that opening, editing and discarding
+settings cannot write or replace the existing graphics file. Applying changes
+queues them for the SDL host; the existing graphics tests cover its persistence.
+
+The pinned frontend's unused bundled renderer expects a newer PresentationMode
+argument than the pinned runtime offers. Patch 0011 restores the legacy
+callback signature and default renderer presentation, and replaces the stale
+external `patches/ui_funcs.h` include with the frontend's shipped event header.
+WDC continues using its own BOSS/RT64 renderer.
+The MinGW build uses FreeType's shipped DLL import library; the upstream MSVC
+static library requires MSVC runtime symbols and cannot link with MinGW.
+
+Patch 0012 keeps upstream defaults for other hosts. WDC injects an SDL-free
+system interface and input handler; window size and modifier state are snapshots,
+while cursor, clipboard, mouse capture, background hints and error dialogs are
+queued to the main thread. Assets resolve beside the executable even when the
+launcher runs from the checkout root. Configuration storage is unchanged.

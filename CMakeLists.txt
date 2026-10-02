@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(WDC_ENABLE_FRONTEND "Build the RecompFrontend UI integration" OFF)
+option(WDC_ENABLE_FRONTEND "Build the RecompFrontend settings overlay" ON)
 option(WDC_ENABLE_ANDROID "Build the Android-specific native bridge" OFF)
 option(WDC_HEADLESS "Build the bounded CPU startup diagnostic without RT64" OFF)
 
@@ -151,7 +151,7 @@ if(NOT WDC_HEADLESS)
     endif()
 endif()
 
-if(WDC_ENABLE_FRONTEND)
+if(WDC_ENABLE_FRONTEND AND NOT WDC_HEADLESS)
     include(cmake/Frontend.cmake)
 endif()
 

@@ -36,6 +36,10 @@ apply_patch_once() {
 apply_patch_once lib/N64ModernRuntime patches/0006-runtime-lle-interrupt-ownership.patch
 apply_patch_once lib/N64ModernRuntime patches/0008-runtime-controller-pak-kind.patch
 apply_patch_once lib/N64ModernRuntime/N64Recomp patches/0007-rsprecomp-boss-support.patch
+apply_patch_once lib/N64ModernRuntime patches/0009-runtime-host-config-storage.patch
+apply_patch_once lib/RecompFrontend patches/0010-frontend-enum-wrap.patch
+apply_patch_once lib/RecompFrontend patches/0011-frontend-runtime-compat.patch
+apply_patch_once lib/RecompFrontend patches/0012-frontend-host-services.patch
 windows_host=0
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) windows_host=1 ;;
@@ -56,7 +60,7 @@ if [[ "${WDC_APPLY_WINDOWS_PATCHES:-0}" == 1 || "$windows_host" == 1 ]]; then
     done
 fi
 echo "[configure: first pass]"
-cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF
+cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON
 echo "[host tools]"
 cmake --build build-player --target N64RecompCLI RSPRecomp -j 8
 echo "[symbol/config generation]"
@@ -76,7 +80,7 @@ else
 fi
 
 echo "[configure: second pass]"
-cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF
+cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON
 echo "[build port]"
 cmake --build build-player --target worlddriverchampionship_modern -j 8
 echo "Build complete: build-player/worlddriverchampionship_modern"

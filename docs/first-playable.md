@@ -45,7 +45,9 @@ local and uncommitted; no branch publication or PR was performed.
 Run `./play.ps1` from the checkout. Controller Pak support is now enabled on port 1.
 Enter skips the intro and starts from the title. X selects Quick Race;
 Down, X selects Practice Laps; X selects Hawaii; X selects automatic gears.
-Hold X to accelerate; Z brakes; arrows/WASD steer; Enter pauses; Escape exits.
+Hold X to accelerate; Z brakes; arrows/WASD steer; Enter pauses.
+Current builds use Escape/F1 for settings; quit from the overlay or close the
+window. The earlier milestone's Escape-to-exit behavior is historical.
 Space maps Z trigger and right Shift maps R. Gamepad and C-button mappings
 have not been implemented.
 

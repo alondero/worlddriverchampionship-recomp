@@ -1,6 +1,5 @@
-# RecompFrontend is enabled once the first host/runtime window exists. Keeping
-# it behind WDC_ENABLE_FRONTEND lets source-only bootstrap checks run without
-# pretending that the WDC UI contract is already known.
+# The settings overlay shares RT64's presentation framebuffer. The port keeps
+# graphics persistence/window changes on SDL's main thread.
 set(WDC_DXC_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/contrib/dxc")
 if(ANDROID)
     set(DXC "${WDC_HOST_DXC}")
@@ -36,8 +35,39 @@ foreach(frontend_target recompui recompinput rmlui_core rmlui_debugger)
     endif()
 endforeach()
 target_link_libraries(worlddriverchampionship_modern PRIVATE recompui recompinput)
+target_compile_definitions(worlddriverchampionship_modern PRIVATE WDC_ENABLE_FRONTEND=1)
+target_include_directories(worlddriverchampionship_modern PRIVATE src)
+target_sources(worlddriverchampionship_modern PRIVATE src/ui/frontend.cpp src/ui/frontend_settings.cpp src/ui/sdl_host.cpp)
 
 add_custom_command(TARGET worlddriverchampionship_modern POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/frontend"
+        "$<TARGET_FILE_DIR:worlddriverchampionship_modern>/assets"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/RecompFrontend/recompui/lib/RmlUi/Samples/assets/LatoLatin-Regular.ttf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/RecompFrontend/recompui/lib/RmlUi/Samples/assets/LatoLatin-Bold.ttf"
         "$<TARGET_FILE_DIR:worlddriverchampionship_modern>/assets")
+if(WIN32)
+    target_link_libraries(worlddriverchampionship_modern PRIVATE shell32)
+    add_custom_command(TARGET worlddriverchampionship_modern POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/lib/RecompFrontend/recompui/lib/freetype-windows-binaries/release dll/win64/freetype.dll"
+            "$<TARGET_FILE_DIR:worlddriverchampionship_modern>")
+elseif(NOT ANDROID)
+    target_link_libraries(recompui PRIVATE SDL2::SDL2)
+endif()
+
+if(BUILD_TESTING)
+    add_executable(wdc_frontend_settings_tests tests/test_frontend_settings.cpp
+        src/ui/frontend_settings.cpp src/graphics_config.cpp)
+    target_include_directories(wdc_frontend_settings_tests PRIVATE src ${SDL2_INCLUDE_DIRS})
+    target_compile_definitions(wdc_frontend_settings_tests PRIVATE WDC_ENABLE_FRONTEND=1 SDL_MAIN_HANDLED NOMINMAX)
+    target_link_libraries(wdc_frontend_settings_tests PRIVATE recompui recompinput librecomp ultramodern rt64 Threads::Threads ${SDL2_LIBRARIES})
+    if(WIN32)
+        target_link_libraries(wdc_frontend_settings_tests PRIVATE shell32)
+        if(MINGW)
+            target_sources(wdc_frontend_settings_tests PRIVATE src/mingw_guids.cpp)
+        endif()
+    endif()
+    add_test(NAME wdc_frontend_settings COMMAND wdc_frontend_settings_tests)
+endif()

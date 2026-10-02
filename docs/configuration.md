@@ -8,9 +8,21 @@ Malformed files are preserved on load and defaults are used. An explicit
 settings change replaces the file; a save failure is reported without losing
 the live change.
 
-Use the Windows **Graphics** menu or the keyboard shortcuts below. F1 shows
-help; the window title shows requested settings. These controls also work in
-fullscreen. Most changes apply live; color precision requires a restart.
+Press **Escape or F1** to open the settings overlay, including in fullscreen.
+The Graphics tab exposes all saved graphics options. Choose values, then press
+**Apply**; closing or switching tabs with changes offers Apply/Discard.
+**Restore defaults** stages the original choices for the same Apply/Discard
+flow. The Controls tab lists the current keyboard bindings.
+
+Navigate with the mouse, arrows or Tab and Enter. Escape/F1 closes the overlay;
+the header also has close and quit buttons. Pause a race with Enter before
+opening settings: the game continues running while the overlay is open, but
+menu input is blocked from the game. Held gameplay keys must be released before
+input resumes. Color precision requires a restart; the other changes apply live.
+
+The window title shows requested settings. The Windows **Graphics** menu and
+the shortcuts below remain available during gameplay; use the overlay's
+controls while it is open. F11 / Alt+Enter works in either mode.
 
 | Shortcut | Setting | Choices |
 | --- | --- | --- |
@@ -36,7 +48,9 @@ extra presentation work without smoother motion. Use original aspect and rate
 for normal play. Guest simulation and VI timing are unchanged. See the
 [capability review](graphics-capabilities.md) for the remaining game-specific work.
 
-For custom targets, edit the file while the player is closed. Schema version 1:
+The overlay offers every resolution multiplier from 1x to 8x and a Custom
+presentation target from 30 to 360 Hz. Existing custom values are retained.
+You can also edit the file while the player is closed. Schema version 1:
 
 ```json
 {
@@ -69,8 +83,9 @@ Linux generation currently requires the default filename at the repository root.
 - `WDC_PYTHON_SCRIPTS`: optional native Python CMake tools directory.
 - `WDC_DIAGNOSTIC=1`: exit after 15 seconds with diagnostic status and code 2.
 
-The player stores runtime data under ignored `build/user-data`. Input settings
-and a controller-navigable frontend remain future work.
+The player stores runtime data under ignored `build/user-data`. Gamepad input,
+rebinding, rumble, and an audio volume control remain future work. The overlay
+exposes the configuration options currently supported by the port.
 
 Controller Pak saves are enabled on controller port 1 and stored as a raw
 32 KiB image at `build/user-data/saves/worlddriverchampionship.us.mpk`.
@@ -83,3 +98,12 @@ Each successful block write is published through a temporary file and atomic
 replacement before returning to the game, so Escape does not discard pending
 saves. A failed write returns a device error and preserves the previous disk
 and memory image. Additional controller ports and Rumble Paks remain unavailable.
+
+The overlay uses the same RecompFrontend tabbed UI as the Automobili Lamborghini
+peer port. Contexts and staged edits belong to the presentation callback;
+Apply queues a whole settings snapshot for the SDL main thread to publish,
+save and use for window operations. RecompFrontend does not write `graphics.json`.
+An internal General tab supplies framework defaults and is hidden because its
+controller options do not affect WDC's keyboard input adapter.
+The host also queues the frontend's cursor, clipboard, mouse capture and dialog
+operations to SDL's main thread. Font/icon assets are loaded beside the executable.
