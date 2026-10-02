@@ -1,5 +1,40 @@
 # First-playable evidence
 
+## Race quality fixes verified on 2026-10-02
+
+Windows x64 MinGW/D3D12 verification with the same USA dump established:
+
+- AI now consumes the circular stereo buffer at 22000 frames/s, rather than
+  copying 4096 frames on every graphics update. Several minutes of live
+  output stayed below the 250 ms host queue limit; the original queue reached
+  97 seconds after approximately 22 seconds of play.
+- Synthetic SDL failures recover on retry; resets discard stale sound even
+  when the selected frequency is unchanged. A five-second WASAPI recording
+  during Hawaii driving contained both stereo channels, with no zero frames
+  or clipped samples. This measures output continuity, not console fidelity.
+- Racing, pause menus, window resizing to 1024x768 and 1600x900, and desktop
+  fullscreen retained original 4:3 presentation. Legacy Expand/16:9 preferences
+  migrate to 4:3, and F3 cannot re-enable the stretched camera.
+- RSP packed loads now zero-extend unsigned bytes. The original LUV helper
+  turned `0x80` into `0xC000` instead of `0x4000`, corrupting BOSS shade
+  coefficients. Patch 0013 removes cyan road colouring and restores the
+  green starting lights and sign colours in the observed Hawaii scene.
+- The final player reached 73-74 mph in fourth gear during practice,
+  paused/resumed, and exited normally with code 0. Native 1x and automatic
+  resolution, plus MSAA switching, were exercised.
+
+All seven CTest entries and four Python tests passed, along with documentation
+and whitespace checks. The full Windows player built successfully. The complete
+dependency patch series applied to clean pinned source copies, and repeat
+application checks succeeded. Standards and Spec reviews found no blocking
+code findings in the audio, aspect, and packed-load fixes.
+
+Full laps, other tracks, opponents, split-screen, Linux/Android, and subjective
+audio/reference-console comparisons remain unverified. Sky rendering and small
+triangle seams still need investigation; the corrected road colours do not
+establish complete graphics fidelity. Local captures and probes are ignored
+under `artifacts/review/`.
+
 ## Verified milestone
 
 On 2026-09-21, the Windows x64 MinGW/D3D12 player using the verified USA dump:
@@ -37,8 +72,8 @@ and peer-project research. The DLL packaging concern was verified by launching
 the final player with only Windows system directories on PATH. Full race/audio
 quality acceptance remains explicitly outside the verified milestone.
 
-Current findings: Standards 0 unresolved; Spec 0 blockers. Source changes remain
-local and uncommitted; no branch publication or PR was performed.
+At that milestone, Standards had 0 unresolved findings and Spec had 0 blockers.
+The original first-playable session ended without branch publication or a PR.
 
 ## Controls and reproduction
 
@@ -50,8 +85,9 @@ Space maps Z trigger and right Shift maps R. Gamepad and C-button mappings
 have not been implemented.
 
 Saving is unavailable: the host reports no Controller Pak. No save-file
-compatibility is claimed. SDL audio queues word-swapped stereo samples; audio
-quality needs listening tests. Visible geometry/texture glitches remain.
+compatibility is claimed. SDL audio streams word-swapped stereo samples at
+the guest AI cadence; audio quality still needs listening tests. Remaining
+geometry/texture glitches are separate from the fixed cyan road colouring.
 The narrow 2D menu presentation was fixed by retaining 4:3 TV output for
 the game's 320x480 buffers. Track completion and race opponents have
 not been acceptance-tested. Android/Linux have not been validated.
@@ -77,8 +113,8 @@ All ROM-derived output remains ignored.
 
 ## Next work
 
-Investigate remaining rendering glitches using RDP image/scissor state.
-Validate audio, then full laps/opponents, gamepad,
+Investigate the remaining sky and triangle-seam glitches using a complete
+frame's RDP state. Validate audio fidelity, then full laps/opponents, gamepad,
 Controller Pak saves, and additional tracks. Do not replace the LLE path
 with a generic graphics microcode: WDC uses BOSS, not Fast3D.
 

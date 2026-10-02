@@ -19,7 +19,7 @@ int main() {
         load(path);
         require(snapshot() == Settings{}, "missing file must use defaults");
         Settings s;
-        s.resolution = 4; s.aspect = 2; s.rate = 144; s.samples = 4;
+        s.resolution = 4; s.rate = 144; s.samples = 4;
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
         require(apply(s), "save failed");
         load(path);
@@ -27,6 +27,15 @@ int main() {
         require(apply(Settings{}), "replacing an existing file failed");
         load(path);
         require(snapshot() == Settings{}, "defaults were not persisted");
+        for (int aspect : {1, 2}) {
+            { std::ofstream out(path); out << "{\"aspect\":" << aspect << ",\"resolution\":4}"; }
+            load(path);
+            require(snapshot().aspect == 0 && snapshot().resolution == 4,
+                "legacy widescreen setting still stretches racing geometry");
+            auto requested = snapshot();
+            requested.aspect = aspect;
+            require(apply(requested) && snapshot().aspect == 0, "live aspect change bypassed 4:3 policy");
+        }
         for (const char* invalid : {"{", "[]", "{\"version\":2}", "{\"resolution\":\"4\"}",
                                    "{\"rate\":18446744073709551615}", "{\"samples\":2.5}"}) {
             { std::ofstream out(path); out << invalid; }

@@ -34,6 +34,7 @@ apply_patch_once() {
     git -C "$submodule" apply --ignore-whitespace "$patch"
 }
 apply_patch_once lib/N64ModernRuntime patches/0006-runtime-lle-interrupt-ownership.patch
+apply_patch_once lib/N64ModernRuntime patches/0013-runtime-rsp-unsigned-packed-loads.patch
 apply_patch_once lib/N64ModernRuntime/N64Recomp patches/0007-rsprecomp-boss-support.patch
 windows_host=0
 case "$(uname -s)" in

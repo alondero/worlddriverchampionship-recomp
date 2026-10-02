@@ -9,8 +9,8 @@ inline void configure(RT64::UserConfiguration& c, Settings requested) {
     c.resolution = s.resolution == 0 ? C::Resolution::WindowIntegerScale : C::Resolution::Manual;
     c.resolutionMultiplier = s.resolution == 0 ? 1 : s.resolution;
     c.downsampleMultiplier = 1;
-    c.aspectRatio = s.aspect == 0 ? C::AspectRatio::Original : s.aspect == 1 ? C::AspectRatio::Expand : C::AspectRatio::Manual;
-    c.aspectTarget = 16.0 / 9.0;
+    c.aspectRatio = C::AspectRatio::Original;
+    c.aspectTarget = 4.0 / 3.0;
     c.extAspectRatio = C::AspectRatio::Original;
     c.refreshRate = s.rate == 0 ? C::RefreshRate::Original : s.rate == -1 ? C::RefreshRate::Display : C::RefreshRate::Manual;
     c.refreshRateTarget = s.rate > 0 ? s.rate : 60;

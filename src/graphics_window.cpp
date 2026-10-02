@@ -11,7 +11,7 @@ namespace wdc::graphics {
 namespace {
 const char* help =
     "F2: Resolution - Auto, 1x, 2x, 3x, 4x, 6x, 8x\n"
-    "F3: Aspect - 4:3, Expand, 16:9 (experimental)\n"
+    "Aspect: Original 4:3, fitted to the window\n"
     "F4: Presentation - Original, Display, 60, 120, 144, 240 Hz\n"
     "F5: Anti-aliasing - Off, 2x, 4x, 8x MSAA\n"
     "F6: Output filter - Nearest, Linear, Pixel scaling\n"
@@ -19,9 +19,8 @@ const char* help =
     "F11 / Alt+Enter: Fullscreen\n"
     "F9: Restore graphics defaults\n\n"
     "Changes are saved; color precision needs a restart.\n"
-    "Widescreen and higher presentation rates are experimental.\n"
-    "They do not provide a wider camera view or interpolated motion\n"
-    "for WDC's current renderer. Game speed remains unchanged.";
+    "Higher presentation rates are experimental and do not add\n"
+    "interpolated motion. Game speed remains unchanged.";
 template<size_t N> int cycle(int value, const int (&choices)[N]) {
     auto it = std::find(std::begin(choices), std::end(choices), value);
     return it == std::end(choices) || ++it == std::end(choices) ? choices[0] : *it;
@@ -39,7 +38,7 @@ void change(SDL_Window* window, SDL_Keycode key) {
     switch (key) {
     case SDLK_F1: SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Graphics settings", help, window); return;
     case SDLK_F2: s.resolution = cycle(s.resolution, resolutions); break;
-    case SDLK_F3: s.aspect = (s.aspect + 1) % 3; break;
+    case SDLK_F3: return; // Reserved until a wider game camera is supported.
     case SDLK_F4: s.rate = cycle(s.rate, rates); break;
     case SDLK_F5: s.samples = s.samples == 8 ? 1 : s.samples * 2; break;
     case SDLK_F6: s.filtering = (s.filtering + 1) % 3; break;
@@ -69,10 +68,10 @@ void attach_window(SDL_Window* window) {
     SDL_VERSION(&info.version);
     if (SDL_GetWindowWMInfo(window, &info)) {
         HMENU bar = CreateMenu(), menu = CreatePopupMenu();
-        const char* labels[]{"Graphics help\tF1", "Cycle resolution\tF2", "Cycle aspect (experimental)\tF3",
+        const char* labels[]{"Graphics help\tF1", "Cycle resolution\tF2", "Aspect: Original 4:3",
             "Cycle presentation rate (experimental)\tF4", "Cycle anti-aliasing\tF5", "Cycle output filter\tF6",
             "Cycle color precision (restart)\tF7", "Restore defaults\tF9", "Fullscreen\tF11"};
-        for (unsigned i = 0; i < 9; ++i) AppendMenuA(menu, MF_STRING, 4000 + i, labels[i]);
+        for (unsigned i = 0; i < 9; ++i) AppendMenuA(menu, MF_STRING | (i == 2 ? MF_GRAYED : 0), 4000 + i, labels[i]);
         AppendMenuA(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(menu), "Graphics");
         SetMenu(info.info.win.window, bar); // Window destruction owns attached menu.
         DrawMenuBar(info.info.win.window);

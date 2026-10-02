@@ -30,14 +30,26 @@ the WDC runtime demonstrates the same need.
 | `0005-rt64-mingw-gcc-compat.patch` | RT64 | Windows | Compile RT64's texture hasher with MinGW GCC. |
 | `0006-runtime-lle-interrupt-ownership.patch` | N64ModernRuntime | All | Allow the BOSS renderer to own SP/DP completion and intermediate interrupts. |
 | `0007-rsprecomp-boss-support.patch` | N64Recomp | All | COP0 callbacks, CFC2/CTC2, exhaustive indirect dispatch option, fail-loud unsupported instructions. |
+| `0013-runtime-rsp-unsigned-packed-loads.patch` | N64ModernRuntime | All | Zero-extend packed vector load bytes before shifting; fixes BOSS shade coefficients for values above 127. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007 |
+| Linux | 0006, 0007, 0013 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0013 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
 interrupt behavior. Patches are checked against the pinned dependency commits.
+
+Patch 0013 has a synthetic DMEM reproducer in
+`tests/test_rsp_packed_loads.cpp`. The pinned runtime and upstream
+[N64ModernRuntime helper](https://github.com/N64Recomp/N64ModernRuntime/blob/main/librecomp/include/librecomp/rsp_vu_impl.hpp)
+both use signed `RSP_MEM_B` for packed loads. For example, LUV reads `0x80`
+as `-128` and shifts it to `0xC000`; the correct result is `0x4000`.
+The original [ares implementation](https://github.com/ares-emulator/ares/blob/master/ares/n64/rsp/interpreter-vpu.cpp)
+reads unsigned DMEM bytes. LFV and LHV share the faulty seven-bit conversion;
+LPV's eight-bit conversion keeps the same final bits while using an unsigned
+operand. The patch changes these five reads to `RSP_MEM_BU`, preserving the
+existing addressing, element selection, and DMEM wrapping.

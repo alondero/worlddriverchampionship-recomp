@@ -80,6 +80,7 @@ Invoke-Step "apply dependency patches (preserving local edits)" {
             @{ Sub = "lib/rt64"; Patch = "patches/0005-rt64-mingw-gcc-compat.patch" },
             @{ Sub = "lib/rt64/src/contrib/plume"; Patch = "patches/0004-plume-d3d12-mingw-com-abi-struct-return.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0006-runtime-lle-interrupt-ownership.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0013-runtime-rsp-unsigned-packed-loads.patch" },
             @{ Sub = "lib/N64ModernRuntime/N64Recomp"; Patch = "patches/0007-rsprecomp-boss-support.patch" }
         )
         foreach ($item in $patches) {

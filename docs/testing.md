@@ -22,7 +22,7 @@ git diff --check
 Once the ROM and generated image exist:
 
 ```bash
-cmake --build build-player --target wdc_guest_math_tests wdc_graphics_config_tests
+cmake --build build-player --target wdc_guest_math_tests wdc_graphics_config_tests wdc_audio_tests wdc_audio_dma_tests wdc_rsp_packed_load_tests
 ctest --test-dir build-player --output-on-failure
 ```
 
@@ -34,3 +34,8 @@ The first-playable headless diagnostic exits 2 on its 15-second limit and is
 not a CI success gate. See [acceptance evidence](first-playable.md) for the
 separately verified windowed practice-driving path. Synthetic tests cover
 guest-memory math/string contracts and startup cache-marker transformation.
+Audio tests use a synthetic circular buffer and an SDL device stub; they do
+not require a physical audio endpoint. Graphics tests include migration of
+old widescreen preferences to the verified 4:3 output policy.
+The RSP packed-load test runs the actual dependency helpers on synthetic DMEM,
+covering all unsigned byte values, vector elements, byte alignment and wrapping.

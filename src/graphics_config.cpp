@@ -18,7 +18,9 @@ std::filesystem::path file;
 }
 Settings normalize(Settings s) {
     s.resolution = std::clamp(s.resolution, 0, 8);
-    if (s.aspect < 0 || s.aspect > 2) s.aspect = 0;
+    // Raw BOSS triangles are already projected. RT64 expansion stretches the
+    // world while retaining the original HUD/scissor; migrate old preferences.
+    s.aspect = 0;
     if (s.rate != 0 && s.rate != -1 && (s.rate < 30 || s.rate > 360)) s.rate = 0;
     if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8) s.samples = 1;
     if (s.filtering < 0 || s.filtering > 2) s.filtering = 1;
@@ -91,7 +93,7 @@ bool apply(Settings s) {
 }
 std::string describe(const Settings& s) {
     return (s.resolution ? std::to_string(s.resolution) + "x" : "Auto resolution") +
-        " | " + (s.aspect == 0 ? "4:3" : s.aspect == 1 ? "Expand (experimental)" : "16:9 (experimental)") +
+        " | 4:3" +
         " | " + (s.rate == 0 ? "Original rate" : s.rate == -1 ? "Display rate (experimental)" : std::to_string(s.rate) + " Hz (experimental)") +
         " | AA " + std::to_string(s.samples) + "x";
 }

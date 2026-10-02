@@ -76,6 +76,10 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x8001A280 = 0xA0
 
 [native]
+0x80074C80 = "wdc_ai_set_buffer"
+0x80074D30 = "wdc_ai_set_frequency"
+0x80074E90 = "wdc_ai_get_status"
+0x80074EA0 = "wdc_ai_get_length"
 0x80019F34 = "wdc_compare_string"
 0x8002D7F0 = "wdc_invalidate_cache"
 0x80019FC0 = "wdc_length3"
