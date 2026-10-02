@@ -36,13 +36,14 @@ the WDC runtime demonstrates the same need.
 | `0011-frontend-runtime-compat.patch` | RecompFrontend | Desktop | Use the shipped event header, match the pinned runtime renderer callback, and link the FreeType DLL with MinGW. |
 | `0012-frontend-host-services.patch` | RecompFrontend | Desktop | Allow main-thread SDL services and an explicit executable-relative asset directory. |
 | `0013-runtime-rsp-unsigned-packed-loads.patch` | N64ModernRuntime | All | Zero-extend packed vector load bytes before shifting; fixes BOSS shade coefficients for values above 127. |
+| `0014-rt64-rdp-screen-clipping.patch` | RT64 | All | Clip reconstructed off-screen vertices in RDP screen space before GPU submission. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
@@ -58,6 +59,28 @@ reads unsigned DMEM bytes. LFV and LHV share the faulty seven-bit conversion;
 LPV's eight-bit conversion keeps the same final bits while using an unsigned
 operand. The patch changes these five reads to `RSP_MEM_BU`, preserving the
 existing addressing, element selection, and DMEM wrapping.
+
+Patch 0014 has a ROM-free perspective/coverage reproducer in
+`tests/test_rdp_triangle_clip.cpp`. A triangle with a negative W vertex beyond
+the scissor loses its visible trapezoid when the GPU clips it in homogeneous
+space. The pinned and current upstream
+[raw RDP decoder](https://github.com/rt64/rt64/blob/main/src/gbi/rt64_gbi_rdp.cpp)
+submit reconstructed vertices directly; the
+[vertex shader](https://github.com/rt64/rt64/blob/main/src/shaders/RasterVS.hlsl)
+multiplies their screen coordinates by W. The helper clips off-screen triangles
+near the RDP scissor first, interpolating reciprocal W and UV/color divided
+by W. It uses bounded stack arrays, preserves fully visible positive-W triangles exactly,
+and retains existing behavior for a perspective singularity inside visible
+coverage. A local probe restored Hawaii's textured sunset; limiting clipping
+to negative-W vertices did not restore the complete scene. The regression also
+checks positive-W off-screen coverage and guards against numeric overflow.
+Conservative rounded bounds include a one-native-pixel margin for RasterVS's
+half-pixel offset and raster-scissor rounding at the port's supported 4:3,
+1x-or-higher scales. The GPU scissor retains final sample clipping; a standard
+four-sample MSAA regression verifies edge coverage at 1x, 2x and 3x.
+Final player
+acceptance is recorded in [first playable](../docs/first-playable.md).
+
 The overlay patches are shared host UI behavior, copied from the Lamborghini
 peer's storage and enum-layout patches at the same dependency pins. The WDC
 frontend integration test verifies that opening, editing and discarding

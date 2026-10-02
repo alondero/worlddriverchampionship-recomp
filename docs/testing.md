@@ -39,6 +39,14 @@ not require a physical audio endpoint. Graphics tests include migration of
 old widescreen preferences to the verified 4:3 output policy.
 The RSP packed-load test runs the actual dependency helpers on synthetic DMEM,
 covering all unsigned byte values, vector elements, byte alignment and wrapping.
+The raw RDP clipping test uses a synthetic triangle and the vertex shader's
+homogeneous GPU clipping rule to reproduce visible coverage loss from an
+off-screen negative W. It verifies restored coverage and perspective texture,
+depth and shade values, clips positive-W off-screen coverage, and preserves
+fully visible and visible-singularity cases. Extreme finite inputs exercise
+bounded polygon storage and attribute-overflow fallback.
+An offset-aware standard four-sample MSAA fixture checks that conservative
+clipping retains edge coverage at 1x, 2x and 3x, including fractional scissors.
 
 `wdc_controller_pak` covers device reporting, raw-image byte order, block and
 guest-buffer boundaries, ID protection, bank selection, failed publication,

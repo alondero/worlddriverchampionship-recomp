@@ -19,6 +19,10 @@ Windows x64 MinGW/D3D12 verification with the same USA dump established:
   turned `0x80` into `0xC000` instead of `0x4000`, corrupting BOSS shade
   coefficients. Patch 0013 removes cyan road colouring and restores the
   green starting lights and sign colours in the observed Hawaii scene.
+- Patch 0014 clips reconstructed off-screen RDP triangles before GPU projection,
+  preserving perspective texture, depth and shade planes. Conservative bounds
+  retain MSAA edge samples after the shader's half-pixel offset. The final
+  player restores Hawaii's textured sunset, including at native 1x with 4x MSAA.
 - The tested player reached 72-74 mph in fourth gear during practice,
   paused/resumed, and exited normally with code 0. Native 1x and automatic
   resolution, plus MSAA switching, were exercised.
@@ -29,15 +33,24 @@ overlay displayed only Original 4:3, resized/fullscreen race presentation kept
 its proportions, a fresh five-second stereo recording had no zero or clipped
 samples, and the player exited normally with code 0.
 
-All ten integrated CTest entries and four Python tests passed, along with
+After the screen-clipping fix, the unmodified final player reached 67 mph in
+fourth gear with the textured sky visible, retained 4:3 through resizing and
+fullscreen, exercised native 1x/4x MSAA, restored defaults, and exited with code 0.
+One five-second WASAPI capture reported recording discontinuities and about
+3% zero samples. A five-second retry and an eight-second confirmation had
+no discontinuity warnings, zero samples or clipping in their float loopback
+data. The cause of the single capture failure is unconfirmed; longer output
+and capture stress checks are still needed.
+
+All eleven integrated CTest entries and four Python tests passed, along with
 documentation and whitespace checks. The full Windows player built successfully. The complete
 dependency patch series applied to clean pinned source copies, and repeat
 application checks succeeded. Standards and Spec reviews found no blocking
-code findings in the audio, aspect, and packed-load fixes.
+code findings in the audio, aspect, packed-load and screen-clipping fixes.
 
 Full laps, other tracks, opponents, split-screen, Linux/Android, and subjective
-audio/reference-console comparisons remain unverified. Sky rendering and small
-triangle seams still need investigation; the corrected road colours do not
+audio/reference-console comparisons remain unverified. Small triangle seams
+and pinholes remain visible in road, wall and sky geometry; the fixes do not
 establish complete graphics fidelity. Local captures and probes are ignored
 under `artifacts/review/`.
 
@@ -98,7 +111,7 @@ with fresh guest RAM, reading and metadata. Native tests cover failed writes,
 guest ranges and malformed-image preservation. See [configuration](configuration.md)
 and [peer comparison](peer-projects.md). SDL audio streams word-swapped stereo samples at the guest AI cadence; audio
 quality still needs listening tests. Remaining geometry/texture glitches are
-separate from the fixed cyan road colouring.
+separate from the fixed cyan road colouring and large flat sky polygon.
 The narrow 2D menu presentation was fixed by retaining 4:3 TV output for
 the game's 320x480 buffers. Track completion and race opponents have
 not been acceptance-tested. Android/Linux have not been validated.
@@ -134,8 +147,9 @@ All ROM-derived output remains ignored.
 
 ## Next work
 
-Investigate the remaining sky and triangle-seam glitches using a complete
-frame's RDP state. Validate audio fidelity, then full laps/opponents, gamepad,
+Investigate the remaining triangle seams and pinholes using a complete
+frame's RDP state. Stress-check audio output/capture and validate fidelity,
+then full laps/opponents, gamepad,
 additional tracks, and full race/championship save flows. Do not replace the LLE path
 with a generic graphics microcode: WDC uses BOSS, not Fast3D.
 
