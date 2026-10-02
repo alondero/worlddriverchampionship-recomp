@@ -42,19 +42,32 @@ local and uncommitted; no branch publication or PR was performed.
 
 ## Controls and reproduction
 
-Run `./play.ps1` from the checkout. At the no-pak warning use Down, X.
+Run `./play.ps1` from the checkout. Controller Pak support is now enabled on port 1.
 Enter skips the intro and starts from the title. X selects Quick Race;
 Down, X selects Practice Laps; X selects Hawaii; X selects automatic gears.
 Hold X to accelerate; Z brakes; arrows/WASD steer; Enter pauses; Escape exits.
 Space maps Z trigger and right Shift maps R. Gamepad and C-button mappings
 have not been implemented.
 
-Saving is unavailable: the host reports no Controller Pak. No save-file
-compatibility is claimed. SDL audio queues word-swapped stereo samples; audio
+Controller Pak storage uses a raw 32 KiB MPK image under `build/user-data/saves`.
+The ROM-backed SDK test verifies initialization, allocation, writing, reopening
+with fresh guest RAM, reading and metadata. Native tests cover failed writes,
+guest ranges and malformed-image preservation. See [configuration](configuration.md)
+and [peer comparison](peer-projects.md). SDL audio queues word-swapped stereo samples; audio
 quality needs listening tests. Visible geometry/texture glitches remain.
 The narrow 2D menu presentation was fixed by retaining 4:3 TV output for
 the game's 320x480 buffers. Track completion and race opponents have
 not been acceptance-tested. Android/Linux have not been validated.
+
+On 2026-10-02, the Windows MinGW/D3D12 player booted with an attached Pak
+without the no-Pak warning. A new championship driver `G` accepted the
+Speedcraft / '97 Stallion SR C offer and saved into slot 1; the game displayed
+"DATA SAVED". After closing normally (exit 0) and starting a fresh process,
+Championship / Load Game listed `G`, rank 30, zero events and `00:00:00` race
+time. Selecting slot 1 displayed "DATA LOADED".
+The raw MPK hash remained unchanged across the fresh boot. Keyboard events
+were injected into the SDL window for this menu check; screenshots stay in
+the ignored build tree and are acceptance evidence, not regression tests.
 
 ## Durable fixes and provenance
 
@@ -79,7 +92,7 @@ All ROM-derived output remains ignored.
 
 Investigate remaining rendering glitches using RDP image/scissor state.
 Validate audio, then full laps/opponents, gamepad,
-Controller Pak saves, and additional tracks. Do not replace the LLE path
+additional tracks, and full race/championship save flows. Do not replace the LLE path
 with a generic graphics microcode: WDC uses BOSS, not Fast3D.
 
 Suggested continuation: "Continue from docs/first-playable.md. Reproduce the

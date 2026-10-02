@@ -42,8 +42,9 @@ Generated files are ignored: `RecompiledFuncs/`, `src/aspMain.cpp`, and
 the CPU symbol/configuration TOMLs. Edit `rom-symbols.toml`,
 `scripts/gen_syms_toml.py`, or `aspMain.us.toml`, never generated C/C++.
 
-The script carries two Windows compatibility patches and two BOSS/runtime
-patches. Pinned dependency edits are exported under `patches/`; dirty
+The script carries two Windows compatibility patches, two BOSS/runtime
+patches, and a Controller Pak device-kind patch. Pinned dependency edits
+are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 
 ## Checks

@@ -26,3 +26,22 @@ Game-specific symbol names, function boundaries, RSP audio configuration,
 renderer patches, input semantics, Android Java activities, and release signing
 must be derived from the WDC ROM and its own runtime behaviour. The sibling
 projects provide patterns, not evidence for this game.
+
+## Controller Pak implementation
+
+[AeroGauge's block device](https://github.com/alondero/aerogauge-recomp/blob/1ace3fdd6c2ad8af5aef0cf34602dad05c549663/src/aero_pak.cpp)
+retains the ROM's SDK filesystem and replaces status and 32-byte read/write
+calls, with synchronous image replacement. This is the WDC seam: addresses
+were matched independently against WDC ROM bytes, then inspected at call sites.
+
+[Lamborghini's bridge](https://github.com/alondero/automobililamborghini-recomp/blob/f1542f04e21894b1f1c315f7a255c1f4a0840eaf/src/libultra_stubs.c)
+instead parses Joybus command frames because that game uses a custom SI path.
+WDC does not need to reproduce Joybus framing or CRC transport at the chosen
+SDK block boundary. Both siblings retain the game's note-management code.
+
+[Mario Kart 64's game registration](https://github.com/sonicdcer/MarioKart64Recomp/blob/3f72d2385cc995fea79e8fca81d886cb2bdce1de/src/main/main.cpp)
+uses cartridge EEPROM (`Eep4k`); setting a cartridge save type cannot implement
+WDC's Controller Pak. The pinned WDC runtime returns error 1 from its PFS
+replacements. WDC therefore gives the filesystem entries non-SDK symbol names
+to keep their real translated bodies, exposing only the ControllerPak enum
+through a dependency patch. See [save configuration](configuration.md).

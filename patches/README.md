@@ -30,13 +30,14 @@ the WDC runtime demonstrates the same need.
 | `0005-rt64-mingw-gcc-compat.patch` | RT64 | Windows | Compile RT64's texture hasher with MinGW GCC. |
 | `0006-runtime-lle-interrupt-ownership.patch` | N64ModernRuntime | All | Allow the BOSS renderer to own SP/DP completion and intermediate interrupts. |
 | `0007-rsprecomp-boss-support.patch` | N64Recomp | All | COP0 callbacks, CFC2/CTC2, exhaustive indirect dispatch option, fail-loud unsupported instructions. |
+| `0008-runtime-controller-pak-kind.patch` | N64ModernRuntime | All | Expose the ControllerPak enum for status reporting; WDC owns block storage and retains its ROM filesystem. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007 |
+| Linux | 0006, 0007, 0008 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original

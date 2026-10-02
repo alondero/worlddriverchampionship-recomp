@@ -22,7 +22,7 @@ git diff --check
 Once the ROM and generated image exist:
 
 ```bash
-cmake --build build-player --target wdc_guest_math_tests wdc_graphics_config_tests
+cmake --build build-player --target wdc_guest_math_tests wdc_graphics_config_tests wdc_controller_pak_tests wdc_pfs_rom_tests
 ctest --test-dir build-player --output-on-failure
 ```
 
@@ -34,3 +34,13 @@ The first-playable headless diagnostic exits 2 on its 15-second limit and is
 not a CI success gate. See [acceptance evidence](first-playable.md) for the
 separately verified windowed practice-driving path. Synthetic tests cover
 guest-memory math/string contracts and startup cache-marker transformation.
+
+`wdc_controller_pak` covers device reporting, raw-image byte order, block and
+guest-buffer boundaries, ID protection, bank selection, failed publication,
+and preservation of malformed files. `wdc_pfs_rom` is registered only when
+the local USA ROM and generated CPU sources exist. It extracts the translated
+SDK call closure into the build tree and exercises initialization/checking,
+note allocation, write, reload with fresh guest RAM, read, free space and file
+metadata. SI lock queues and the timer count are replaced in this
+single-threaded harness; no Pak filesystem call is mocked. Missing translated
+bodies fail generation.

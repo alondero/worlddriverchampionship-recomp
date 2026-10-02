@@ -12,6 +12,7 @@
 #include "ultramodern/error_handling.hpp"
 #include "xxHash/xxh3.h"
 #include "boss_rsp.h"
+#include "controller_pak.h"
 #ifdef WDC_PLAYER
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -80,6 +81,7 @@ int main(int argc, char** argv) {
     const auto config_path = std::filesystem::current_path() / "build" / "user-data";
     std::filesystem::create_directories(config_path);
     recomp::register_config_path(config_path);
+    wdc::pak::configure(config_path / "saves" / "worlddriverchampionship.us.mpk");
 #ifdef WDC_PLAYER
     wdc::graphics::load(config_path / "graphics.json");
 #endif
@@ -155,11 +157,7 @@ int main(int argc, char** argv) {
         return port == 0;
     };
 #endif
-    cfg.input_callbacks.get_connected_device_info = [](int port) {
-        return ultramodern::input::connected_device_info_t{
-            port == 0 ? ultramodern::input::Device::Controller : ultramodern::input::Device::None,
-            ultramodern::input::Pak::None};
-    };
+    cfg.input_callbacks.get_connected_device_info = wdc::pak::device_info;
     cfg.audio_callbacks.queue_samples = [](int16_t*, size_t) {};
     cfg.audio_callbacks.get_frames_remaining = []() -> size_t { return 0; };
     cfg.audio_callbacks.set_frequency = [](uint32_t frequency) { std::fprintf(stderr, "[wdc] audio Hz=%u\n", frequency); };
