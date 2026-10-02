@@ -90,7 +90,8 @@ if(WDC_FUNC_C_SOURCES OR WDC_FUNC_CXX_SOURCES)
         "${N64MR}/N64Recomp/include")
 endif()
 
-set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/boss_rsp.cpp)
+set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/boss_rsp.cpp
+    src/controller_pak.cpp)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/aspMain.cpp")
     list(APPEND WDC_SOURCES src/aspMain.cpp)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64")
@@ -155,6 +156,11 @@ if(WDC_ENABLE_FRONTEND)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(wdc_controller_pak_tests tests/test_controller_pak.cpp src/controller_pak.cpp)
+    target_include_directories(wdc_controller_pak_tests PRIVATE src
+        "${N64MR}/N64Recomp/include" "${N64MR}/ultramodern/include")
+    target_link_libraries(wdc_controller_pak_tests PRIVATE Threads::Threads)
+    add_test(NAME wdc_controller_pak COMMAND wdc_controller_pak_tests)
     add_executable(wdc_graphics_config_tests tests/test_graphics_config.cpp src/graphics_config.cpp)
     target_include_directories(wdc_graphics_config_tests PRIVATE src "${N64MR}/thirdparty")
     target_compile_definitions(wdc_graphics_config_tests PRIVATE NOMINMAX)
@@ -165,6 +171,22 @@ if(BUILD_TESTING)
     add_test(NAME wdc_guest_math COMMAND wdc_guest_math_tests)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
+        if(TARGET WdcRecompiledFuncs AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/pfs_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_pfs_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/pfs_test_funcs.c"
+                DEPENDS tests/extract_pfs_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_pfs_rom_tests tests/test_pfs_rom.cpp src/controller_pak.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/pfs_test_funcs.c")
+            target_include_directories(wdc_pfs_rom_tests PRIVATE src "${N64MR}/N64Recomp/include"
+                "${N64MR}/ultramodern/include")
+            target_compile_options(wdc_pfs_rom_tests PRIVATE -fno-strict-aliasing)
+            target_link_libraries(wdc_pfs_rom_tests PRIVATE Threads::Threads)
+            add_test(NAME wdc_pfs_rom COMMAND wdc_pfs_rom_tests
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_pfs_rom PROPERTIES TIMEOUT 30)
+        endif()
         add_test(NAME wdc_rom_transforms
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rom_transforms.py")
         add_test(NAME wdc_bootstrap_structure

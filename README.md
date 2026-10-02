@@ -18,11 +18,14 @@ Supply your own USA ROM, then run:
 ```
 
 Enter is Start/pause, X is A/accelerate, Z is B/brake, and arrows/WASD steer.
-At the Controller Pak warning, select **Play Anyway** with Down then X.
 For the tested path: skip intro with Enter, press Enter at the title, then
 X for Quick Race, Down and X for Practice Laps, X for Hawaii, and X for automatic transmission.
 
-Known limitations: no saving/Controller Pak, keyboard only,
+Controller Pak saves are enabled on port 1 and persist in
+`build/user-data/saves/worlddriverchampionship.us.mpk`. See
+[save configuration](docs/configuration.md) for backup and failure behavior.
+
+Known limitations: keyboard only,
 and rendering glitches. SDL audio output is experimental. Linux and Android
 are not validated. No ROM, generated game code, or binary is committed.
 

@@ -11,15 +11,6 @@ extern "C" [[noreturn]] void wdc_unimplemented(const char* name) {
 }
 
 
-// No Controller Pak is attached in the first playable host. The synchronous
-// query succeeds and returns an empty presence bitmap, matching device_info.
-extern "C" void wdc_pfs_is_plug(uint8_t* rdram, recomp_context* ctx) {
-    // Replace this policy when Controller Pak storage is implemented.
-    wdc_require_guest_range(ctx->r5, 1);
-    MEM_B(0, ctx->r5) = 0;
-    ctx->r2 = 0;
-}
-
 // 8002D7F0 only aligns a range and invalidates D-cache lines through a computed
 // jump into an unrolled cache loop. Host RDRAM is coherent; no memory writes.
 extern "C" void wdc_invalidate_cache(uint8_t*, recomp_context*) {}

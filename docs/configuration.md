@@ -71,3 +71,15 @@ Linux generation currently requires the default filename at the repository root.
 
 The player stores runtime data under ignored `build/user-data`. Input settings
 and a controller-navigable frontend remain future work.
+
+Controller Pak saves are enabled on controller port 1 and stored as a raw
+32 KiB image at `build/user-data/saves/worlddriverchampionship.us.mpk`.
+The game owns note names, allocation, repair and save data. Only a missing
+image is formatted automatically. An unreadable or incorrectly sized file is
+preserved and reported as an absent Pak. Back up the image while the player is
+closed before using the game's Pak manager to delete or repair notes.
+
+Each successful block write is published through a temporary file and atomic
+replacement before returning to the game, so Escape does not discard pending
+saves. A failed write returns a device error and preserves the previous disk
+and memory image. Additional controller ports and Rumble Paks remain unavailable.
