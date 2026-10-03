@@ -6,6 +6,7 @@
 #include "ultramodern/renderer_context.hpp"
 #include "boss_rsp.h"
 #include "graphics_rt64.h"
+#include "game_camera.h"
 #include <algorithm>
 #include <cstdio>
 #include <memory>
@@ -23,12 +24,17 @@ class Renderer final : public ultramodern::renderer::RendererContext {
     std::unique_ptr<RT64::Application> app;
     uint8_t* rdram;
     wdc::graphics::Settings settings;
+    float aspect_target = 0.0f;
     void sync_settings() {
         const auto next = wdc::graphics::snapshot();
-        if (next == settings) return;
+        const auto size = app->core.decodeVI().fbSize();
+        const float source = size.y > 0 ? float(size.x) / float(size.y) : 4.0f / 3.0f;
+        const float scale = wdc::camera::width_scale();
+        const float target = source * scale;
+        if (next == settings && target == aspect_target) return;
         const auto old_samples = app->userConfig.antialiasing;
         const auto color_format = app->userConfig.internalColorFormat;
-        wdc::graphics::configure(app->userConfig, next);
+        wdc::graphics::configure(app->userConfig, next, scale, source);
         // RT64 allocates color-format-dependent shaders during setup only.
         app->userConfig.internalColorFormat = color_format;
         const auto counts = app->device->getSampleCountsSupported(RT64::RenderTarget::colorBufferFormat(app->shaderLibrary->usesHDR)) &
@@ -40,6 +46,7 @@ class Renderer final : public ultramodern::renderer::RendererContext {
         app->updateUserConfig(true);
         if (old_samples != app->userConfig.antialiasing) app->updateMultisampling();
         settings = next;
+        aspect_target = target;
     }
 public:
     Renderer(uint8_t* memory, ultramodern::renderer::WindowHandle window) : rdram(memory) {

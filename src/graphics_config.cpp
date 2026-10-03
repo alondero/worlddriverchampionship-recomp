@@ -18,9 +18,7 @@ std::filesystem::path file;
 }
 Settings normalize(Settings s) {
     s.resolution = std::clamp(s.resolution, 0, 8);
-    // Raw BOSS triangles are already projected. RT64 expansion stretches the
-    // world while retaining the original HUD/scissor; migrate old preferences.
-    s.aspect = 0;
+    if (s.aspect < 0 || s.aspect > 1) s.aspect = 1;
     if (s.rate != 0 && s.rate != -1 && (s.rate < 30 || s.rate > 360)) s.rate = 0;
     if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8) s.samples = 1;
     if (s.filtering < 0 || s.filtering > 2) s.filtering = 1;
@@ -38,7 +36,7 @@ void load(const std::filesystem::path& path) {
         std::ifstream in(file);
         if (in) {
             const auto j = nlohmann::json::parse(in);
-            if (!j.is_object() || j.value("version", 1) != 1)
+            if (!j.is_object() || (j.value("version", 1) != 1 && j.value("version", 1) != 2))
                 throw std::runtime_error("unsupported graphics settings format");
             auto integer = [&](const char* key, int& value) {
                 if (j.contains(key)) {
@@ -54,6 +52,9 @@ void load(const std::filesystem::path& path) {
             integer("rate", s.rate); integer("samples", s.samples);
             integer("filtering", s.filtering); integer("precision", s.precision);
             s.fullscreen = j.value("fullscreen", false);
+            // Version 1 forcibly disabled widescreen, including saved 0 values.
+            // Upgrade those preferences to the working camera-aware default.
+            if (j.value("version", 1) == 1) s.aspect = 1;
         } else if (std::filesystem::exists(file)) {
             throw std::runtime_error("cannot read settings");
         }
@@ -69,7 +70,7 @@ bool apply(Settings s) {
     s = normalize(s);
     { std::lock_guard lock(mutex); current = s; }
     try {
-        nlohmann::json j = {{"version", 1}, {"resolution", s.resolution},
+        nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
             {"aspect", s.aspect}, {"rate", s.rate}, {"samples", s.samples},
             {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen}};
         auto temporary = file;
@@ -93,7 +94,7 @@ bool apply(Settings s) {
 }
 std::string describe(const Settings& s) {
     return (s.resolution ? std::to_string(s.resolution) + "x" : "Auto resolution") +
-        " | 4:3" +
+        (s.aspect == 0 ? " | 4:3" : " | Window aspect") +
         " | " + (s.rate == 0 ? "Original rate" : s.rate == -1 ? "Display rate (experimental)" : std::to_string(s.rate) + " Hz (experimental)") +
         " | AA " + std::to_string(s.samples) + "x";
 }

@@ -9,6 +9,7 @@ settings change replaces the file; a save failure is reported without losing
 the live change.
 
 Press **Escape or F1** to open the settings overlay, including in fullscreen.
+The initial window is 1280x720; F11 / Alt+Enter uses the desktop resolution.
 The Graphics tab exposes all saved graphics options. Choose values, then press
 **Apply**; closing or switching tabs with changes offers Apply/Discard.
 **Restore defaults** stages the original choices for the same Apply/Discard
@@ -20,14 +21,15 @@ opening settings: the game continues running while the overlay is open, but
 menu input is blocked from the game. Held gameplay keys must be released before
 input resumes. Color precision requires a restart; the other changes apply live.
 
-The window title shows requested settings. The Windows **Graphics** menu and
-the shortcuts below remain available during gameplay; use the overlay's
+The window title shows requested settings. The Windows **Graphics** menu is
+hidden in fullscreen and restored in windowed mode. The shortcuts below
+remain available during gameplay; use the overlay's
 controls while it is open. F11 / Alt+Enter works in either mode.
 
 | Shortcut | Setting | Choices |
 | --- | --- | --- |
 | F2 | Internal resolution | Auto (default), 1x, 2x, 3x, 4x, 6x, 8x |
-| Fixed | Aspect | Original 4:3, fitted to the window or fullscreen display |
+| F3 | Aspect | Match window (default, wider camera), original 4:3 |
 | F4 | Presentation target | Original (default), display, 60, 120, 144, 240 Hz |
 | F5 | Anti-aliasing | Off (default), MSAA 2x, 4x, 8x |
 | F6 | Output filter | Nearest, linear (default), pixel scaling |
@@ -40,8 +42,14 @@ Unsupported MSAA falls back to off and is reported in the log; the title shows
 the requested value. Output filtering affects presentation, not texture assets.
 Higher precision is an internal framebuffer setting, not HDR monitor output.
 
-Original 4:3 preserves racing and menu proportions at every window size.
-Old Expand/16:9 preferences normalize to original aspect; F3 is reserved.
+Match window widens the game camera and horizontal visibility to fit wide
+windows and fullscreen displays. Cars retain their proportions; HUD and menu
+rectangles keep their original size and are centered. The game's outer TV
+overscan margins are removed by expanding its viewport and scissor, without
+cropping the scene. Cinematic layouts and fixed 2D artwork can still leave
+unused space. Narrow windows and Original use a fitted 4:3 view.
+Version 1 preferences, which forcibly disabled widescreen, migrate to Match
+window. An explicit Original choice in version 2 survives restarts.
 Non-original presentation targets are experimental.
 WDC currently supplies raw RDP triangles without camera matrices or persistent
 object transforms. Higher targets do not add interpolated motion and may add
@@ -51,13 +59,13 @@ Guest simulation and VI timing are unchanged. See the
 
 The overlay offers every resolution multiplier from 1x to 8x and a Custom
 presentation target from 30 to 360 Hz. Existing custom values are retained.
-You can also edit the file while the player is closed. Schema version 1:
+You can also edit the file while the player is closed. Schema version 2:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "resolution": 0,
-  "aspect": 0,
+  "aspect": 1,
   "rate": 0,
   "samples": 1,
   "filtering": 1,
@@ -66,7 +74,7 @@ You can also edit the file while the player is closed. Schema version 1:
 }
 ```
 
-Resolution accepts 0 (auto) or 1-8; aspect normalizes to 0 (original);
+Resolution accepts 0 (auto) or 1-8; aspect accepts 0 (original) or 1 (window);
 rate accepts 0 (original), -1 (display), or 30-360 Hz; samples accepts
 1, 2, 4, 8. Filtering accepts 0 (nearest), 1 (linear), 2 (pixel scaling);
 precision accepts 0 (auto), 1 (standard), 2 (high). Unknown enum values use

@@ -100,3 +100,15 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x800779A0 = "wdc_pak_status"
 0x80078940 = "wdc_pak_read"
 0x80079700 = "wdc_pak_write"
+
+# Aspect is consumed by both the horizontal culling extent and perspective.
+# Keep the injection in generator inputs, never in generated CPU code.
+[[hooks]]
+func = "func_80011D54"
+before_vram = 0x80011DC4
+text = "{ extern void wdc_widen_camera(uint8_t*, recomp_context*); wdc_widen_camera(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8000FC18"
+before_vram = 0x8000FEF0
+text = "{ extern void wdc_remove_overscan(uint8_t*, recomp_context*); wdc_remove_overscan(rdram, ctx); }"

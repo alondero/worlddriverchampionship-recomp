@@ -36,7 +36,8 @@ separately verified windowed practice-driving path. Synthetic tests cover
 guest-memory math/string contracts and startup cache-marker transformation.
 Audio tests use a synthetic circular buffer and an SDL device stub; they do
 not require a physical audio endpoint. Graphics tests include migration of
-old widescreen preferences to the verified 4:3 output policy.
+old forced-4:3 preferences to the camera-aware window aspect, and persistence
+of an explicit Original choice in the new schema.
 The RSP packed-load test runs the actual dependency helpers on synthetic DMEM,
 covering all unsigned byte values, vector elements, byte alignment and wrapping.
 The raw RDP clipping test uses a synthetic triangle and the vertex shader's
@@ -57,3 +58,14 @@ note allocation, write, reload with fresh guest RAM, read, free space and file
 metadata. SI lock queues and the timer count are replaced in this
 single-threaded harness; no Pak filesystem call is mocked. Missing translated
 bodies fail generation.
+
+`wdc_camera_rom` extracts the real camera/perspective/matrix call closure.
+It loads ROM constants into word-swapped RDRAM and supplies a deterministic
+camera and framebuffer descriptor. It checks wider horizontal projection and
+visibility with unchanged vertical/depth terms, points newly entering the view,
+16:9/ultrawide and narrow windows, and non-square-pixel framebuffer modes.
+Only display-list allocation is replaced in the projection closure. A separate
+layout fixture retains the ROM's scene partition arithmetic and rectangle
+writer while replacing mode switching, orientation setters and heap clearing.
+It checks full-screen bounds and horizontal/vertical split boundaries.
+Missing/indirect calls fail extraction.

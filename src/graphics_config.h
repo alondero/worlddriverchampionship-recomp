@@ -3,10 +3,10 @@
 #include <string>
 
 namespace wdc::graphics {
-// Host-owned values. No guest memory or VI/simulation timing is modified.
+// Host-owned values. Aspect also controls the game camera; VI/timing stay native.
 struct Settings {
     int resolution = 0; // 0: automatic window integer scale; 1..8: native multiplier
-    int aspect = 0; // Original 4:3; legacy expand/16:9 values normalize to 0.
+    int aspect = 1; // 0: Original 4:3; 1: wider camera matching the window
     int rate = 0; // 0: original; -1: display; 30..360: presentation target
     int samples = 1; // 1, 2, 4, 8
     int filtering = 1; // nearest, linear, pixel scaling (presentation filter)
