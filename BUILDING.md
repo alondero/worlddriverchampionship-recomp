@@ -45,7 +45,7 @@ the CPU symbol/configuration TOMLs. Edit `rom-symbols.toml`,
 
 The script carries two Windows compatibility patches, three BOSS/runtime
 patches, a Controller Pak device-kind patch, four settings-overlay patches,
-and a raw RDP screen-clipping patch.
+and raw RDP screen-clipping and scissor-scaling patches.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 

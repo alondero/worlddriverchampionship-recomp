@@ -54,6 +54,7 @@ int main() {
         page.update_option_value("samples", uint32_t(8));
         page.update_option_value("filtering", uint32_t(0));
         page.update_option_value("precision", uint32_t(1));
+        page.update_option_value("aspect", uint32_t(0));
         page.update_option_value("fullscreen", uint32_t(1));
         require(page.save_config() && requested.has_value(), "Apply did not hand settings to SDL");
         wdc::graphics::Settings expected{3, 0, 144, 8, 0, 1, true};

@@ -152,6 +152,10 @@ def main() -> int:
         f'rom_file_path = "{config["filename"]}"', "", "[patches]",
         f"stubs = {stubs_toml}", "ignored = []", "",
     ]
+    for hook in symbol_config.get("hooks", []):
+        output.extend(['[[patches.hook]]', f'func = "{hook["func"]}"',
+                       f'before_vram = {hook["before_vram"]:#x}',
+                       f'text = \'{hook["text"]}\'', ''])
     # Cache maintenance is redundant with coherent host RDRAM. Preserve the
     # surrounding guest computation, including the game's custom assembly.
     # Privileged CPU helpers cannot execute on the host; until identified and

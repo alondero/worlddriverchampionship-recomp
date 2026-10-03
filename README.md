@@ -32,9 +32,10 @@ are not validated. No ROM, generated game code, or binary is committed.
 Graphics: automatic or 1-8x resolution scaling, MSAA, output filtering, saved
 settings, and fullscreen (F11 / Alt+Enter). Press Escape or F1 for the tabbed
 settings overlay, with Apply/Discard, Restore Defaults and a control reference.
-Race presentation retains original 4:3 proportions. Experimental
-presentation-rate controls are available; true wider-camera rendering and
-interpolated motion remain future work. See [Graphics settings](docs/configuration.md) and the
+Race presentation widens the camera to match the window, preserves car/HUD
+proportions and removes the outer TV borders. Original 4:3 remains available.
+Experimental presentation-rate controls are available; interpolated motion
+remains future work. See [Graphics settings](docs/configuration.md) and the
 [peer capability review](docs/graphics-capabilities.md).
 
 See [Building](BUILDING.md), [First-playable evidence](docs/first-playable.md),

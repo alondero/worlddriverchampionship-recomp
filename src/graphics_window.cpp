@@ -1,5 +1,6 @@
 #include "graphics_window.h"
 #include "graphics_config.h"
+#include "game_camera.h"
 #include "ui/frontend.h"
 #include <SDL_syswm.h>
 #include <algorithm>
@@ -12,7 +13,7 @@ namespace wdc::graphics {
 namespace {
 const char* help =
     "F2: Resolution - Auto, 1x, 2x, 3x, 4x, 6x, 8x\n"
-    "Aspect: Original 4:3, fitted to the window\n"
+    "F3: Aspect - Match window (wider camera), Original 4:3\n"
     "F4: Presentation - Original, Display, 60, 120, 144, 240 Hz\n"
     "F5: Anti-aliasing - Off, 2x, 4x, 8x MSAA\n"
     "F6: Output filter - Nearest, Linear, Pixel scaling\n"
@@ -50,7 +51,7 @@ void change(SDL_Window* window, SDL_Keycode key) {
 #endif
         return;
     case SDLK_F2: s.resolution = cycle(s.resolution, resolutions); break;
-    case SDLK_F3: return; // Reserved until a wider game camera is supported.
+    case SDLK_F3: s.aspect = 1 - s.aspect; break;
     case SDLK_F4: s.rate = cycle(s.rate, rates); break;
     case SDLK_F5: s.samples = s.samples == 8 ? 1 : s.samples * 2; break;
     case SDLK_F6: s.filtering = (s.filtering + 1) % 3; break;
@@ -62,16 +63,43 @@ void change(SDL_Window* window, SDL_Keycode key) {
     const auto error = apply_window_settings(window, s);
     if (!error.empty()) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Graphics settings", error.c_str(), window);
 }
+void output_size(SDL_Window* window) {
+    int width = 0, height = 0;
+    SDL_GetWindowSize(window, &width, &height);
+    if (snapshot().aspect == 0) { width = 4; height = 3; }
+    wdc::camera::set_output_size(width, height);
+}
+#ifdef _WIN32
+// The window property owns the menu even while it is detached in fullscreen.
+constexpr const wchar_t* menu_property = L"WdcGraphicsMenu";
+void window_menu(SDL_Window* window, bool fullscreen) {
+    SDL_SysWMinfo info{};
+    SDL_VERSION(&info.version);
+    if (!SDL_GetWindowWMInfo(window, &info)) return;
+    HWND hwnd = info.info.win.window;
+    auto menu = reinterpret_cast<HMENU>(GetPropW(hwnd, menu_property));
+    SetMenu(hwnd, fullscreen ? nullptr : menu);
+    DrawMenuBar(hwnd);
+}
+#endif
 }
 std::string apply_window_settings(SDL_Window* window, Settings s) {
     std::string error;
     const bool previous = snapshot().fullscreen;
+#ifdef _WIN32
+    // Detach before SDL sizes the fullscreen client area to the desktop.
+    window_menu(window, s.fullscreen);
+#endif
     if (s.fullscreen != previous && SDL_SetWindowFullscreen(window, s.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0)) {
         std::fprintf(stderr, "[wdc] fullscreen: %s\n", SDL_GetError());
         error = "Could not change window mode. The previous window mode was kept. ";
         s.fullscreen = previous;
+#ifdef _WIN32
+        window_menu(window, previous);
+#endif
     }
     if (!apply(s)) error += "Settings applied but could not be saved. Check the user-data directory is writable.";
+    output_size(window);
     title(window);
     return error;
 }
@@ -88,19 +116,22 @@ void attach_window(SDL_Window* window) {
     SDL_VERSION(&info.version);
     if (SDL_GetWindowWMInfo(window, &info)) {
         HMENU bar = CreateMenu(), menu = CreatePopupMenu();
-        const char* labels[]{"Graphics help\tF1", "Cycle resolution\tF2", "Aspect: Original 4:3",
+        const char* labels[]{"Graphics help\tF1", "Cycle resolution\tF2", "Cycle aspect ratio\tF3",
             "Cycle presentation rate (experimental)\tF4", "Cycle anti-aliasing\tF5", "Cycle output filter\tF6",
             "Cycle color precision (restart)\tF7", "Restore defaults\tF9", "Fullscreen\tF11"};
-        for (unsigned i = 0; i < 9; ++i) AppendMenuA(menu, MF_STRING | (i == 2 ? MF_GRAYED : 0), 4000 + i, labels[i]);
+        for (unsigned i = 0; i < 9; ++i) AppendMenuA(menu, MF_STRING, 4000 + i, labels[i]);
         AppendMenuA(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(menu), "Graphics");
-        SetMenu(info.info.win.window, bar); // Window destruction owns attached menu.
-        DrawMenuBar(info.info.win.window);
+        SetPropW(info.info.win.window, menu_property, bar);
+        window_menu(window, snapshot().fullscreen);
         SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);
     }
 #endif
+    output_size(window);
     title(window);
 }
 void handle_event(SDL_Window* window, const SDL_Event& event) {
+    if (event.type == SDL_WINDOWEVENT && (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+        event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED)) output_size(window);
     if (event.type == SDL_KEYDOWN && !event.key.repeat) {
         auto key = event.key.keysym.sym;
         if (key == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) key = SDLK_F11;
@@ -111,6 +142,17 @@ void handle_event(SDL_Window* window, const SDL_Event& event) {
         const auto id = LOWORD(event.syswm.msg->msg.win.wParam);
         const SDL_Keycode keys[]{SDLK_F1, SDLK_F2, SDLK_F3, SDLK_F4, SDLK_F5, SDLK_F6, SDLK_F7, SDLK_F9, SDLK_F11};
         if (id >= 4000 && id < 4009) change(window, keys[id - 4000]);
+    }
+#endif
+}
+void release_window(SDL_Window* window) {
+#ifdef _WIN32
+    SDL_SysWMinfo info{};
+    SDL_VERSION(&info.version);
+    if (SDL_GetWindowWMInfo(window, &info)) {
+        auto menu = reinterpret_cast<HMENU>(RemovePropW(info.info.win.window, menu_property));
+        SetMenu(info.info.win.window, nullptr);
+        if (menu) DestroyMenu(menu);
     }
 #endif
 }

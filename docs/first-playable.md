@@ -1,5 +1,34 @@
 # First-playable evidence
 
+## Wider camera verified on 2026-10-03
+
+Windows x64, GCC 15.2, Direct3D 12, RTX 3080, verified USA ROM
+SHA256 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`:
+
+- Hawaii racing at 2048x1152 filled all four display edges after removing
+  the game's outer viewport insets. The camera exposes additional scenery;
+  the car, map, speedometer, timing text and pause panel retain proportions.
+- F3 switches between Original and Match window. F11 hides the Windows
+  Graphics menu in desktop fullscreen and restores it in windowed mode.
+  The settings overlay exposes both aspect choices and opens in fullscreen.
+- The live Hawaii time-attack path reached 78 mph in fourth gear with the
+  textured sky visible. Menu transitions, returning to a window and switching
+  aspect while driving were exercised. Local ignored evidence is under
+  `artifacts/aspect/`; it is not a regression test or a console comparison.
+- The ROM-backed camera/layout test checks widened projection and horizontal
+  visibility, unchanged vertical/depth terms, 16:9/ultrawide, 480-line pixel
+  correction, narrow windows, full-screen bounds and both split directions.
+- All twelve integrated CTest entries, four Python tests, documentation and
+  whitespace checks passed. The Windows player compiled, and the RT64 patch
+  series applied cleanly to its pinned commit with reverse/idempotency checks.
+
+Fixed 2D menu artwork and cinematic layouts remain centered and can leave
+unused space; their textures are not stretched or cropped to fill a wide
+display. Multiplayer driving and a physical ultrawide display have not been
+validated. Existing thin triangle seams/pinholes remain tracked in
+[issue #4](https://github.com/alondero/worlddriverchampionship-recomp/issues/4).
+The dated 4:3 acceptance below describes the previous policy.
+
 ## Race quality fixes verified on 2026-10-02
 
 Windows x64 MinGW/D3D12 verification with the same USA dump established:

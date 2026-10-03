@@ -37,13 +37,14 @@ the WDC runtime demonstrates the same need.
 | `0012-frontend-host-services.patch` | RecompFrontend | Desktop | Allow main-thread SDL services and an explicit executable-relative asset directory. |
 | `0013-runtime-rsp-unsigned-packed-loads.patch` | N64ModernRuntime | All | Zero-extend packed vector load bytes before shifting; fixes BOSS shade coefficients for values above 127. |
 | `0014-rt64-rdp-screen-clipping.patch` | RT64 | All | Clip reconstructed off-screen vertices in RDP screen space before GPU submission. |
+| `0015-rt64-raw-triangle-scissor.patch` | RT64 | All | Scale raw-triangle scissors in the same framebuffer space as their vertices. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
@@ -75,11 +76,18 @@ coverage. A local probe restored Hawaii's textured sunset; limiting clipping
 to negative-W vertices did not restore the complete scene. The regression also
 checks positive-W off-screen coverage and guards against numeric overflow.
 Conservative rounded bounds include a one-native-pixel margin for RasterVS's
-half-pixel offset and raster-scissor rounding at the port's supported 4:3,
-1x-or-higher scales. The GPU scissor retains final sample clipping; a standard
+half-pixel offset and raster-scissor rounding at the port's supported
+1x-or-higher scales, including widened horizontal output. The GPU scissor
+retains final sample clipping; a standard
 four-sample MSAA regression verifies edge coverage at 1x, 2x and 3x.
 Final player
 acceptance is recorded in [first playable](../docs/first-playable.md).
+
+Patch 0015 corrects the pinned RT64 raw-triangle scissor transform. These
+vertices already occupy the full scaled framebuffer; applying the projected
+camera's inverse aspect scale to their scissor clips both wide edges. The
+[renderer reference](../docs/reference/renderer.md) records the pinned source,
+a minimal numeric reproducer, and the live GPU acceptance evidence.
 
 The overlay patches are shared host UI behavior, copied from the Lamborghini
 peer's storage and enum-layout patches at the same dependency pins. The WDC

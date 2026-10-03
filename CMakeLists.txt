@@ -90,7 +90,7 @@ if(WDC_FUNC_C_SOURCES OR WDC_FUNC_CXX_SOURCES)
         "${N64MR}/N64Recomp/include")
 endif()
 
-set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/boss_rsp.cpp
+set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/boss_rsp.cpp
     src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/aspMain.cpp")
     list(APPEND WDC_SOURCES src/aspMain.cpp)
@@ -192,6 +192,18 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         if(TARGET WdcRecompiledFuncs AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_camera_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c"
+                DEPENDS tests/extract_camera_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_camera_rom_tests tests/test_camera_rom.cpp src/game_camera.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c")
+            target_include_directories(wdc_camera_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_camera_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_camera_rom COMMAND wdc_camera_rom_tests
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_camera_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/pfs_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_pfs_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/pfs_test_funcs.c"

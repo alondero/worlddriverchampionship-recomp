@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
     cfg.renderer_callbacks.create_render_context = wdc_create_renderer;
     cfg.gfx_callbacks.create_window = [](void*) {
         window = SDL_CreateWindow("World Driver Championship: Recompiled", SDL_WINDOWPOS_CENTERED,
-            SDL_WINDOWPOS_CENTERED, 960, 720, SDL_WINDOW_RESIZABLE);
+            SDL_WINDOWPOS_CENTERED, 1280, 720, SDL_WINDOW_RESIZABLE);
         if (!window) wdc_unimplemented(SDL_GetError());
         wdc::ui::set_window(window);
         wdc::graphics::attach_window(window);
@@ -146,6 +146,7 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (event.type == SDL_QUIT) {
+                wdc::graphics::release_window(window);
                 std::fflush(nullptr);
                 std::_Exit(0);
             }
@@ -221,6 +222,7 @@ int main(int argc, char** argv) {
     recomp::start(cfg);
 #ifdef WDC_PLAYER
     wdc::ui::shutdown();
+    wdc::graphics::release_window(window);
     return 0;
 #else
     return 2;
