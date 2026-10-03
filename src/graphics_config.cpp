@@ -70,6 +70,7 @@ bool apply(Settings s) {
     s = normalize(s);
     { std::lock_guard lock(mutex); current = s; }
     try {
+        if (file.empty()) throw std::runtime_error("settings path is not configured");
         nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
             {"aspect", s.aspect}, {"rate", s.rate}, {"samples", s.samples},
             {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen}};

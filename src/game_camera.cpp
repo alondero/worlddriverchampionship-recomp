@@ -8,6 +8,8 @@ namespace { std::atomic<float> scale{1.0f}; }
 void set_output_size(int width, int height) {
     if (width > 0 && height > 0)
         scale = std::max(1.0f, float(width) / float(height) / (4.0f / 3.0f));
+    else
+        scale = 1.0f;
 }
 float width_scale() { return scale.load(); }
 }

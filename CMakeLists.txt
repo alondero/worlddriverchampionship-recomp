@@ -203,6 +203,7 @@ if(BUILD_TESTING)
             target_compile_options(wdc_camera_rom_tests PRIVATE -fno-strict-aliasing)
             add_test(NAME wdc_camera_rom COMMAND wdc_camera_rom_tests
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_camera_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/pfs_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_pfs_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/pfs_test_funcs.c"

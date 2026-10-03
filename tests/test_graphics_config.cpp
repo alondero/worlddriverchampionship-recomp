@@ -11,10 +11,26 @@ void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
 int main() {
+    const auto original_directory = std::filesystem::current_path();
     const auto dir = std::filesystem::temp_directory_path() /
         ("wdc-graphics-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directory(dir);
     try {
+        // An uninitialized save must publish live settings without staging a
+        // write against the empty path (which otherwise overwrites CWD/.tmp).
+        std::filesystem::current_path(dir);
+        const auto temporary = dir / ".tmp";
+        { std::ofstream out(temporary); out << "preserve unconfigured save sentinel"; }
+        auto unconfigured = Settings{};
+        unconfigured.resolution = 2;
+        require(!apply(unconfigured), "unconfigured save unexpectedly succeeded");
+        require(snapshot() == unconfigured, "unconfigured save lost live settings");
+        std::ifstream before_load(temporary);
+        const std::string preserved_temporary{std::istreambuf_iterator<char>(before_load), {}};
+        before_load.close();
+        require(preserved_temporary == "preserve unconfigured save sentinel",
+            "unconfigured save wrote a temporary file");
+        std::filesystem::current_path(original_directory);
         const auto path = dir / "graphics.json";
         load(path);
         require(snapshot() == Settings{}, "missing file must use defaults");
@@ -74,6 +90,7 @@ int main() {
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
+        std::filesystem::current_path(original_directory);
         std::filesystem::remove_all(dir);
         return 1;
     }

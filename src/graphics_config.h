@@ -17,6 +17,7 @@ struct Settings {
 Settings normalize(Settings settings);
 // Load/save on SDL main thread. Renderer takes a locked copy at a frame boundary.
 // Invalid files are preserved and defaults used; later explicit changes may save.
+// Load selects the save path; apply without one fails before staging any write.
 void load(const std::filesystem::path& path);
 Settings snapshot();
 bool apply(Settings settings); // publishes even if saving fails; reports failure

@@ -41,6 +41,8 @@ uses the same factor with RT64 Manual aspect, multiplying its VI-derived
 framebuffer aspect rather than treating 320x480 menu pixels as square. RT64's
 rectangle path centers and preserves HUD/menu proportions, while raw world
 triangles have already been widened by the ROM. Narrow windows retain 4:3.
+Non-positive output dimensions reset the published scale to the original TV
+aspect, including when the previous output was wide.
 
 The scene-layout builder `func_8000FC18` assigns 8- or 16-pixel TV overscan
 insets to `s4/s5`. The hook before `0x8000FEF0` clears those registers before
@@ -63,9 +65,11 @@ This comparison is against RT64 pin `f0728a2520d5aa735886240de3fee75cc805f6d6`,
 
 `wdc_camera_rom` executes the translated camera/perspective/matrix closure with
 ROM constants, checking horizontal visibility, preserved vertical/depth terms,
-16:9 and ultrawide, non-square-pixel modes and narrow-window fallback. Only the
+16:9 and ultrawide, non-square-pixel modes, narrow-window fallback and invalid
+output resetting a previously wide projection/cull extent. Only the
 display-list allocator is replaced in the projection closure. A layout fixture
 also runs the real scene-rectangle arithmetic with unrelated mode/orientation
-effects stubbed, checking border removal and both split directions.
+effects stubbed, checking border removal and both split directions. CTest
+limits the translated camera/layout execution to 30 seconds.
 Live captures verify GPU edge coverage;
 the scissor correction has no standalone GPU regression seam yet.

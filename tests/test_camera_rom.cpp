@@ -81,8 +81,18 @@ int main(int argc, char** argv) {
     assert(std::abs(matrix[0] / original[0] - 0.5625f) < 1e-5f);
     project(720, 960, 240, 1);
     assert(std::abs(matrix[0] - original[0]) < 1e-5f);
-    wdc::camera::set_output_size(0, 0);
-    assert(wdc::camera::width_scale() == 1);
+    // Invalid output must reset a previously wide camera, independently of
+    // the narrow-window case above. Check the real projection and cull extent.
+    for (const auto dimensions : {std::array{0, 0}, std::array{0, 1080},
+                                 std::array{1920, 0}, std::array{-1, 1080},
+                                 std::array{1920, -1}, std::array{-1, -1}}) {
+        project(2560, 1080, 240, 1);
+        assert(wdc::camera::width_scale() > 1);
+        const float extent = project(dimensions[0], dimensions[1], 240, 1);
+        assert(wdc::camera::width_scale() == 1);
+        assert(std::abs(extent - original_extent) < 1e-5f);
+        for (int i = 0; i < 16; ++i) assert(std::abs(matrix[i] - original[i]) < 1e-5f);
+    }
     // Exercise the ROM's scene layout, including half-screen partitions.
     constexpr int32_t scene = int32_t(0x800ABE40);
     for (int players : {0, 1, 2}) {

@@ -35,7 +35,9 @@ not a CI success gate. See [acceptance evidence](first-playable.md) for the
 separately verified windowed practice-driving path. Synthetic tests cover
 guest-memory math/string contracts and startup cache-marker transformation.
 Audio tests use a synthetic circular buffer and an SDL device stub; they do
-not require a physical audio endpoint. Graphics tests include migration of
+not require a physical audio endpoint. Graphics tests check that saving before
+configuration-path initialization preserves live settings and leaves the
+working directory's files untouched. They also include migration of
 old forced-4:3 preferences to the camera-aware window aspect, and persistence
 of an explicit Original choice in the new schema.
 The RSP packed-load test runs the actual dependency helpers on synthetic DMEM,
@@ -64,6 +66,9 @@ It loads ROM constants into word-swapped RDRAM and supplies a deterministic
 camera and framebuffer descriptor. It checks wider horizontal projection and
 visibility with unchanged vertical/depth terms, points newly entering the view,
 16:9/ultrawide and narrow windows, and non-square-pixel framebuffer modes.
+Zero/negative output dimensions are tested immediately after a wide camera,
+checking that scale, projection and horizontal visibility return to 4:3.
+CTest bounds this translated execution with a 30-second timeout.
 Only display-list allocation is replaced in the projection closure. A separate
 layout fixture retains the ROM's scene partition arithmetic and rectangle
 writer while replacing mode switching, orientation setters and heap clearing.
