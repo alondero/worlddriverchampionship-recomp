@@ -16,7 +16,6 @@ worlddriverchampionship.us.toml
 
 # CMake, Android, and release output.
 build/
-build2/
 build-*/
 out/
 dist/

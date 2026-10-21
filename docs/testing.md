@@ -22,8 +22,8 @@ git diff --check
 Once the ROM and generated image exist:
 
 ```bash
-cmake --build build-player
-ctest --test-dir build-player --output-on-failure
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 Headless runs must have a bounded frame/VI budget and a machine-readable result

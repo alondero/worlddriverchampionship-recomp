@@ -20,7 +20,7 @@ done
 
 ROM="${ROM_FILENAME:-World Driver Championship (USA).z64}"
 [[ -f "$ROM" ]] || die "missing ROM: $ROM (supply your own USA dump)"
-if [[ "$CLEAN" == 1 && -f build-player/build.ninja ]]; then cmake --build build-player --target clean; fi
+if [[ "$CLEAN" == 1 && -f build/build.ninja ]]; then cmake --build build --target clean; fi
 
 echo "[submodules]"
 git submodule update --init --recursive
@@ -63,14 +63,14 @@ if [[ "${WDC_APPLY_WINDOWS_PATCHES:-0}" == 1 || "$windows_host" == 1 ]]; then
     done
 fi
 echo "[configure: first pass]"
-cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON
 echo "[host tools]"
-cmake --build build-player --target N64RecompCLI RSPRecomp -j 8
+cmake --build build --target N64RecompCLI RSPRecomp -j 8
 echo "[symbol/config generation]"
 python3 -B scripts/gen_syms_toml.py
 
-N64="build-player/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp"
-RSP="build-player/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp"
+N64="build/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp"
+RSP="build/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp"
 [[ -x "$N64" ]] || die "N64Recomp was not built at $N64"
 [[ -x "$RSP" ]] || die "RSPRecomp was not built at $RSP"
 echo "[recompile CPU]"
@@ -83,7 +83,7 @@ else
 fi
 
 echo "[configure: second pass]"
-cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON
 echo "[build port]"
-cmake --build build-player --target worlddriverchampionship_modern -j 8
-echo "Build complete: build-player/worlddriverchampionship_modern"
+cmake --build build --target worlddriverchampionship_modern -j 8
+echo "Build complete: build/worlddriverchampionship_modern"
