@@ -70,8 +70,8 @@ if ($rom.Path -ne $expectedRom) {
         }
     } else { Copy-Item -LiteralPath $rom.Path -Destination $expectedRom }
 }
-if ($Clean -and (Test-Path build-player/build.ninja)) {
-    Invoke-Step 'clean build products' { & $cmake --build build-player --target clean }
+if ($Clean -and (Test-Path build/build.ninja)) {
+    Invoke-Step 'clean build products' { & $cmake --build build --target clean }
 }
 
 Invoke-Step "submodules" { git submodule update --init --recursive }
@@ -102,19 +102,19 @@ Invoke-Step "apply dependency patches (preserving local edits)" {
         }
 }
 Invoke-Step "configure (first pass)" {
-    & $cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON `
+    & $cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON `
         -DCMAKE_C_COMPILER=gcc.exe -DCMAKE_CXX_COMPILER=g++.exe `
         "-DPython3_EXECUTABLE=$python"
 }
 Invoke-Step "build host tools" {
-    & $cmake --build build-player --target N64RecompCLI RSPRecomp -j 8
+    & $cmake --build build --target N64RecompCLI RSPRecomp -j 8
 }
 Invoke-Step "generate symbol/config inputs" {
     & $python -B scripts/gen_syms_toml.py
 }
 
-$n64 = Join-Path $repo "build-player/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp.exe"
-$rsp = Join-Path $repo "build-player/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp.exe"
+$n64 = Join-Path $repo "build/lib/N64ModernRuntime/librecomp/N64Recomp/N64Recomp.exe"
+$rsp = Join-Path $repo "build/lib/N64ModernRuntime/librecomp/N64Recomp/RSPRecomp.exe"
 if (-not (Test-Path $n64)) { throw "N64Recomp was not built at $n64" }
 if (-not (Test-Path $rsp)) { throw "RSPRecomp was not built at $rsp" }
 Invoke-Step "recompile CPU" { & $n64 worlddriverchampionship.us.toml }
@@ -125,11 +125,11 @@ if ((Get-Content aspMain.us.toml -Raw) -notmatch "TODO") {
 }
 
 Invoke-Step "configure (second pass)" {
-    & $cmake -S . -B build-player -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON `
+    & $cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON `
         -DCMAKE_C_COMPILER=gcc.exe -DCMAKE_CXX_COMPILER=g++.exe `
         "-DPython3_EXECUTABLE=$python"
 }
 Invoke-Step "build port" {
-    & $cmake --build build-player --target worlddriverchampionship_modern -j 8
+    & $cmake --build build --target worlddriverchampionship_modern -j 8
 }
 Write-Host "Build complete. Run ./play.ps1" -ForegroundColor Green

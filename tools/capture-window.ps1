@@ -1,4 +1,4 @@
-param([string]$Output = 'build-player/window.png', [int]$ProcessId = 0)
+param([string]$Output = 'build/window.png', [int]$ProcessId = 0)
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
 using System;

@@ -23,7 +23,7 @@ Close the running player before rebuilding. `-Clean` cleans build products
 through CMake without resetting source files. `-RomPath` imports an alternate
 local ROM path without overwriting a different existing dump.
 
-Output: `build-player/worlddriverchampionship_modern.exe`, with SDL2, DXC,
+Output: `build/worlddriverchampionship_modern.exe`, with SDL2, DXC,
 FreeType, and MinGW runtime DLLs beside it, plus the overlay's `assets` directory.
 `play.ps1` runs from the repository root
 and accepts an optional `-RomPath`. Double-clicking the executable alone
@@ -52,8 +52,8 @@ submodules after applying those patches are expected.
 ## Checks
 
 ```powershell
-cmake --build build-player
-ctest --test-dir build-player --output-on-failure
+cmake --build build
+ctest --test-dir build --output-on-failure
 python -m unittest discover tests
 python scripts/check_docs.py
 git diff --check
