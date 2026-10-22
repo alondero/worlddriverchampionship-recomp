@@ -1,7 +1,9 @@
 #include "game_camera.h"
 #include "recomp.h"
+#include "guest_memory.h"
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 
 namespace wdc::camera {
 namespace { std::atomic<float> scale{1.0f}; }
@@ -34,4 +36,32 @@ extern "C" void wdc_widen_camera(uint8_t*, recomp_context* ctx) {
 extern "C" void wdc_remove_overscan(uint8_t*, recomp_context* ctx) {
     ctx->r20 = 0;
     ctx->r21 = 0;
+}
+
+// USA func_8002D99C, before 0x8002DAA4: v0 owns a newly built 0x40-byte
+// BOSS HUD triangle. Its three x coordinates are signed 16-bit quarter-pixel
+// values at +0x10/+0x20/+0x30. Both callers are the gauge needle layouts in
+// func_8002E13C. Unlike the dial's RDP rectangles, raw triangles receive RT64's
+// horizontal stretch, so undo it about the framebuffer centre before submit.
+// Game-thread only, before linking the packet; runtime-owned word-swapped
+// RDRAM, no retained pointers. The u32 descriptor pointer at 0x8007D75C and its
+// u32 framebuffer width (+8, pixels) are ROM-owned, updated on display changes.
+// Invalid pointers/widths abort before any write. Source vertices, y and UVs
+// stay untouched. Remove when the guest HUD or renderer carries aspect policy.
+extern "C" void wdc_align_hud_triangle(uint8_t* rdram, recomp_context* ctx) {
+    const float scale = wdc::camera::width_scale();
+    if (scale == 1.0f) return;
+    const gpr descriptor = MEM_W(0, int32_t(0x8007D75C));
+    wdc_require_guest_range(descriptor, 12, 4);
+    wdc_require_guest_range(ctx->r2, 0x40, 4);
+    const uint32_t width = uint32_t(MEM_W(8, descriptor));
+    if (width == 0 || width > 4096) {
+        std::fprintf(stderr, "[wdc] invalid HUD framebuffer width: %u\n", width);
+        std::abort();
+    }
+    const float center = float(width) * 2.0f;
+    for (int offset : {0x10, 0x20, 0x30}) {
+        const float x = float(MEM_H(offset, ctx->r2));
+        MEM_H(offset, ctx->r2) = int16_t(std::lround(center + (x - center) / scale));
+    }
 }

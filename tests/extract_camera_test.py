@@ -9,11 +9,12 @@ for path in sorted(source.glob("*.c")):
     for match in re.finditer(r"RECOMP_FUNC void (\w+)\(.*?(?=RECOMP_FUNC void |\Z)",
                              path.read_text(encoding="utf-8"), re.S):
         functions[match[1]] = match[0]
-pending = ["func_80011D54", "func_8000FC18", "func_8000E148"]
+pending = ["func_80011D54", "func_8000FC18", "func_8000E148", "func_8002D99C"]
 # The layout harness retains real viewport partition arithmetic and the scene
 # rectangle writer; mode switching, camera orientation and heap clearing are
 # outside that seam. No projection/matrix calculation is replaced.
-natives = {"func_8002CF30", "wdc_widen_camera", "wdc_remove_overscan",
+natives = {"func_8002CF30", "func_8002D558", "wdc_align_hud_triangle",
+           "wdc_widen_camera", "wdc_remove_overscan",
            "func_800006AC", "func_8000125C", "func_8000E020", "func_8000E18C",
            "func_8000E1BC", "func_8000F988", "func_80012024", "func_80012218",
            "func_800122F4", "func_80019EC4", "func_8002A334"}

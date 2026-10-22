@@ -73,3 +73,25 @@ effects stubbed, checking border removal and both split directions. CTest
 limits the translated camera/layout execution to 30 seconds.
 Live captures verify GPU edge coverage;
 the scissor correction has no standalone GPU regression seam yet.
+
+## Gauge triangle alignment
+
+The two gauge layouts in `func_8002E13C` call `func_8002D99C` to build
+the tachometer needle as a BOSS screen-space triangle. The dial artwork uses
+RDP rectangles. RT64 compensates rectangles for horizontal expansion, but
+raw triangles receive the full expansion. Without compensation the needle
+stretches and its pivot moves away from the dial in wide windows.
+
+The hook before `0x8002DAA4` corrects only the completed triangle's three
+signed 16-bit x coordinates at packet offsets `0x10`, `0x20`, and `0x30`.
+They are quarter-framebuffer-pixel coordinates. It maps each x to
+`center + (x - center) / width_scale`, where center is twice the active
+descriptor's framebuffer width (`+8`). This matches the rectangle path's
+centred presentation, including doubled horizontal-resolution modes and
+split-screen coordinates. Y, texture coordinates and shared source vertices
+are unchanged. The guest-memory contract and bounds are in `game_camera.cpp`.
+
+The ROM-backed camera test executes the actual needle builder with a captured
+Hawaii needle fixture, checks final alignment after renderer expansion at
+4:3, 16:9 and ultrawide, and checks both horizontal coordinate shifts. This
+tests the generated hook as well as its arithmetic.
