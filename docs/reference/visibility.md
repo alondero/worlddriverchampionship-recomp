@@ -5,6 +5,32 @@ RT64 receives low-level RDP batches, so its high-level display-list LOD settings
 cannot restore omitted cars or track sections. The enhancements are owned by
 `src/game_visibility.cpp`, with injection sites in `rom-symbols.toml`.
 
+## Title and main-menu previews
+
+The menu maintains three preview cars even on pages without a car preview.
+Their authored positions hide them outside the original 4:3 view. Widening
+the camera exposes a black shadow wedge on the title/main menu; ultrawide
+also exposes the staged car bodies. A raw-RDP capture identified repeated
+black triangles with positive W, including a tip at (10.75, 241.5) in the
+320x480 menu buffer. Disabling car submission removed the wedge without
+changing the road. This is menu visibility policy, not an RT64 clipping fault.
+
+The hook before `800108D0` sets the initial car-loop bound to zero for title
+page 44 and main page 0. It retains the list finalizer, simulation car count,
+and every other page's original path. Both the active render callback
+(`8007D848 == 8004E950`) and primary scene (`8007E570 == 800ABE40`) must match:
+racing reuses that scene storage. The current page at `80094810` is the word
+returned by `func_800525EC` for menu object `80092EE8`. The register/memory
+contract is documented beside `wdc_menu_car_visibility`.
+
+The ROM-backed visibility test runs the real car-list loop and near rejection,
+checks that hidden previews never reach car submission, retains finalization,
+and checks other pages, transitions, other scenes and stale menu state during
+racing. Packet allocation/linking are explicit test boundaries.
+The rebuilt Windows/D3D12 player was visually checked at 1280x720: the title
+and main menu no longer show the wedge, and Quick Race car selection still
+renders its car preview and shadow.
+
 ## Car detail and pop-in
 
 `func_800218F0` is called for each car by `func_800108B4`.

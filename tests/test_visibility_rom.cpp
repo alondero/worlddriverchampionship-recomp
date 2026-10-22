@@ -18,10 +18,12 @@ constexpr gpr car = int32_t(0x80400000), scene = int32_t(0x80402000);
 constexpr gpr camera = int32_t(0x80403000), track = int32_t(0x80404000);
 constexpr gpr sections = int32_t(0x80405000), packet = int32_t(0x80410000);
 int boundary_kind = 0; // car allocation, track detail, track visibility list
+int completed_car_lists = 0;
 }
 extern "C" {
 void do_break(uint32_t) { std::abort(); }
 void func_800218F0(uint8_t*, recomp_context*);
+void func_800108B4(uint8_t*, recomp_context*);
 void func_800230D4(uint8_t*, recomp_context*);
 void func_8002343C(uint8_t*, recomp_context*);
 // Inputs are already transformed into camera space. These two update helpers
@@ -29,6 +31,7 @@ void func_8002343C(uint8_t*, recomp_context*);
 void func_8001F7F8(uint8_t*, recomp_context*) {}
 void func_8001FC64(uint8_t*, recomp_context*) {}
 void func_8002D4F4(uint8_t*, recomp_context* ctx) {
+    if (boundary_kind == 3) { assert(ctx->r4 == 0x307); ctx->r2 = packet; return; }
     if (boundary_kind == 0) std::longjmp(packet_boundary, 1);
     assert(boundary_kind == 1 && ctx->r4 == 0x301);
     ctx->r2 = packet;
@@ -45,7 +48,10 @@ void func_8002CF30(uint8_t*, recomp_context* ctx) { assert(boundary_kind == 2); 
 // Any unexpected path fails instead of silently mocking another decision.
 #define UNEXPECTED(name) void name(uint8_t*, recomp_context*) { std::abort(); }
 UNEXPECTED(func_80001D4C)
-UNEXPECTED(func_8000F8D8)
+void func_8000F8D8(uint8_t*, recomp_context* ctx) {
+    assert(boundary_kind == 3 && ctx->r5 == packet);
+    ++completed_car_lists;
+}
 UNEXPECTED(func_800153F4)
 UNEXPECTED(func_8001A040)
 UNEXPECTED(func_8001A79C)
@@ -77,6 +83,44 @@ int main(int argc, char** argv) {
     auto put = [&](gpr address, int offset, float value) {
         MEM_W(offset, address) = std::bit_cast<uint32_t>(value);
     };
+    // Run the actual car-list loop. Rejected cars still mark their detail row;
+    // a hidden preview must never enter that loop, but must finish its list.
+    boundary_kind = 3;
+    MEM_W(0, int32_t(0x800821B0)) = int32_t(track);
+    MEM_W(0, int32_t(0x80080D90)) = 3;
+    MEM_W(0, int32_t(0x8007D848)) = int32_t(0x8004E950);
+    auto menu_cars = [&](gpr active_scene, int page, bool hidden) {
+        MEM_W(0, int32_t(0x8007E570)) = int32_t(active_scene);
+        MEM_W(0, int32_t(0x80094810)) = page;
+        put(active_scene, 0x60, 200);
+        for (int i = 0; i < 3; ++i) {
+            const gpr preview = int32_t(0x800BA7F0 + i * 0x18A0);
+            MEM_W(0x3C4, preview) = 0;
+            MEM_W(0x9B4, preview) = 0x12345678;
+            put(preview, 0x624, -2); // real near rejection, before packet generation
+        }
+        recomp_context ctx{};
+        ctx.f_odd = &ctx.f0.u32h;
+        ctx.r29 = int32_t(0x807FF000);
+        const auto old_sp = ctx.r29;
+        const int before = completed_car_lists;
+        func_800108B4(rdram, &ctx);
+        assert(ctx.r29 == old_sp && completed_car_lists == before + 1);
+        assert(MEM_W(0, int32_t(0x80080D90)) == 3); // simulation count untouched
+        for (int i = 0; i < 3; ++i)
+            assert(MEM_W(0x9B4, int32_t(0x800BA7F0 + i * 0x18A0)) ==
+                   (hidden ? 0x12345678 : -1));
+    };
+    menu_cars(int32_t(0x800ABE40), 44, true); // title
+    menu_cars(int32_t(0x800ABE40), 0, true);  // main menu
+    menu_cars(int32_t(0x800ABE40), 1, false); // other pages retain the ROM path
+    menu_cars(int32_t(0x800ABE40), 45, false); // transitions retain the ROM path
+    menu_cars(scene, 44, false); // stale menu state cannot hide race cars
+    menu_cars(scene, 0, false);
+    MEM_W(0, int32_t(0x8007D848)) = int32_t(0x8000A30C);
+    menu_cars(int32_t(0x800ABE40), 44, false); // races reuse the same scene storage
+    menu_cars(int32_t(0x800ABE40), 0, false);
+    boundary_kind = 0;
     MEM_W(0, int32_t(0x800821B0)) = int32_t(track);
     MEM_W(0, int32_t(0x8007E570)) = int32_t(scene);
     MEM_W(0, int32_t(0x8007ED6C)) = int32_t(camera);
