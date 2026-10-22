@@ -17,6 +17,9 @@ scaffold was created.
 - docs checks, host tests, and `git diff --check` run before hand-off;
 - CI fetches ROM data only from a private asset source and removes it before
   packaging;
+- menus and settings use the shared RecompFrontend overlay, which both
+  siblings ship as their in-built RT64 menu, instead of a native window menu
+  that would only work on Windows;
 - reverse-engineering facts are stored with method/evidence, not copied from a
   sibling game.
 

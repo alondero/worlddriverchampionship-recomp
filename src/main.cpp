@@ -146,7 +146,6 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (event.type == SDL_QUIT) {
-                wdc::graphics::release_window(window);
                 std::fflush(nullptr);
                 std::_Exit(0);
             }
@@ -222,7 +221,6 @@ int main(int argc, char** argv) {
     recomp::start(cfg);
 #ifdef WDC_PLAYER
     wdc::ui::shutdown();
-    wdc::graphics::release_window(window);
     return 0;
 #else
     return 2;

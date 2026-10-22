@@ -21,9 +21,10 @@ opening settings: the game continues running while the overlay is open, but
 menu input is blocked from the game. Held gameplay keys must be released before
 input resumes. Color precision requires a restart; the other changes apply live.
 
-The window title shows requested settings. The Windows **Graphics** menu is
-hidden in fullscreen and restored in windowed mode. The shortcuts below
-remain available during gameplay; use the overlay's
+The window title shows requested settings. Graphics options are reached through
+the RT64 frontend overlay, which is the port's only menu and opens in both
+windowed and fullscreen modes on Windows, Linux and Android. The shortcuts
+below remain available during gameplay; use the overlay's
 controls while it is open. F11 / Alt+Enter works in either mode.
 
 | Shortcut | Setting | Choices |
