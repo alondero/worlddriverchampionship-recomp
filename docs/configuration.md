@@ -50,7 +50,9 @@ Original keeps the centered 4:3 layout; Clamp to 16:9 (default) moves them towar
 the edges up to a 16:9 area; Full width follows the output edges. The needle
 travels with its dial. Changes apply live and are saved with the other settings.
 At 4:3 or narrower output these choices coincide. Menus, pause panels and the
-wrong-way message stay centered. The game's outer TV
+wrong-way message stay centered. The blue menu header and footer bands reach
+the window edges by continuing their outer edges; their text and buttons keep
+the original layout. The game's outer TV
 overscan margins are removed by expanding its viewport and scissor, without
 cropping the scene. Cinematic layouts and fixed 2D artwork can still leave
 unused space. Narrow windows and Original use a fitted 4:3 view.

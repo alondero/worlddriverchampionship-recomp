@@ -32,6 +32,10 @@ class Renderer final : public ultramodern::renderer::RendererContext {
     bool hud_active = false;
     uint32_t hud_left = 0, hud_right = 0;
     RT64::ExtendedAlignment saved_rect;
+    // Menu-art bracket: the pending texrect's first word, kept across chunks.
+    bool fill_active = false, fill_pending = false;
+    uint32_t fill_w0 = 0, fill_w1 = 0;
+    float rect_scale = 1.0f;
     void end_hud() {
         if (!hud_active) return;
         app->state->rdp->setRectAlign(saved_rect);
@@ -40,7 +44,9 @@ class Renderer final : public ultramodern::renderer::RendererContext {
     }
     void hud_marker(uint32_t payload) {
         end_hud();
+        fill_active = false;
         if (payload == wdc::hud::end_marker) return;
+        if (payload == wdc::hud::edge_fill) { fill_active = true; return; }
         auto& rdp = *app->state->rdp;
         hud_left = payload >> 16; hud_right = payload & 0xFFFF;
         const unsigned width = rdp.colorImage.width;
@@ -56,6 +62,30 @@ class Renderer final : public ultramodern::renderer::RendererContext {
         rdp.setScissor(mode, 0, scissor.uly, 0, scissor.lry, align);
         hud_active = true;
     }
+    // Called once the bracketed texrect has been processed, so RT64's tile,
+    // TMEM and modes are still the art's. Fills use stretch rects, whose
+    // 0..width spans the output, over a full-width copy of the scissor.
+    void fill_edges(uint32_t c0, uint32_t c1) {
+        auto& rdp = *app->state->rdp;
+        const uint32_t cycle = rdp.otherMode.cycleType();
+        if (cycle == G_CYC_COPY || cycle == G_CYC_FILL) return;
+        const int32_t ulx = (fill_w1 >> 12) & 0xFFF, uly = fill_w1 & 0xFFF;
+        const int32_t lrx = (fill_w0 >> 12) & 0xFFF, lry = fill_w0 & 0xFFF;
+        const unsigned width = rdp.colorImage.width;
+        const auto fills = wdc::hud::edge_fills(ulx, lrx, int16_t(c0 >> 16), int16_t(c1 >> 16), width, rect_scale);
+        if (!fills.count) return;
+        const auto scissor = rdp.scissorRectStack[rdp.scissorStackSize - 1];
+        const auto mode = rdp.scissorModeStack[rdp.scissorStackSize - 1];
+        const uint8_t aspect = rdp.extended.global.rectAspect;
+        rdp.pushScissor();
+        rdp.setScissor(mode, 0, scissor.uly, int32_t(width * 4), scissor.lry, RT64::ExtendedAlignment{});
+        rdp.setRectAspect(G_EX_ASPECT_STRETCH);
+        for (unsigned i = 0; i < fills.count; ++i)
+            rdp.drawTexRect(fills.fill[i].x0, uly, fills.fill[i].x1, lry, (fill_w1 >> 24) & 7,
+                int16_t(fills.fill[i].s), int16_t(c0), 0, int16_t(c1), false, RT64::ExtendedAlignment{});
+        rdp.setRectAspect(aspect);
+        rdp.popScissor();
+    }
     void send_rdp(uint8_t* memory, uint32_t start, uint32_t end) {
         wdc::rdp_capture::write(memory, start, end);
         uint32_t run = start;
@@ -69,12 +99,20 @@ class Renderer final : public ultramodern::renderer::RendererContext {
         for (uint32_t pos = start; pos < end; pos += 8) {
             const auto* words = reinterpret_cast<const uint32_t*>(memory + pos);
             const bool boundary = hud_stream.remaining == 0;
+            const unsigned op = (words[0] >> 24) & 63;
             if (hud_stream.consume(words[0])) {
                 submit(pos);
                 hud_marker(words[1]);
                 run = pos + 8;
+            } else if (boundary && fill_active && op == 36) {
+                fill_w0 = words[0]; fill_w1 = words[1];
+                fill_pending = true;
+            } else if (!boundary && fill_pending && hud_stream.remaining == 0) {
+                submit(pos + 8); // the complete texrect, before its fills
+                fill_edges(words[0], words[1]);
+                fill_pending = false;
             } else if (boundary && hud_active &&
-                       (((words[0] >> 24) & 63) == 36 || ((words[0] >> 24) & 63) == 37)) {
+                       (op == 36 || op == 37)) {
                 submit(pos);
                 const float midpoint = float(hud_left + hud_right) * 2.0f;
                 const float rect_center = float(((words[0] >> 12) & 4095) + ((words[1] >> 12) & 4095)) / 2.0f;
@@ -109,6 +147,7 @@ class Renderer final : public ultramodern::renderer::RendererContext {
         if (old_samples != app->userConfig.antialiasing) app->updateMultisampling();
         settings = next;
         aspect_target = target;
+        rect_scale = scale; // RT64 shrinks regular rects by exactly this factor
     }
 public:
     Renderer(uint8_t* memory, ultramodern::renderer::WindowHandle window) : rdram(memory) {
@@ -176,6 +215,7 @@ public:
             static_cast<Renderer*>(context)->send_rdp(memory, start, end);
         }, this);
         end_hud(); // Fail closed if a task ever omits its closing marker.
+        fill_active = fill_pending = false;
         wdc::rdp_capture::end_task();
     }
     void send_dummy_workload(uint32_t) override {}

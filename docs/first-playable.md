@@ -58,7 +58,8 @@ SHA256 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`:
 
 Fixed 2D menu artwork and cinematic layouts remain centered and can leave
 unused space; their textures are not stretched or cropped to fill a wide
-display. Multiplayer driving and a physical ultrawide display have not been
+display. The menu header/footer bands and separator bars are the exception:
+their outer texel columns continue to the window edges. Multiplayer driving and a physical ultrawide display have not been
 validated. Patch 0016 removes the thin seams/pinholes caused by raw-triangle
 reconstruction; residual cases are listed in the
 [renderer reference](reference/renderer.md#raw-triangle-edge-reconstruction).

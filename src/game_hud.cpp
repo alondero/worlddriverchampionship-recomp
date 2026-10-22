@@ -16,17 +16,16 @@ uint32_t left = 0, right = 0;
 // a complete 64-byte BOSS DMA block plus one 8-byte link, on the game thread
 // before task submission. Validate both ends and collision before any write.
 // Lifetime is the ROM's frame arena; no host pointers survive submission.
-// Invalid state aborts, like the existing native guest bridges. Replace this
-// adapter when a guest HUD implementation can emit explicit alignment itself.
-void emit(uint8_t* rdram, uint32_t payload) {
+// Invalid cursors abort, like the existing native guest bridges; a full arena
+// returns false with nothing written. `spare` keeps room for that many later
+// packets. Replace this adapter when a guest HUD implementation can emit
+// explicit alignment itself.
+bool emit(uint8_t* rdram, uint32_t payload, unsigned spare = 0) {
     const uint32_t cursor = MEM_W(0, int32_t(0x8007ED84));
     const uint32_t top = MEM_W(0, int32_t(0x8007FE74));
     wdc_require_guest_range(cursor, 8, 8);
     wdc_require_guest_range(top - 64, 64, 8);
-    if (uint64_t(cursor) + 8 >= uint64_t(top) - 64) {
-        std::fprintf(stderr, "[wdc] HUD marker exhausted frame arena\n");
-        std::abort();
-    }
+    if (uint64_t(cursor) + 8 * (spare + 1) >= uint64_t(top) - 64 * (spare + 1)) return false;
     const gpr packet = int32_t(top - 64);
     std::memset(rdram + (uint32_t(packet) & 0x7FFFFF), 0, 64);
     MEM_W(0, packet) = wdc::hud::marker;
@@ -36,7 +35,14 @@ void emit(uint8_t* rdram, uint32_t payload) {
     MEM_W(4, int32_t(cursor)) = uint32_t(packet) & 0xFFFFFF;
     MEM_W(0, int32_t(0x8007FE74)) = uint32_t(packet);
     MEM_W(0, int32_t(0x8007ED84)) = cursor + 8;
+    return true;
 }
+void require(bool emitted) {
+    if (emitted) return;
+    std::fprintf(stderr, "[wdc] HUD marker exhausted frame arena\n");
+    std::abort();
+}
+bool filling = false;
 }
 namespace wdc::hud {
 void set_placement(int value) { placement = value; }
@@ -59,10 +65,25 @@ extern "C" void wdc_hud_begin(uint8_t* rdram, recomp_context*) {
         std::abort();
     }
     left = x; right = x + width;
-    emit(rdram, (left << 16) | right);
+    require(emit(rdram, (left << 16) | right));
     active = true;
 }
 extern "C" void wdc_hud_end(uint8_t* rdram, recomp_context*) {
-    if (active) emit(rdram, wdc::hud::end_marker);
+    if (active) require(emit(rdram, wdc::hud::end_marker));
     active = false;
+}
+
+// USA menu frame art: func_800500E0's band blit (0x80050104) and
+// func_8005063C's separator-bar blit (0x8005065C), each bracketed on the game
+// thread around one sprite call. Overlays the band builder draws afterwards
+// stay outside. The renderer extends the bracketed texrects' outer columns
+// to the output edges. Cosmetic: a full arena skips the bracket entirely.
+extern "C" void wdc_menu_fill_begin(uint8_t* rdram, recomp_context*) {
+    filling = emit(rdram, wdc::hud::edge_fill, 1);
+}
+extern "C" void wdc_menu_fill_end(uint8_t* rdram, recomp_context*) {
+    // Begin reserved this packet; the blit's own use of the arena could still
+    // exhaust it, and an open bracket would extend unrelated menu art.
+    if (filling) require(emit(rdram, wdc::hud::end_marker));
+    filling = false;
 }
