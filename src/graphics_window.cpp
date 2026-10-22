@@ -3,13 +3,13 @@
 #include "game_camera.h"
 #include "game_hud.h"
 #include "ui/frontend.h"
-#include <SDL_syswm.h>
 #include <algorithm>
 #include <cstdio>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
+// Graphics options live in the RT64 frontend overlay. This file owns the
+// cross-platform SDL shortcuts and the window changes they trigger; it does
+// not attach a native window menu, because a Win32 menu bar has no
+// counterpart on the Linux and Android paths this port also ships.
 namespace wdc::graphics {
 namespace {
 const char* help =
@@ -71,34 +71,14 @@ void output_size(SDL_Window* window) {
     wdc::camera::set_output_size(width, height);
     wdc::hud::set_placement(snapshot().hud);
 }
-#ifdef _WIN32
-// The window property owns the menu even while it is detached in fullscreen.
-constexpr const wchar_t* menu_property = L"WdcGraphicsMenu";
-void window_menu(SDL_Window* window, bool fullscreen) {
-    SDL_SysWMinfo info{};
-    SDL_VERSION(&info.version);
-    if (!SDL_GetWindowWMInfo(window, &info)) return;
-    HWND hwnd = info.info.win.window;
-    auto menu = reinterpret_cast<HMENU>(GetPropW(hwnd, menu_property));
-    SetMenu(hwnd, fullscreen ? nullptr : menu);
-    DrawMenuBar(hwnd);
-}
-#endif
 }
 std::string apply_window_settings(SDL_Window* window, Settings s) {
     std::string error;
     const bool previous = snapshot().fullscreen;
-#ifdef _WIN32
-    // Detach before SDL sizes the fullscreen client area to the desktop.
-    window_menu(window, s.fullscreen);
-#endif
     if (s.fullscreen != previous && SDL_SetWindowFullscreen(window, s.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0)) {
         std::fprintf(stderr, "[wdc] fullscreen: %s\n", SDL_GetError());
         error = "Could not change window mode. The previous window mode was kept. ";
         s.fullscreen = previous;
-#ifdef _WIN32
-        window_menu(window, previous);
-#endif
     }
     if (!apply(s)) error += "Settings applied but could not be saved. Check the user-data directory is writable.";
     output_size(window);
@@ -113,21 +93,6 @@ void attach_window(SDL_Window* window) {
         apply(fallback);
         std::fprintf(stderr, "[wdc] fullscreen: %s\n", SDL_GetError());
     }
-#ifdef _WIN32
-    SDL_SysWMinfo info{};
-    SDL_VERSION(&info.version);
-    if (SDL_GetWindowWMInfo(window, &info)) {
-        HMENU bar = CreateMenu(), menu = CreatePopupMenu();
-        const char* labels[]{"Graphics help\tF1", "Cycle resolution\tF2", "Cycle aspect ratio\tF3",
-            "Cycle presentation rate (experimental)\tF4", "Cycle anti-aliasing\tF5", "Cycle output filter\tF6",
-            "Cycle color precision (restart)\tF7", "Restore defaults\tF9", "Fullscreen\tF11"};
-        for (unsigned i = 0; i < 9; ++i) AppendMenuA(menu, MF_STRING, 4000 + i, labels[i]);
-        AppendMenuA(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(menu), "Graphics");
-        SetPropW(info.info.win.window, menu_property, bar);
-        window_menu(window, snapshot().fullscreen);
-        SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);
-    }
-#endif
     output_size(window);
     title(window);
 }
@@ -139,23 +104,5 @@ void handle_event(SDL_Window* window, const SDL_Event& event) {
         if (key == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) key = SDLK_F11;
         change(window, key);
     }
-#ifdef _WIN32
-    if (event.type == SDL_SYSWMEVENT && event.syswm.msg && event.syswm.msg->msg.win.msg == WM_COMMAND) {
-        const auto id = LOWORD(event.syswm.msg->msg.win.wParam);
-        const SDL_Keycode keys[]{SDLK_F1, SDLK_F2, SDLK_F3, SDLK_F4, SDLK_F5, SDLK_F6, SDLK_F7, SDLK_F9, SDLK_F11};
-        if (id >= 4000 && id < 4009) change(window, keys[id - 4000]);
-    }
-#endif
-}
-void release_window(SDL_Window* window) {
-#ifdef _WIN32
-    SDL_SysWMinfo info{};
-    SDL_VERSION(&info.version);
-    if (SDL_GetWindowWMInfo(window, &info)) {
-        auto menu = reinterpret_cast<HMENU>(RemovePropW(info.info.win.window, menu_property));
-        SetMenu(info.info.win.window, nullptr);
-        if (menu) DestroyMenu(menu);
-    }
-#endif
 }
 }

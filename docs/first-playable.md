@@ -44,6 +44,7 @@ SHA256 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`:
 - F3 switches between Original and Match window. F11 hides the Windows
   Graphics menu in desktop fullscreen and restores it in windowed mode.
   The settings overlay exposes both aspect choices and opens in fullscreen.
+  The Windows menu bar was removed later; the overlay now covers it.
 - The live Hawaii time-attack path reached 78 mph in fourth gear with the
   textured sky visible. Menu transitions, returning to a window and switching
   aspect while driving were exercised. Local ignored evidence is under
