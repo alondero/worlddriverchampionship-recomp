@@ -38,13 +38,14 @@ the WDC runtime demonstrates the same need.
 | `0013-runtime-rsp-unsigned-packed-loads.patch` | N64ModernRuntime | All | Zero-extend packed vector load bytes before shifting; fixes BOSS shade coefficients for values above 127. |
 | `0014-rt64-rdp-screen-clipping.patch` | RT64 | All | Clip reconstructed off-screen vertices in RDP screen space before GPU submission. |
 | `0015-rt64-raw-triangle-scissor.patch` | RT64 | All | Scale raw-triangle scissors in the same framebuffer space as their vertices. |
+| `0016-rt64-rdp-edge-trapezoids.patch` | RT64 | All | Rebuild raw RDP triangles from their H/M/L edges instead of three extrapolated corners. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
@@ -88,6 +89,16 @@ vertices already occupy the full scaled framebuffer; applying the projected
 camera's inverse aspect scale to their scissor clips both wide edges. The
 [renderer reference](../docs/reference/renderer.md) records the pinned source,
 a minimal numeric reproducer, and the live GPU acceptance evidence.
+
+Patch 0016 has a ROM-free coverage reproducer in
+`tests/test_rdp_triangle_edges.cpp`. The pinned and current upstream
+[raw RDP decoder](https://github.com/rt64/rt64/blob/main/src/gbi/rt64_gbi_rdp.cpp)
+builds each triangle from three corners extrapolated along H, ignoring the M
+and L slopes, so neighbours rebuild a shared edge as two different lines. The
+patch adds `rt64_rdp_triangle_edges.h` to emit the trapezoids the RDP edge
+walker fills. Each output triangle is clipped by patch 0014, so 0016 applies
+after it. The mechanism, measurements and limits are in the
+[renderer reference](../docs/reference/renderer.md#raw-triangle-edge-reconstruction).
 
 The overlay patches are shared host UI behavior, copied from the Lamborghini
 peer's storage and enum-layout patches at the same dependency pins. The WDC

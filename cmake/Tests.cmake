@@ -8,6 +8,12 @@ if(BUILD_TESTING)
         target_compile_definitions(wdc_rdp_triangle_clip_tests PRIVATE _GLIBCXX_ASSERTIONS)
     endif()
     add_test(NAME wdc_rdp_triangle_clip COMMAND wdc_rdp_triangle_clip_tests)
+    add_executable(wdc_rdp_triangle_edge_tests tests/test_rdp_triangle_edges.cpp)
+    target_include_directories(wdc_rdp_triangle_edge_tests PRIVATE lib/rt64/src)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_definitions(wdc_rdp_triangle_edge_tests PRIVATE _GLIBCXX_ASSERTIONS)
+    endif()
+    add_test(NAME wdc_rdp_triangle_edges COMMAND wdc_rdp_triangle_edge_tests)
     add_executable(wdc_rsp_packed_load_tests tests/test_rsp_packed_loads.cpp)
     target_include_directories(wdc_rsp_packed_load_tests PRIVATE
         "${N64MR}/N64Recomp/include" "${N64MR}/librecomp/include" "${N64MR}/ultramodern/include")
@@ -79,6 +85,8 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME wdc_rom_transforms
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rom_transforms.py")
+        add_test(NAME wdc_rdp_seams
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rdp_seams.py")
         add_test(NAME wdc_bootstrap_structure
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bootstrap.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}")

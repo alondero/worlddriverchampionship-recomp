@@ -128,7 +128,7 @@ target_link_libraries(worlddriverchampionship_modern PRIVATE
 if(NOT WDC_HEADLESS)
     target_link_libraries(worlddriverchampionship_modern PRIVATE rt64)
     target_sources(worlddriverchampionship_modern PRIVATE src/renderer.cpp src/audio.cpp
-        src/graphics_config.cpp src/graphics_window.cpp)
+        src/graphics_config.cpp src/graphics_window.cpp src/rdp_capture.cpp)
     if(MINGW)
         target_sources(worlddriverchampionship_modern PRIVATE src/mingw_guids.cpp)
     endif()

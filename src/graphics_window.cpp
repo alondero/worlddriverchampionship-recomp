@@ -2,6 +2,7 @@
 #include "graphics_config.h"
 #include "game_camera.h"
 #include "game_hud.h"
+#include "rdp_capture.h"
 #include "ui/frontend.h"
 #include <algorithm>
 #include <cstdio>
@@ -58,6 +59,7 @@ void change(SDL_Window* window, SDL_Keycode key) {
     case SDLK_F6: s.filtering = (s.filtering + 1) % 3; break;
     case SDLK_F7: s.precision = (s.precision + 1) % 3; break;
     case SDLK_F9: s = Settings{}; break;
+    case SDLK_F10: wdc::rdp_capture::request(); return;
     case SDLK_F11: s.fullscreen = !s.fullscreen; break;
     default: return;
     }

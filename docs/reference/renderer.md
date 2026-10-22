@@ -25,6 +25,42 @@ still uses the existing renderer behavior; this patch does not emulate the
 RDP texture divider. See the ROM-free coverage regression and
 [patch provenance](../../patches/README.md).
 
+## Raw triangle edge reconstruction
+
+An RDP triangle command has no vertices. The edge walker fills spans between
+the major edge H (YH..YL) and the minor edges M (YH..YM) and L (YM..YL); XH
+and XM are given at scanline floor(YH), XL at YM. RT64's raw decoder
+(`decodeTriangles`, pin `f0728a2520d5aa735886240de3fee75cc805f6d6`) builds
+three corners: H at YH, H at YL, and (XL, YM), ignoring the M and L slopes.
+BOSS encodes an edge shared by two triangles with the same slope in both,
+so their RDP edges coincide. Its H slopes, however, can disagree with the
+same triangle's minor edges by about 0.3%, so H extrapolated to YL misses
+L's end. Each neighbour then rebuilds the shared edge differently. The RDP's
+eight coverage samples per pixel hide such gaps; GPU sample centres expose
+them as dotted seams that worsen with resolution.
+
+Patch 0016 submits the walked area instead: H against M from YH to YM and H
+against L from YM to YL, as two trapezoids. Rows where the minor edge has
+crossed H are dropped, following the edge walker's empty spans. Shade,
+texture, W and depth come from the unchanged coefficient planes, offset from
+floor(YH) and from H on the vertex's row. Each triangle still passes through
+patch 0014's screen clip.
+
+`WDC_RDP_CAPTURE` and `tools/rdp/analyze_seams.py` measure complete BOSS
+tasks, pairing neighbours under both geometries. On captured Hawaii frames
+at a 4.8x scale, the three-point shapes left on the order of a thousand
+uncovered sample centres along tens of shared edges; the edge areas left
+tens, where BOSS's own neighbouring edges differ by up to 0.25 pixels. The
+ROM-free regression `tests/test_rdp_triangle_edges.cpp` includes a pair
+reduced from such a capture.
+
+Known limits: the split at YM adds a vertex part-way along H, a T-junction
+that GPU vertex snapping can still crack at sub-pixel scale. Gaps present in
+BOSS's own edges remain. The inverted-span cut follows edge-walker semantics
+but is not checked against a reference. Live checks covered Hawaii practice
+at automatic scale, native 1x with 4x MSAA, and 6x; no reference-console or
+emulator comparison was performed.
+
 ## Window aspect and border-free racing
 
 The USA ROM camera builder `func_80011D54` computes viewport width/height
