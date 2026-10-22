@@ -1,4 +1,5 @@
 #include "game_camera.h"
+#include "game_hud.h"
 #include "recomp.h"
 #include "guest_memory.h"
 #include <algorithm>
@@ -42,7 +43,8 @@ extern "C" void wdc_remove_overscan(uint8_t*, recomp_context* ctx) {
 // BOSS HUD triangle. Its three x coordinates are signed 16-bit quarter-pixel
 // values at +0x10/+0x20/+0x30. Both callers are the gauge needle layouts in
 // func_8002E13C. Unlike the dial's RDP rectangles, raw triangles receive RT64's
-// horizontal stretch, so undo it about the framebuffer centre before submit.
+// horizontal stretch, so undo it about the framebuffer centre before submit,
+// adding the same viewport-edge travel as the pinned dial first.
 // Game-thread only, before linking the packet; runtime-owned word-swapped
 // RDRAM, no retained pointers. The u32 descriptor pointer at 0x8007D75C and its
 // u32 framebuffer width (+8, pixels) are ROM-owned, updated on display changes.
@@ -62,6 +64,7 @@ extern "C" void wdc_align_hud_triangle(uint8_t* rdram, recomp_context* ctx) {
     const float center = float(width) * 2.0f;
     for (int offset : {0x10, 0x20, 0x30}) {
         const float x = float(MEM_H(offset, ctx->r2));
-        MEM_H(offset, ctx->r2) = int16_t(std::lround(center + (x - center) / scale));
+        const float shift = 4.0f * wdc::hud::needle_shift(x / 4.0f, float(width), scale);
+        MEM_H(offset, ctx->r2) = int16_t(std::lround(center + (x - center + shift) / scale));
     }
 }

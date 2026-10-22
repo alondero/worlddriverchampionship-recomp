@@ -1,6 +1,7 @@
 #include "graphics_window.h"
 #include "graphics_config.h"
 #include "game_camera.h"
+#include "game_hud.h"
 #include "ui/frontend.h"
 #include <SDL_syswm.h>
 #include <algorithm>
@@ -68,6 +69,7 @@ void output_size(SDL_Window* window) {
     SDL_GetWindowSize(window, &width, &height);
     if (snapshot().aspect == 0) { width = 4; height = 3; }
     wdc::camera::set_output_size(width, height);
+    wdc::hud::set_placement(snapshot().hud);
 }
 #ifdef _WIN32
 // The window property owns the menu even while it is detached in fullscreen.

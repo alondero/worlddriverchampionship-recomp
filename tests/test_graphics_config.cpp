@@ -37,6 +37,7 @@ int main() {
         Settings s;
         s.resolution = 4; s.rate = 144; s.samples = 4;
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
+        s.hud = 2;
         s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 4;
         require(apply(s), "save failed");
         load(path);
@@ -44,6 +45,11 @@ int main() {
         require(apply(Settings{}), "replacing an existing file failed");
         load(path);
         require(snapshot() == Settings{}, "defaults were not persisted");
+        for (int hud : {-1, 0, 1, 2, 3}) {
+            { std::ofstream out(path); out << "{\"version\":2,\"hud\":" << hud << "}"; }
+            load(path);
+            require(snapshot().hud == (hud >= 0 && hud <= 2 ? hud : 1), "HUD placement not normalized");
+        }
         for (int aspect : {0, 1, 2}) {
             { std::ofstream out(path); out << "{\"aspect\":" << aspect << ",\"resolution\":4}"; }
             load(path);
@@ -58,7 +64,7 @@ int main() {
         for (const char* invalid : {"{", "[]", "{\"version\":3}", "{\"resolution\":\"4\"}",
                                    "{\"rate\":18446744073709551615}", "{\"samples\":2.5}",
                                    "{\"full_car_detail\":1}", "{\"full_track_detail\":\"true\"}",
-                                   "{\"draw_distance\":2.5}"}) {
+                                   "{\"draw_distance\":2.5}", "{\"hud\":\"Full\"}"}) {
             { std::ofstream out(path); out << invalid; }
             load(path);
             require(snapshot() == Settings{}, "invalid settings were accepted");

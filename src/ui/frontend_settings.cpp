@@ -22,6 +22,7 @@ void apply_graphics() {
     auto settings = graphics::snapshot();
     settings.resolution = integer("resolution");
     settings.aspect = integer("aspect");
+    settings.hud = integer("hud");
     const int mode = integer("rate_mode");
     settings.rate = mode == 0 ? 0 : mode == 1 ? -1 : int(std::get<double>(page.get_option_value("rate")));
     settings.samples = integer("samples");
@@ -61,6 +62,7 @@ void refresh_settings() {
     const auto s = graphics::snapshot();
     sync(page, "resolution", uint32_t(s.resolution));
     sync(page, "aspect", uint32_t(s.aspect));
+    sync(page, "hud", uint32_t(s.hud));
     sync(page, "rate_mode", uint32_t(s.rate == 0 ? 0 : s.rate == -1 ? 1 : 2));
     sync(page, "rate", double(s.rate > 0 ? s.rate : 60));
     sync(page, "samples", uint32_t(s.samples));
@@ -94,6 +96,8 @@ void create_settings() {
         {{0, "Auto"}, {1, "1x"}, {2, "2x"}, {3, "3x"}, {4, "4x"}, {5, "5x"}, {6, "6x"}, {7, "7x"}, {8, "8x"}}, 0u);
     page.add_enum_option("aspect", "Aspect ratio", "Match window widens the camera while preserving proportions. Original keeps the 4:3 view. Narrow windows retain 4:3.",
         {{0, "Original", "Original 4:3"}, {1, "Window", "Match window"}}, 1u);
+    page.add_enum_option("hud", "HUD placement", "Pin race instruments and timing to the edges. Clamp to 16:9 keeps them within easy reach on ultrawide displays. Original keeps the centered layout.",
+        {{0, "Original"}, {1, "16:9", "Clamp to 16:9"}, {2, "Full", "Full width"}}, 1u);
     page.add_enum_option("rate_mode", "Presentation rate", "Original is recommended. Display and Custom are experimental. They do not smooth motion or change game speed.",
         {{0, "Original"}, {1, "Display"}, {2, "Custom"}}, 0u);
     page.add_number_option("rate", "Custom presentation target (Hz)", "A presentation target from 30 to 360 Hz. This does not add motion interpolation.", 30, 360, 1, 0, false, 60);

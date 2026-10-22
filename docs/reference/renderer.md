@@ -39,7 +39,7 @@ matrix at `0x800B2A40` also drives point clipping and screen projection.
 SDL's main thread publishes the window width/height ratio atomically. The renderer
 uses the same factor with RT64 Manual aspect, multiplying its VI-derived
 framebuffer aspect rather than treating 320x480 menu pixels as square. RT64's
-rectangle path centers and preserves HUD/menu proportions, while raw world
+rectangle path preserves HUD/menu proportions, while raw world
 triangles have already been widened by the ROM. Narrow windows retain 4:3.
 Non-positive output dimensions reset the published scale to the original TV
 aspect, including when the previous output was wide.
@@ -74,6 +74,54 @@ limits the translated camera/layout execution to 30 seconds.
 Live captures verify GPU edge coverage;
 the scissor correction has no standalone GPU regression seam yet.
 
+## Race HUD placement
+
+The USA HUD builder `func_8002E13C` draws the gauge sprites and needle,
+map and markers, and timing/rank/lap sprites. Hooks at `0x8002E51C` and
+`0x8002FA78` bracket its instrument/timing portion. The earlier wrong-way
+message and the subsequent pause/menu draws retain centered alignment.
+Early returns bypass both hooks; the ending hook is also guarded against an
+unpaired call.
+
+`src/game_hud.cpp` reserves a 64-byte raw-list packet from the ROM's descending
+frame arena (`0x8007FE74`) and links it through the ascending BOSS cursor
+(`0x8007ED84`). The packet carries an `E0574443` marker, viewport horizontal
+bounds, and the ROM's `DF` terminator. The full block accommodates BOSS's
+64-byte DMA reads. Both cursors are u32 guest pointers; allocation bounds,
+alignment and cursor collision are checked before any writes. The game owns
+the arena and its lifetime. These game-thread writes use N64Recomp's
+word-swapped memory helpers and occur before task submission.
+
+BOSS dispatches raw opcode E0 through `0x17DC` unchanged (the USA DMEM
+dispatch entry at ROM `0xA34AE`). The renderer consumes the marker on its
+graphics worker before RT64 sees it, without modifying guest commands.
+Command framing survives DMA chunk boundaries and treats triangle/texrect
+continuations as payload. Each HUD texrect is anchored to its nearest active
+viewport edge, rebasing the original coordinate by that edge's pixel position.
+This keeps the observed map, gauge and timing groups together. Viewport edges
+become proportional RT64 origins, so internal split edges remain internal.
+The renderer saves/restores rectangle alignment and scissor state, expands
+horizontal clipping while retaining vertical limits, and closes any outstanding
+bracket at the task boundary.
+
+Placement uses the peer ports' Original / Clamp16x9 / Full policy, defaulting
+to Clamp16x9. RT64's extended aspect target is scaled by the current framebuffer
+aspect because WDC also uses non-square pixels. The needle correction below
+adds `(anchor - width/2) * (effective_width_scale - 1)` before undoing raw
+triangle stretch. Original has zero travel; Clamp16x9 caps the width scale at
+4/3; Full follows the camera scale. This extends PR #9's proportional needle
+fix rather than replacing it. Remove these bridges when a guest HUD
+implementation can emit its own explicit alignment.
+
+Verification includes ROM-backed needle/arena checks for all three settings,
+4:3, narrow and wide outputs and doubled horizontal coordinates; a DMA framing
+fixture; persistence and staged menu tests. Windows/D3D12 Hawaii practice was
+checked live at 4:3, widescreen and a 1680x720 ultrawide window, switching all
+three options and accelerating to 47 mph. The map, timing and dial moved
+together, the needle retained its hub, and the pause panel stayed centered.
+Split-screen and other race variants use viewport-relative origins but have
+not been visually verified. Captures remain local ignored evidence.
+
 ## Gauge triangle alignment
 
 The two gauge layouts in `func_8002E13C` call `func_8002D99C` to build
@@ -85,10 +133,11 @@ stretches and its pivot moves away from the dial in wide windows.
 The hook before `0x8002DAA4` corrects only the completed triangle's three
 signed 16-bit x coordinates at packet offsets `0x10`, `0x20`, and `0x30`.
 They are quarter-framebuffer-pixel coordinates. It maps each x to
-`center + (x - center) / width_scale`, where center is twice the active
-descriptor's framebuffer width (`+8`). This matches the rectangle path's
-centred presentation, including doubled horizontal-resolution modes and
-split-screen coordinates. Y, texture coordinates and shared source vertices
+`center + (x - center + edge_travel) / width_scale`, where center is twice the active
+descriptor's framebuffer width (`+8`) and edge travel is in quarter pixels.
+Original placement uses zero travel. This matches the rectangle path,
+including doubled horizontal-resolution modes and viewport-relative
+coordinates. Y, texture coordinates and shared source vertices
 are unchanged. The guest-memory contract and bounds are in `game_camera.cpp`.
 
 The ROM-backed camera test executes the actual needle builder with a captured

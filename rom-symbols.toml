@@ -113,6 +113,18 @@ func = "func_8000FC18"
 before_vram = 0x8000FEF0
 text = "{ extern void wdc_remove_overscan(uint8_t*, recomp_context*); wdc_remove_overscan(rdram, ctx); }"
 
+# Instrument/timing portion only: the preceding wrong-way message stays centered.
+# FA78 is the common cleanup for all paths that reach E51C (early exits bypass both).
+[[hooks]]
+func = "func_8002E13C"
+before_vram = 0x8002E51C
+text = "{ extern void wdc_hud_begin(uint8_t*, recomp_context*); wdc_hud_begin(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8002E13C"
+before_vram = 0x8002FA78
+text = "{ extern void wdc_hud_end(uint8_t*, recomp_context*); wdc_hud_end(rdram, ctx); }"
+
 # Both gauge layouts use this BOSS screen-space triangle builder for the
 # needle; align its completed vertices with RT64's proportional HUD rectangles.
 [[hooks]]
