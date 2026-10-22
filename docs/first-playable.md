@@ -59,8 +59,8 @@ SHA256 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`:
 Fixed 2D menu artwork and cinematic layouts remain centered and can leave
 unused space; their textures are not stretched or cropped to fill a wide
 display. Multiplayer driving and a physical ultrawide display have not been
-validated. Existing thin triangle seams/pinholes remain tracked in
-[issue #4](https://github.com/alondero/worlddriverchampionship-recomp/issues/4).
+validated. Thin triangle seams/pinholes are addressed by patch 0016; see
+[seam evidence](reference/renderer.md#raw-triangle-edge-reconstruction).
 The dated 4:3 acceptance below describes the previous policy.
 
 ## Race quality fixes verified on 2026-10-02
@@ -112,10 +112,10 @@ application checks succeeded. Standards and Spec reviews found no blocking
 code findings in the audio, aspect, packed-load and screen-clipping fixes.
 
 Full laps, other tracks, opponents, split-screen, Linux/Android, and subjective
-audio/reference-console comparisons remain unverified. Small triangle seams
-and pinholes remain visible in road, wall and sky geometry; the fixes do not
-establish complete graphics fidelity. Local captures and probes are ignored
-under `artifacts/review/`.
+audio/reference-console comparisons remain unverified. The small triangle
+seams and pinholes seen at that time were later traced to raw-triangle
+reconstruction (patch 0016); the fixes do not establish complete graphics
+fidelity. Local captures and probes are ignored under `artifacts/review/`.
 
 ## Verified milestone
 
@@ -210,8 +210,8 @@ All ROM-derived output remains ignored.
 
 ## Next work
 
-Investigate the remaining triangle seams and pinholes using a complete
-frame's RDP state. Stress-check audio output/capture and validate fidelity,
+Compare raw-triangle coverage with a reference emulator or console.
+Stress-check audio output/capture and validate fidelity,
 then full laps/opponents, gamepad,
 additional tracks, and full race/championship save flows. Do not replace the LLE path
 with a generic graphics microcode: WDC uses BOSS, not Fast3D.

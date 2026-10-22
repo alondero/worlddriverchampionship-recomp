@@ -1,0 +1,402 @@
+diff --git a/src/gbi/rt64_gbi_rdp.cpp b/src/gbi/rt64_gbi_rdp.cpp
+index 9621677..d18d857 100644
+--- a/src/gbi/rt64_gbi_rdp.cpp
++++ b/src/gbi/rt64_gbi_rdp.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include "rt64_gbi_rdp.h"
+ #include "rt64_rdp_triangle_clip.h"
++#include "rt64_rdp_triangle_edges.h"
+ 
+ #include "../include/rt64_extended_gbi.h"
+ 
+@@ -325,7 +326,9 @@ namespace RT64 {
+             const bool texturePerspective = (state->rdp->otherMode.textPersp() == G_TP_PERSP);
+             std::vector<const DisplayList *> &triangles = state->rdp->triPointerBuffer;
+             getTrianglePointers(triangleData, array_length, trianglesEnd, triangles, overrun);
+-            size_t vertexCount = triangles.size() * 3;
++            // Each RDP triangle becomes up to two trapezoids (four triangles).
++            size_t vertexCount = triangles.size() * 12;
++            uint32_t areaVertexCount = 0;
+ 
+             std::vector<interop::float4> &posWorkBuffer = state->rdp->triPosWorkBuffer;
+             std::vector<interop::float4> &colorWorkBuffer = state->rdp->triColWorkBuffer;
+@@ -352,75 +355,30 @@ namespace RT64 {
+                 bool textured = (commandId & (uint32_t)RDPTriangle::Textured) != 0;
+                 bool shaded = (commandId & (uint32_t)RDPTriangle::Shaded) != 0;
+ 
+-                // int flip = (curData[0].w0 >> 23) & 1;
+-                // Extract the coords and slopes
+-                int16_t ylFixed = (curData[0].w0 & 0x0000FFFF) << 2 >> 2;
+-                int16_t ymFixed = (curData[0].w1 >> 16) << 2 >> 2;
+-                int16_t yhFixed = (curData[0].w1 & 0x0000FFFF) << 2 >> 2;
+-
+-                int32_t xlFixed = curData[1].w0;
+-                int32_t dxldyFixed = curData[1].w1;
+-                int32_t xhFixed = curData[2].w0;
+-                int32_t dxhdyFixed = curData[2].w1;
+-                int32_t xmFixed = curData[3].w0;
+-                int32_t dxmdyFixed = curData[3].w1;
+-
+-                // Convert from fixed to floating point
+-                float yl = ylFixed / 4.0f;
+-                float ym = ymFixed / 4.0f;
+-                float yh = yhFixed / 4.0f;
+-
+-                float y1 = yh;
+-                float y2 = yl;
+-
+-                float xl = xlFixed / 65536.0f;
+-                float xm = xmFixed / 65536.0f;
+-                float xh = xhFixed / 65536.0f;
+-
+-                float dxldy = dxldyFixed / 65536.0f;
+-                float dxmdy = dxmdyFixed / 65536.0f;
+-                float dxhdy = dxhdyFixed / 65536.0f;
+-
+-                // Round yh down (which translates to up on the screen) to the nearest scanline to get the y-coordinate of XM and XH
+-                float yFloor = floorf(yh);
+-
+-                // Calculate the x intercepts of the H and M line
+-                float hIntercept = xh - dxhdy * yFloor;
+-                float mIntercept = xm - dxmdy * yFloor;
+-
+-                // Using the equation of the H line, calculate the x coordinate on H at y=yh
+-                float x1 = dxhdy * y1 + hIntercept;
+-
+-                // Using the equation of the H line, calculate the x coordinate on H at y=yl
+-                float x2 = dxhdy * y2 + hIntercept;
+-
+-                // Calculate the x intercept of the L line
+-                float l_intercept = x2 - dxldy * y2;
+-
+-                // Get the third vertex from the inputs
+-                float x3 = xl;
+-                float y3 = ym;
+-
+-                posWorkBuffer[workBufferIndex + 0].x = x1;
+-                posWorkBuffer[workBufferIndex + 0].y = y1;
+-                posWorkBuffer[workBufferIndex + 1].x = x2;
+-                posWorkBuffer[workBufferIndex + 1].y = y2;
+-                posWorkBuffer[workBufferIndex + 2].x = x3;
+-                posWorkBuffer[workBufferIndex + 2].y = y3;
++                // Rebuild the area the edge walker fills from all three edges.
++                std::array<uint32_t, 8> edgeWords;
++                for (uint32_t i = 0; i < 4; i++) {
++                    edgeWords[i * 2 + 0] = curData[i].w0;
++                    edgeWords[i * 2 + 1] = curData[i].w1;
++                }
++                const TriangleEdges edges = decodeTriangleEdges(edgeWords);
++                const EdgeTriangles edgeArea = edgeTriangles(edges);
++                areaVertexCount = edgeArea.vertexCount;
++
++                // Attribute coefficients are planes anchored on the major edge: dy is measured from
++                // the scanline of XH, dx from the H edge on the vertex's own row.
++                const float yFloor = float(edges.yFloor());
++                std::array<float, 12> dy, dx;
++                for (uint32_t i = 0; i < areaVertexCount; i++) {
++                    const EdgeVertex &vertex = edgeArea.vertices[i];
++                    posWorkBuffer[i].x = vertex.x;
++                    posWorkBuffer[i].y = vertex.y;
++                    dy[i] = vertex.y - yFloor;
++                    dx[i] = float(vertex.x - edges.majorX(vertex.y));
++                }
+ 
+                 curData += triangleBaseWords;
+ 
+-                // Calculate y distance from each vertex to the start of the major edge which is used for other coefficients.
+-                float dy_1 = y1 - yFloor;
+-                float dy_2 = y2 - yFloor;
+-                float dy_3 = y3 - yFloor;
+-
+-                // Get the x coordinate of the point at y=y3 on the opposite edge of the third vertex.
+-                float x3_opposite = dxhdy * y3 + hIntercept;
+-
+-                // Calculate x distance from the point opposite vertex 3 to vertex 3 itself.
+-                float dx_3 = x3 - x3_opposite;
+-
+                 if (shaded) {
+                     hlslpp::int4 baseColorFixed{
+                         ((curData[0].w0 >> 16) << 16) | (curData[2].w0 >> 16),
+@@ -443,39 +401,22 @@ namespace RT64 {
+                         ((curData[4].w1 & 0xFFFF) << 16) | (curData[6].w1 & 0xFFFF),
+                     };
+ 
+-                    // dy seems to only be used on edge pixels for anti aliasing purposes
+-                    // hlslpp::int4 colorDyFixed {
+-                    //     ((curData[5].w0 >> 16)    << 16) | (curData[7].w0 >> 16),
+-                    //     ((curData[5].w0 & 0xFFFF) << 16) | (curData[7].w0 & 0xFFFF),
+-                    //     ((curData[5].w1 >> 16)    << 16) | (curData[7].w1 >> 16),
+-                    //     ((curData[5].w1 & 0xFFFF) << 16) | (curData[7].w1 & 0xFFFF),
+-                    // };
+-
++                    // The dy coefficients only affect RDP edge pixels and are not used here.
+                     hlslpp::float4 baseColor = hlslpp::float4(baseColorFixed) * (1.0f / 65536.0f);
+                     hlslpp::float4 colorDx = hlslpp::float4(colorDxFixed) * (1.0f / 65536.0f);
+                     hlslpp::float4 colorDe = hlslpp::float4(colorDeFixed) * (1.0f / 65536.0f);
+-                    // hlslpp::float4 colorDy   = hlslpp::float4(colorDyFixed)   * (1.0f / 65536.0f);
+-
+-                    // Offset the base color (which seems to start at XH) by the distance between YH and the y-coord of XH.
+-                    hlslpp::float4 v1Color = baseColor + colorDe * dy_1;
+-                    // Use the edge derivative to calculate the color at the middle vertex from the color at the major vertex
+-                    hlslpp::float4 v2Color = baseColor + colorDe * dy_2;
+-                    // Use the edge derivative to calculate the color at the opposite side of the last vertex from the color at the second vertex
+-                    hlslpp::float4 v3OppositeColor = baseColor + colorDe * dy_3;
+-                    // Use the x derivative to calculate the color at the last vertex, starting from its opposite point
+-                    hlslpp::float4 v3Color = v3OppositeColor + colorDx * dx_3;
+ 
+-                    colorWorkBuffer[workBufferIndex + 0] = v1Color * (1/255.0f);
+-                    colorWorkBuffer[workBufferIndex + 1] = v2Color * (1/255.0f);
+-                    colorWorkBuffer[workBufferIndex + 2] = v3Color * (1/255.0f);
++                    for (uint32_t i = 0; i < areaVertexCount; i++) {
++                        colorWorkBuffer[i] = (baseColor + colorDe * dy[i] + colorDx * dx[i]) * (1/255.0f);
++                    }
+ 
+                     curData += triangleShadeWords;
+                 }
+                 // No shade coefficients
+                 else {
+-                    colorWorkBuffer[workBufferIndex + 0] = interop::float4(0.0f, 0.0f, 0.0f, 0.0f);
+-                    colorWorkBuffer[workBufferIndex + 1] = interop::float4(0.0f, 0.0f, 0.0f, 0.0f);
+-                    colorWorkBuffer[workBufferIndex + 2] = interop::float4(0.0f, 0.0f, 0.0f, 0.0f);
++                    for (uint32_t i = 0; i < areaVertexCount; i++) {
++                        colorWorkBuffer[i] = interop::float4(0.0f, 0.0f, 0.0f, 0.0f);
++                    }
+                 }
+ 
+                 if (textured) {
+@@ -497,115 +438,86 @@ namespace RT64 {
+                         ((curData[4].w1 >> 16) << 16) | (curData[6].w1 >> 16)
+                     };
+ 
+-                    // dy seems to only be used on edge pixels for anti aliasing purposes
+-                    hlslpp::int3 texcoordDyFixed{
+-                        ((curData[5].w0 >> 16) << 16) | (curData[7].w0 >> 16),
+-                        ((curData[5].w0 & 0xFFFF) << 16) | (curData[7].w0 & 0xFFFF),
+-                        ((curData[5].w1 >> 16) << 16) | (curData[7].w1 >> 16)
+-                    };
+-
+                     hlslpp::float3 baseTexcoord = hlslpp::float3(baseTexcoordFixed) * (1.0f / 65536.0f);
+                     hlslpp::float3 texcoordDx = hlslpp::float3(texcoordDxFixed) * (1.0f / 65536.0f);
+                     hlslpp::float3 texcoordDe = hlslpp::float3(texcoordDeFixed) * (1.0f / 65536.0f);
+-                    hlslpp::float3 texcoordDy = hlslpp::float3(texcoordDyFixed) * (1.0f / 65536.0f);
+-
+-                    // Same calculations as shade color
+-                    float w_base = baseTexcoord[2];
+-                    float w1 = w_base + texcoordDe[2] * dy_1;
+-                    float w2 = w_base + texcoordDe[2] * dy_2;
+-                    float w3_opposite = w_base + texcoordDe[2] * dy_3;
+-                    float w3 = w3_opposite + texcoordDx[2] * dx_3;
+-
+-                    // Repeat the calculations but with perspective correction
+-                    hlslpp::float2 v1_texcoord = baseTexcoord.xy + texcoordDe.xy * dy_1;
+-                    hlslpp::float2 v2_texcoord = baseTexcoord.xy + texcoordDe.xy * dy_2;
+-                    hlslpp::float2 v3_opposite_texcoord = baseTexcoord.xy + texcoordDe.xy * dy_3;
+-                    hlslpp::float2 v3_texcoord = v3_opposite_texcoord + texcoordDx.xy * dx_3;
+-                    if (texturePerspective) {
+-                        posWorkBuffer[workBufferIndex + 0].w = 65536000.0f / w1;
+-                        posWorkBuffer[workBufferIndex + 1].w = 65536000.0f / w2;
+-                        posWorkBuffer[workBufferIndex + 2].w = 65536000.0f / w3;
+-                        texcoordWorkBuffer[workBufferIndex + 0] = (v1_texcoord / w1) * 1024.0f;
+-                        texcoordWorkBuffer[workBufferIndex + 1] = (v2_texcoord / w2) * 1024.0f;
+-                        texcoordWorkBuffer[workBufferIndex + 2] = (v3_texcoord / w3) * 1024.0f;
+-                    }
+-                    else {
+-                        posWorkBuffer[workBufferIndex + 0].w = 1.0f;
+-                        posWorkBuffer[workBufferIndex + 1].w = 1.0f;
+-                        posWorkBuffer[workBufferIndex + 2].w = 1.0f;
+-                        texcoordWorkBuffer[workBufferIndex + 0] = (v1_texcoord * 1024.0f) / 16384.0f;
+-                        texcoordWorkBuffer[workBufferIndex + 1] = (v2_texcoord * 1024.0f) / 16384.0f;
+-                        texcoordWorkBuffer[workBufferIndex + 2] = (v3_texcoord * 1024.0f) / 16384.0f;
++
++                    for (uint32_t i = 0; i < areaVertexCount; i++) {
++                        // Same plane as shade color, with perspective correction when enabled.
++                        float w = baseTexcoord[2] + texcoordDe[2] * dy[i] + texcoordDx[2] * dx[i];
++                        hlslpp::float2 texcoord = baseTexcoord.xy + texcoordDe.xy * dy[i] + texcoordDx.xy * dx[i];
++                        if (texturePerspective) {
++                            posWorkBuffer[i].w = 65536000.0f / w;
++                            texcoordWorkBuffer[i] = (texcoord / w) * 1024.0f;
++                        }
++                        else {
++                            posWorkBuffer[i].w = 1.0f;
++                            texcoordWorkBuffer[i] = (texcoord * 1024.0f) / 16384.0f;
++                        }
+                     }
+ 
+                     curData += triangleTexWords;
+                 }
+                 // No texture coefficients
+                 else {
+-                    posWorkBuffer[workBufferIndex + 0].w = 1.0f;
+-                    posWorkBuffer[workBufferIndex + 1].w = 1.0f;
+-                    posWorkBuffer[workBufferIndex + 2].w = 1.0f;
+-                    texcoordWorkBuffer[workBufferIndex + 0] = interop::float2(0.0f, 0.0f);
+-                    texcoordWorkBuffer[workBufferIndex + 1] = interop::float2(0.0f, 0.0f);
+-                    texcoordWorkBuffer[workBufferIndex + 2] = interop::float2(0.0f, 0.0f);
++                    for (uint32_t i = 0; i < areaVertexCount; i++) {
++                        posWorkBuffer[i].w = 1.0f;
++                        texcoordWorkBuffer[i] = interop::float2(0.0f, 0.0f);
++                    }
+                 }
+ 
+                 if (hasDepth) {
+                     int baseDepthFixed = curData[0].w0;
+                     int depthDxFixed = curData[0].w1;
+                     int depthDeFixed = curData[1].w0;
+-                    // dy seems to only be used on edge pixels for anti aliasing purposes
+-                    int depthDyFixed = curData[1].w1;
+ 
+                     float baseDepth = baseDepthFixed * (1.0f / 65536.0f / 32768.0f);
+                     float depthDx = depthDxFixed * (1.0f / 65536.0f / 32768.0f);
+                     float depthDe = depthDeFixed * (1.0f / 65536.0f / 32768.0f);
+-                    float depthDy = depthDyFixed * (1.0f / 65536.0f / 32768.0f);
+ 
+-                    // Same calculations as shade color and texcoords
+-                    float v1Depth = baseDepth + depthDe * dy_1;
+-                    float v2Depth = baseDepth + depthDe * dy_2;
+-                    float v3_opposite_depth = baseDepth + depthDe * dy_3;
+-                    float v3Depth = v3_opposite_depth + depthDx * dx_3;
+-
+-                    posWorkBuffer[workBufferIndex + 0].z = v1Depth;
+-                    posWorkBuffer[workBufferIndex + 1].z = v2Depth;
+-                    posWorkBuffer[workBufferIndex + 2].z = v3Depth;
++                    for (uint32_t i = 0; i < areaVertexCount; i++) {
++                        posWorkBuffer[i].z = baseDepth + depthDe * dy[i] + depthDx * dx[i];
++                    }
+ 
+                     curData += triangleDepthWords;
+                 }
+                 // No depth coefficients
+                 else {
+-                    posWorkBuffer[workBufferIndex + 0].z = 0.0f;
+-                    posWorkBuffer[workBufferIndex + 1].z = 0.0f;
+-                    posWorkBuffer[workBufferIndex + 2].z = 0.0f;
++                    for (uint32_t i = 0; i < areaVertexCount; i++) {
++                        posWorkBuffer[i].z = 0.0f;
++                    }
+                 }
+ 
+                 // TODO do more than 1 tri at a time
+                 break;
+             }
+ 
+-            std::array<TriangleVertex, 3> triangle;
+-            for (uint32_t i = 0; i < 3; i++) {
+-                for (uint32_t c = 0; c < 4; c++) {
+-                    triangle[i].position[c] = posWorkBuffer[i][c];
+-                    triangle[i].color[c] = colorWorkBuffer[i][c];
+-                }
+-                for (uint32_t c = 0; c < 2; c++) triangle[i].uv[c] = texcoordWorkBuffer[i][c];
+-            }
+             const auto& scissor = state->rdp->scissorRectStack[state->rdp->scissorStackSize - 1];
+-            const auto clipped = clipTriangle(triangle, rasterClipBounds({scissor.ulx / 4.0f, scissor.uly / 4.0f, scissor.lrx / 4.0f, scissor.lry / 4.0f}));
+-            std::array<interop::float4, 15> clippedPositions, clippedColors;
+-            std::array<interop::float2, 15> clippedUVs;
+-            for (uint32_t i = 0; i < clipped.vertexCount; i++) {
+-                for (uint32_t c = 0; c < 4; c++) {
+-                    clippedPositions[i][c] = clipped.vertices[i].position[c];
+-                    clippedColors[i][c] = clipped.vertices[i].color[c];
++            const TriangleScissor clipBounds = rasterClipBounds({scissor.ulx / 4.0f, scissor.uly / 4.0f, scissor.lrx / 4.0f, scissor.lry / 4.0f});
++            // Up to four edge-area triangles, each clipped to at most five triangles.
++            std::array<interop::float4, 60> clippedPositions, clippedColors;
++            std::array<interop::float2, 60> clippedUVs;
++            uint32_t clippedCount = 0;
++            for (uint32_t start = 0; start + 3 <= areaVertexCount; start += 3) {
++                std::array<TriangleVertex, 3> triangle;
++                for (uint32_t i = 0; i < 3; i++) {
++                    for (uint32_t c = 0; c < 4; c++) {
++                        triangle[i].position[c] = posWorkBuffer[start + i][c];
++                        triangle[i].color[c] = colorWorkBuffer[start + i][c];
++                    }
++                    for (uint32_t c = 0; c < 2; c++) triangle[i].uv[c] = texcoordWorkBuffer[start + i][c];
++                }
++                const auto clipped = clipTriangle(triangle, clipBounds);
++                for (uint32_t i = 0; i < clipped.vertexCount; i++, clippedCount++) {
++                    for (uint32_t c = 0; c < 4; c++) {
++                        clippedPositions[clippedCount][c] = clipped.vertices[i].position[c];
++                        clippedColors[clippedCount][c] = clipped.vertices[i].color[c];
++                    }
++                    for (uint32_t c = 0; c < 2; c++) clippedUVs[clippedCount][c] = clipped.vertices[i].uv[c];
+                 }
+-                for (uint32_t c = 0; c < 2; c++) clippedUVs[i][c] = clipped.vertices[i].uv[c];
+             }
+-            if (clipped.vertexCount != 0) {
+-                state->rdp->drawTris(clipped.vertexCount / 3, &clippedPositions[0][0], &clippedUVs[0][0], &clippedColors[0][0], tile, level);
++            if (clippedCount != 0) {
++                state->rdp->drawTris(clippedCount / 3, &clippedPositions[0][0], &clippedUVs[0][0], &clippedColors[0][0], tile, level);
+             }
+ 
+             return trianglesEnd;
+diff --git a/src/gbi/rt64_rdp_triangle_edges.h b/src/gbi/rt64_rdp_triangle_edges.h
+new file mode 100644
+index 0000000..3b0248a
+--- /dev/null
++++ b/src/gbi/rt64_rdp_triangle_edges.h
+@@ -0,0 +1,67 @@
++//
++// RT64
++//
++#pragma once
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cstdint>
++
++namespace RT64::GBI_RDP {
++    // Edge coefficients of a raw RDP triangle command, in framebuffer pixels.
++    // XH and XM are given at scanline floor(YH); XL is given at YM.
++    struct TriangleEdges {
++        bool leftMajor;
++        double yh, ym, yl;
++        double xh, xm, xl;
++        double dxhdy, dxmdy, dxldy;
++
++        double yFloor() const { return std::floor(yh); }
++        double majorX(double y) const { return xh + dxhdy * (y - yFloor()); }
++        double middleX(double y) const { return xm + dxmdy * (y - yFloor()); }
++        double lowX(double y) const { return xl + dxldy * (y - ym); }
++    };
++
++    inline TriangleEdges decodeTriangleEdges(const std::array<uint32_t, 8>& words) {
++        auto y = [](uint32_t v) { return double(int16_t(uint16_t(v << 2)) >> 2) / 4.0; };
++        auto x = [](uint32_t v) { return double(int32_t(v)) / 65536.0; };
++        return {(words[0] & 0x800000) != 0, y(words[1]), y(words[1] >> 16), y(words[0]),
++                x(words[4]), x(words[6]), x(words[2]), x(words[5]), x(words[7]), x(words[3])};
++    }
++
++    struct EdgeVertex { float x, y; };
++    struct EdgeTriangles {
++        // Two trapezoids, each at most two triangles.
++        std::array<EdgeVertex, 12> vertices{};
++        uint32_t vertexCount = 0;
++    };
++
++    // Rebuild the area the RDP edge walker fills: H against M from YH to YM,
++    // then H against L from YM to YL. Each edge keeps its own coefficients, so
++    // neighbours that share an edge share its line even when their implied
++    // corners disagree (slopes rounded by the microcode). Extrapolating
++    // corners along H instead opens sub-pixel seams that the RDP's
++    // multi-sample coverage hides but GPU centre sampling exposes.
++    inline EdgeTriangles edgeTriangles(const TriangleEdges& e) {
++        EdgeTriangles result;
++        if (!(e.yl > e.yh)) return result;
++        const double side = e.leftMajor ? 1.0 : -1.0;
++        auto trapezoid = [&](double y0, double y1, auto minorX) {
++            if (!(y1 > y0)) return;
++            // Span width is linear in y. The RDP draws nothing where the
++            // minor edge has crossed to the wrong side of H.
++            const double w0 = side * (minorX(y0) - e.majorX(y0));
++            const double w1 = side * (minorX(y1) - e.majorX(y1));
++            if (!(w0 > 0) && !(w1 > 0)) return;
++            if (w0 < 0) y0 += (y1 - y0) * w0 / (w0 - w1);
++            else if (w1 < 0) y1 = y0 + (y1 - y0) * w0 / (w0 - w1);
++            const EdgeVertex a{float(e.majorX(y0)), float(y0)}, b{float(minorX(y0)), float(y0)};
++            const EdgeVertex c{float(minorX(y1)), float(y1)}, d{float(e.majorX(y1)), float(y1)};
++            for (const auto& v : {a, b, c, a, c, d}) result.vertices[result.vertexCount++] = v;
++        };
++        const double ym = std::clamp(e.ym, e.yh, e.yl);
++        trapezoid(e.yh, ym, [&](double y) { return e.middleX(y); });
++        trapezoid(ym, e.yl, [&](double y) { return e.lowX(y); });
++        return result;
++    }
++}

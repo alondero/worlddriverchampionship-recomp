@@ -25,6 +25,38 @@ still uses the existing renderer behavior; this patch does not emulate the
 RDP texture divider. See the ROM-free coverage regression and
 [patch provenance](../../patches/README.md).
 
+## Raw triangle edge reconstruction
+
+An RDP triangle command has no vertices. The edge walker fills spans between
+the major edge H (YH..YL) and the minor edges M (YH..YM) and L (YM..YL); XH
+and XM are given at scanline floor(YH), XL at YM. The pinned and current
+upstream RT64 decoder (`decodeTriangles`, unchanged since its 2024 initial
+commit) rebuilt three corners: H at YH, H at YL, and (XL, YM). It ignored
+the M and L slopes. BOSS rounds each slope, so H extrapolated to YL can
+miss L's end. Neighbours that share an edge encode it from the same vertex
+pair, so their RDP edges coincide, but each extrapolates along its own H.
+The RDP's eight coverage samples per pixel hide such sub-pixel gaps; RT64's
+GPU sample centres expose them as dotted seams that worsen with resolution.
+
+Patch 0016 submits the walked area instead: H against M from YH to YM and H
+against L from YM to YL, as two trapezoids. Rows where the minor edge has
+crossed H are dropped, as the RDP draws no span there. Shade, texture, W
+and depth are evaluated from the unchanged coefficient planes, measured from
+floor(YH) and from H on the vertex's row. Each resulting triangle still
+passes through patch 0014's screen clip.
+
+Evidence: `WDC_RDP_CAPTURE` recorded complete BOSS tasks on Windows/D3D12,
+and `tools/rdp/analyze_seams.py` measured them. H and L missed each other at
+YL by up to 12.5 pixels (0.12-0.60 at the 99th percentile). At a 4.8x scale,
+the three-point shapes left 2019 and 1198 uncovered samples on 58 and 43
+paired edges in an attract-mode frame and in Hawaii practice at 75 mph. The
+edge areas left 11 and 2. The remaining 11 came from a pair whose top
+vertices differ by 0.25 pixels in BOSS's own output. In the live player,
+the same Hawaii view lost its dotted wall seam, wall streak and sky pinholes.
+The sunset gradient was unchanged at automatic scale, native 1x with 4x MSAA,
+and 6x. No reference-console or emulator comparison was performed.
+The ROM-free regression is `tests/test_rdp_triangle_edges.cpp`.
+
 ## Window aspect and border-free racing
 
 The USA ROM camera builder `func_80011D54` computes viewport width/height

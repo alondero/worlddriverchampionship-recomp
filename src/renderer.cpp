@@ -9,6 +9,7 @@
 #include "graphics_rt64.h"
 #include "game_camera.h"
 #include "game_hud.h"
+#include "rdp_capture.h"
 #include <algorithm>
 #include <cstdio>
 #include <memory>
@@ -56,6 +57,7 @@ class Renderer final : public ultramodern::renderer::RendererContext {
         hud_active = true;
     }
     void send_rdp(uint8_t* memory, uint32_t start, uint32_t end) {
+        wdc::rdp_capture::write(memory, start, end);
         uint32_t run = start;
         auto submit = [&](uint32_t until) {
             if (run < until) app->processDisplayLists(memory, run, until, false);
@@ -169,10 +171,12 @@ public:
     void enable_instant_present() override {}
     void send_dl(const OSTask* task) override {
         sync_settings();
+        wdc::rdp_capture::begin_task();
         wdc::rsp::run(rdram, task, [](void* context, uint8_t* memory, uint32_t start, uint32_t end) {
             static_cast<Renderer*>(context)->send_rdp(memory, start, end);
         }, this);
         end_hud(); // Fail closed if a task ever omits its closing marker.
+        wdc::rdp_capture::end_task();
     }
     void send_dummy_workload(uint32_t) override {}
     void update_screen() override {
