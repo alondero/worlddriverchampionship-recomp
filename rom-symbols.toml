@@ -119,3 +119,29 @@ text = "{ extern void wdc_remove_overscan(uint8_t*, recomp_context*); wdc_remove
 func = "func_8002D99C"
 before_vram = 0x8002DAA4
 text = "{ extern void wdc_align_hud_triangle(uint8_t*, recomp_context*); wdc_align_hud_triangle(rdram, ctx); }"
+
+# Distance and detail policy: see docs/reference/visibility.md and ROM tests.
+[[hooks]]
+func = "func_80011D54"
+before_vram = 0x80011DE8
+text = "{ extern void wdc_projection_distance(uint8_t*, recomp_context*); wdc_projection_distance(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800218F0"
+before_vram = 0x800219F0
+text = "{ extern void wdc_car_distance(uint8_t*, recomp_context*); wdc_car_distance(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800218F0"
+before_vram = 0x80021BE8
+text = "{ extern void wdc_car_detail(uint8_t*, recomp_context*); wdc_car_detail(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800230D4"
+before_vram = 0x80023244
+text = "{ extern void wdc_track_detail(uint8_t*, recomp_context*); wdc_track_detail(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8002343C"
+before_vram = 0x80023674
+text = "{ extern void wdc_track_visibility(uint8_t*, recomp_context*); wdc_track_visibility(rdram, ctx); }"

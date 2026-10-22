@@ -37,6 +37,7 @@ int main() {
         Settings s;
         s.resolution = 4; s.rate = 144; s.samples = 4;
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
+        s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 4;
         require(apply(s), "save failed");
         load(path);
         require(snapshot() == s, "settings did not survive restart");
@@ -55,7 +56,9 @@ int main() {
             require(snapshot().aspect == 0, "explicit original aspect did not survive restart");
         }
         for (const char* invalid : {"{", "[]", "{\"version\":3}", "{\"resolution\":\"4\"}",
-                                   "{\"rate\":18446744073709551615}", "{\"samples\":2.5}"}) {
+                                   "{\"rate\":18446744073709551615}", "{\"samples\":2.5}",
+                                   "{\"full_car_detail\":1}", "{\"full_track_detail\":\"true\"}",
+                                   "{\"draw_distance\":2.5}"}) {
             { std::ofstream out(path); out << invalid; }
             load(path);
             require(snapshot() == Settings{}, "invalid settings were accepted");
@@ -68,6 +71,15 @@ int main() {
         const auto bounded = snapshot();
         require(bounded.resolution == 8 && bounded.aspect == 1 && bounded.rate == 0 &&
             bounded.samples == 1 && bounded.filtering == 1 && bounded.precision == 0, "values not bounded");
+        for (int distance : {-10, 0, 1, 2, 3, 4, 100}) {
+            auto requested = s;
+            requested.draw_distance = distance;
+            require(apply(requested), "distance save failed");
+            load(path);
+            require(snapshot().draw_distance == (distance < 1 ? 1 : distance > 4 ? 4 : distance),
+                "distance not bounded/persisted");
+        }
+        require(apply(bounded), "restoring bounds fixture failed");
         // A failed save still publishes a whole snapshot and leaves old data intact.
         load(dir / "missing-directory" / "graphics.json");
         require(!apply(s), "save unexpectedly succeeded");

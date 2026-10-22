@@ -12,6 +12,9 @@ struct Settings {
     int filtering = 1; // nearest, linear, pixel scaling (presentation filter)
     int precision = 0; // automatic, standard, high
     bool fullscreen = false;
+    bool full_car_detail = false;
+    bool full_track_detail = false;
+    int draw_distance = 1; // 1..4: far plane and bounded track-section range
     bool operator==(const Settings&) const = default;
 };
 Settings normalize(Settings settings);

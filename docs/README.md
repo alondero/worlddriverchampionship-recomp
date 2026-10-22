@@ -12,6 +12,7 @@ Start with:
 - [ROM reference](reference/rom.md) — measured identity, layout, and symbols.
 - [Runtime reference](reference/runtime.md) — scheduler, threads, VI, and RSP.
 - [Renderer reference](reference/renderer.md) — RT64 ownership and port hooks.
+- [Distance and detail](reference/visibility.md) — car/track LOD, section pop-in and enhancement hooks.
 - [Audio reference](reference/audio.md) — RSP audio and host output.
 - [Glossary](glossary.md) — project terminology.
 

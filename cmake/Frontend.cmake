@@ -59,7 +59,7 @@ endif()
 
 if(BUILD_TESTING)
     add_executable(wdc_frontend_settings_tests tests/test_frontend_settings.cpp
-        src/ui/frontend_settings.cpp src/graphics_config.cpp)
+        src/ui/frontend_settings.cpp src/graphics_config.cpp src/game_visibility.cpp)
     target_include_directories(wdc_frontend_settings_tests PRIVATE src ${SDL2_INCLUDE_DIRS})
     target_compile_definitions(wdc_frontend_settings_tests PRIVATE WDC_ENABLE_FRONTEND=1 SDL_MAIN_HANDLED NOMINMAX)
     target_link_libraries(wdc_frontend_settings_tests PRIVATE recompui recompinput librecomp ultramodern rt64 Threads::Threads ${SDL2_LIBRARIES})

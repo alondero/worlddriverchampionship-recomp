@@ -21,7 +21,7 @@ also describe frame-pacing and high-precision framebuffer improvements.
 | Filtering | Renderer/presentation options | Nearest/linear/pixel-scaled output |
 | Settings | Persistent host configuration and frontend | Tabbed overlay, Apply/Discard, defaults, JSON, Windows menu and shortcuts |
 | Texture replacement | Paths and RT64 cache registration | Not added; needs WDC-specific asset validation |
-| Draw distance, fog, camera | Game-specific hooks | Horizontal camera aspect only; draw distance and fog unchanged |
+| Draw distance, fog, camera | Game-specific hooks | Camera aspect, optional car/track detail and bounded 1-4x draw distance; fog unchanged |
 
 ## Why camera and motion enhancements are separate
 
