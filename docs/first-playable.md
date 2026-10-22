@@ -1,5 +1,38 @@
 # First-playable evidence
 
+## Aspect investigation on 2026-10-22
+
+The Windows D3D12 player and ares v147 ran the same USA ROM through Quick
+Race / Practice Laps / Hawaii with the initial yellow car stationary at the
+start. Player window captures and an ares RDRAM framebuffer capture did not
+show a whole-scene 16:9-to-4:3 squeeze. Switching the player between Original
+and Match window retained the car's displayed width and height while exposing
+more scenery.
+
+Live memory in both processes identified the same 320x240 display descriptor
+at `0x800AAEAC`, with pixel correction 1. The original 4:3 player projection
+at `0x800B2A80` had x/y diagonal values 1.537728/2.050304; ares had
+1.510750/2.050304. The small horizontal difference is explained by the port's
+border-removal policy: its viewport is 320x240, versus the ROM's 304x224
+viewport starting at (8,8). Vertical and depth projection terms matched.
+This is a bounded scene comparison, not proof of every camera or game mode.
+
+A separate widescreen defect was reproduced: the tachometer needle stretched
+and detached from the proportional dial artwork. Live vertex inspection and
+the ROM's two needle-builder call sites identified a raw-triangle versus
+rectangle scaling mismatch. See [the correction and regression
+coverage](reference/renderer.md#gauge-triangle-alignment). Local captures and
+memory probes are ignored under `artifacts/aspect/`.
+
+The regenerated Windows player verified the correction at idle and at 63 mph
+in fourth gear, with the needle attached to the dial in Match window mode.
+Switching Original / Match window retained alignment. All twelve CTest checks,
+four Python tests, documentation and whitespace checks passed. The new needle
+assertion was also run against the previous generated builder and failed
+before the correction. Standards and Spec reviews found no blocking issues.
+Other tracks, physical ultrawide displays and multiplayer driving were not
+visually verified in this investigation.
+
 ## Wider camera verified on 2026-10-03
 
 Windows x64, GCC 15.2, Direct3D 12, RTX 3080, verified USA ROM

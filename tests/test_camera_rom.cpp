@@ -11,6 +11,10 @@
 
 extern "C" void func_80011D54(uint8_t*, recomp_context*);
 extern "C" void func_8000FC18(uint8_t*, recomp_context*);
+extern "C" void func_8002D99C(uint8_t*, recomp_context*);
+extern "C" void func_8002D558(uint8_t*, recomp_context* ctx) {
+    ctx->r2 = int32_t(0x80403000);
+}
 constexpr int32_t test_descriptor = int32_t(0x80400100);
 extern "C" void func_800006AC(uint8_t*, recomp_context* ctx) { ctx->r2 = test_descriptor; }
 extern "C" void func_8000125C(uint8_t* rdram, recomp_context*) {
@@ -116,5 +120,43 @@ int main(int argc, char** argv) {
             assert(MEM_W(0, scene + 0x2830) == 160);
         }
     }
-    std::cout << "PASS: ROM projection and horizontal culling widen without changing vertical FOV\n";
+    // The gauge uses rectangle artwork but a BOSS screen-space triangle for
+    // its needle. Exercise the real builder with the stationary Hawaii needle
+    // captured in a live run, plus the ROM's doubled horizontal coordinate mode.
+    constexpr gpr points = int32_t(0x80404000), triangle = int32_t(0x80403000);
+    const std::array<int, 3> needle_x{986, 1006, 861};
+    const std::array<int, 3> needle_y{697, 719, 838};
+    for (int shift : {0, 1}) {
+        MEM_W(8, descriptor) = 320 << shift;
+        MEM_W(0, int32_t(0x8007FE80)) = shift;
+        MEM_W(0, int32_t(0x8007FE84)) = 0;
+        for (int i = 0; i < 3; ++i) {
+            MEM_W(i * 16, points) = needle_x[i];
+            MEM_W(i * 16 + 4, points) = needle_y[i];
+            MEM_W(i * 16 + 8, points) = 192 + i * 256;
+            MEM_W(i * 16 + 12, points) = -128;
+        }
+        for (int width : {960, 1280, 2560}) {
+            wdc::camera::set_output_size(width, 720);
+            const float scale = wdc::camera::width_scale();
+            MEM_W(0, int32_t(0x8007ED84)) = int32_t(0x80405000);
+            recomp_context ctx{}; ctx.f_odd = &ctx.f0.u32h;
+            ctx.r29 = int32_t(0x807FF000); ctx.r4 = int32_t(0x80080578);
+            ctx.r5 = points; ctx.r6 = points + 16; ctx.r7 = points + 32;
+            func_8002D99C(rdram, &ctx);
+            for (int i = 0; i < 3; ++i) {
+                const int x = MEM_H(0x10 + i * 16, triangle);
+                const float center = float(640 << shift);
+                // After RT64 stretches raw triangles, their x must match the
+                // centred, unstretched rectangle path (within half a subpixel).
+                const float rectangle_x = center * scale + (needle_x[i] << shift) - center;
+                assert(std::abs(x * scale - rectangle_x) <= 0.51f * scale);
+                assert(MEM_H(0x12 + i * 16, triangle) == needle_y[i]);
+                assert(MEM_H(0x18 + i * 16, triangle) == 192 + i * 256);
+                assert(MEM_H(0x1A + i * 16, triangle) == -128);
+                assert(MEM_W(i * 16, points) == needle_x[i]);
+            }
+        }
+    }
+    std::cout << "PASS: ROM camera, layout and gauge triangle preserve proportions\n";
 }

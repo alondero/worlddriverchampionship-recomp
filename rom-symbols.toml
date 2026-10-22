@@ -112,3 +112,10 @@ text = "{ extern void wdc_widen_camera(uint8_t*, recomp_context*); wdc_widen_cam
 func = "func_8000FC18"
 before_vram = 0x8000FEF0
 text = "{ extern void wdc_remove_overscan(uint8_t*, recomp_context*); wdc_remove_overscan(rdram, ctx); }"
+
+# Both gauge layouts use this BOSS screen-space triangle builder for the
+# needle; align its completed vertices with RT64's proportional HUD rectangles.
+[[hooks]]
+func = "func_8002D99C"
+before_vram = 0x8002DAA4
+text = "{ extern void wdc_align_hud_triangle(uint8_t*, recomp_context*); wdc_align_hud_triangle(rdram, ctx); }"
