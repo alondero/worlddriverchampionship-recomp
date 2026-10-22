@@ -19,7 +19,7 @@ void wdc::audio::Dma::advance(uint64_t nanoseconds, Sink sink, void* context) {
     if (count == 2) queued_bytes += buffers[1].bytes;
     // Clamp long stalls to the queued duration, preventing overflow and catchup
     // output beyond the two hardware descriptors. One AI word is two frames.
-    nanoseconds = std::min(nanoseconds, queued_bytes * 1000000000 / (frequency * 4ull) + 1000000000);
+    nanoseconds = std::min<uint64_t>(nanoseconds, queued_bytes * 1000000000 / (frequency * 4ull) + 1000000000);
     const uint64_t ticks = nanoseconds * frequency + fraction;
     uint64_t bytes = (ticks / 2000000000) * 8;
     fraction = ticks % 2000000000;

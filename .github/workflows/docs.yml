@@ -1,18 +1,8 @@
-name: Documentation and source-only checks
+name: Source checks
 
 on:
   push:
-    paths:
-      - "**/*.md"
-      - "scripts/check_docs.py"
-      - "tests/**"
-      - ".github/workflows/docs.yml"
   pull_request:
-    paths:
-      - "**/*.md"
-      - "scripts/check_docs.py"
-      - "tests/**"
-      - ".github/workflows/docs.yml"
 
 permissions:
   contents: read
@@ -21,12 +11,67 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 2
-      - uses: actions/setup-python@v5
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.x"
-      - run: git diff --check HEAD~1
+          python-version: "3.13"
+      - name: Check patch whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            git diff --check "$BASE_SHA" HEAD
+          else
+            git show --format= --check HEAD
+          fi
       - run: python -B scripts/check_docs.py
-      - run: python -m unittest discover tests
+      - run: python -B scripts/check_repo.py
+      - run: python -B -m unittest discover tests
+      - name: Lint workflows
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Prepare pinned host-test dependencies
+        run: |
+          git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64
+          git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
+          git -C lib/N64ModernRuntime apply ../../patches/0008-runtime-controller-pak-kind.patch
+          git -C lib/N64ModernRuntime apply ../../patches/0013-runtime-rsp-unsigned-packed-loads.patch
+          git -C lib/rt64 apply ../../patches/0014-rt64-rdp-screen-clipping.patch
+      - name: Configure ROM-free host tests
+        run: cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
+      - run: cmake --build build-host-tests --parallel 2
+      - run: ctest --test-dir build-host-tests --output-on-failure --no-tests=error
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan history for credentials
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$RUNNER_TEMP/gitleaks.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --log-opts="--all" --no-banner .

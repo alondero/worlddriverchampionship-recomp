@@ -5,9 +5,8 @@ before changing the project.
 
 ## Project facts
 
-- The supported ROM region, size, hash, and CPU code extent are intentionally
-  unconfirmed. Record them in `rom-analysis.toml` and `docs/reference/rom.md`
-  only after checking the actual dump.
+- ROM identity and measured CPU code extent are recorded in `rom-analysis.toml`;
+  see [ROM reference](docs/reference/rom.md) for validation and evidence.
 - The intended build runs N64Recomp and RSPRecomp, then compiles generated code
   with the hand-written port, N64ModernRuntime, RT64, and RecompFrontend.
 - `build.ps1` and `build.sh` are the executable build contract. Keep them,
@@ -46,6 +45,7 @@ Run the smallest relevant check and report what was skipped:
 
 ```text
 python -B scripts/check_docs.py
+python -B scripts/check_repo.py
 python -m unittest discover tests
 git diff --check
 ```

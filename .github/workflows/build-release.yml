@@ -16,7 +16,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   ROM_FILENAME: "World Driver Championship (USA).z64"
@@ -25,24 +25,30 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.tag }}
           submodules: recursive
+          persist-credentials: false
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3 pkg-config libsdl2-dev libvulkan-dev libfreetype-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libdbus-1-dev
       - name: Fetch private ROM
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ vars.ROM_ASSETS_REPO }}
           token: ${{ secrets.ROM_ASSETS_PAT }}
           path: rom-assets
+          persist-credentials: false
       - name: Place ROM
         run: cp "rom-assets/$ROM_FILENAME" "$ROM_FILENAME"
       - name: Build
         run: bash build.sh
+      - name: Build and run tests
+        run: |
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure --no-tests=error
       - name: Remove ROM
         if: always()
         run: rm -f "$ROM_FILENAME" && rm -rf rom-assets
@@ -50,10 +56,10 @@ jobs:
         run: |
           mkdir -p dist
           cp build/worlddriverchampionship_modern dist/
-          cp -r build/assets dist/ 2>/dev/null || true
+          cp -r build/assets dist/
           cd dist
           zip -r ../worlddriverchampionship-recomp-linux-x64.zip .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: worlddriverchampionship-linux-x64
           path: worlddriverchampionship-recomp-linux-x64.zip

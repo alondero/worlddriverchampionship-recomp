@@ -56,8 +56,12 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 python -m unittest discover tests
 python scripts/check_docs.py
+python -B scripts/check_repo.py
 git diff --check
 ```
+
+For the ROM-free C++ checks used by pull-request CI, see
+[host-test setup](docs/testing.md#rom-free-host-tests).
 
 A separate `-DWDC_HEADLESS=ON` build provides a 15-second CPU/RSP diagnostic.
 The desktop scripts explicitly enable `WDC_ENABLE_FRONTEND`; direct CMake

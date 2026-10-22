@@ -40,3 +40,13 @@ remains future work. See [Graphics settings](docs/configuration.md) and the
 
 See [Building](BUILDING.md), [First-playable evidence](docs/first-playable.md),
 [Testing](docs/testing.md), and [Peer research](docs/research/first-playable.md).
+
+## License and contents
+
+Project source is provided under [GPL version 3](LICENSE). Dependency and font
+licenses remain with their respective components; the overlay's font notices
+are included in [assets/frontend](assets/frontend/README.md).
+The original game and its assets are not included. This is an unofficial project.
+
+Maintainers: see [publishing checks](docs/publishing.md) before changing visibility
+or distributing build artifacts.
