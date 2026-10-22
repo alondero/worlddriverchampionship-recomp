@@ -117,7 +117,8 @@ Linux generation currently requires the default filename at the repository root.
 - `WDC_RDP_CAPTURE=<prefix>`: enable F10 to record the next complete BOSS task's
   raw RDP commands to `<prefix>-<n>.rdp` for `tools/rdp/analyze_seams.py`. Each
   press writes one file on the graphics worker; nothing is recorded otherwise.
-  Captures contain ROM-derived data and stay local. Remove this probe once RT64
+  Numbering restarts per run and replaces existing files; a failed write
+  deletes the partial capture. Captures contain ROM-derived data and stay local. Remove this probe once RT64
   can record raw RDP batches submitted by BOSS.
 
 The player stores runtime data under ignored `build/user-data`. Gamepad input,

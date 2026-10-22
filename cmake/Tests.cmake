@@ -85,6 +85,8 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME wdc_rom_transforms
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rom_transforms.py")
+        add_test(NAME wdc_rdp_seams
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rdp_seams.py")
         add_test(NAME wdc_bootstrap_structure
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bootstrap.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}")

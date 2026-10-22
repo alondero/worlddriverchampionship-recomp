@@ -71,7 +71,7 @@ unsigned holes(const std::vector<EdgeTriangles>& tris, const std::array<Point, 4
 }
 
 EdgeTriangles reconstruct(const std::array<Point, 3>& v, int slopeBits) {
-    return edgeTriangles(decodeTriangleEdges(encode(v, slopeBits)));
+    return triangulateEdges(decodeTriangleEdges(encode(v, slopeBits)));
 }
 
 int main() {
@@ -86,11 +86,30 @@ int main() {
         require(holes(pair, quad, scale, 0.25) == 0, "Adjacent raw RDP triangles leave uncovered samples");
     }
 
+    // Reduced from a failing Hawaii pair (coefficients rounded to 1/1024 px;
+    // no command words retained). Their shared edge is the right triangle's L
+    // and the left triangle's M, with identical slopes. The right triangle's
+    // H starts off-screen and its slope is ~0.3% off, so extrapolating H to YL
+    // misses the shared vertex (299, 39.75) by 0.64px.
+    const TriangleEdges right{.leftMajor = false, .yh = -179.5, .ym = -39.75, .yl = 39.75,
+        .xh = 494.6943359375, .xm = 495.2685546875, .xl = 209.0,
+        .dxhdy = -0.8876953125, .dxmdy = -2.037109375, .dxldy = 1.1318359375};
+    const TriangleEdges left{.leftMajor = true, .yh = -39.75, .ym = 39.75, .yl = 45.75,
+        .xh = 208.8828125, .xm = 208.716796875, .xl = 299.0,
+        .dxhdy = 0.470703125, .dxmdy = 1.1318359375, .dxldy = -8.291015625};
+    const std::vector<EdgeTriangles> measured{triangulateEdges(left), triangulateEdges(right)};
+    // The right triangle's own H ends at x=299.62; keep 0.75px from the jog
+    // at its bottom corner, where both RDP edges legitimately disagree.
+    const std::array<Point, 4> measuredQuad{{{209, -39.75}, {494.25, -179.5}, {right.majorX(39.75), 39.75}, {249.25, 45.75}}};
+    for (double scale : {1.0, 2.0, 4.8, 8.0}) {
+        require(holes(measured, measuredQuad, scale, 0.75) == 0, "Measured BOSS pair leaves uncovered samples");
+    }
+
     // Exact coefficients: the trapezoids cover exactly the original triangle's
     // standard four-sample MSAA positions at 1x-3x.
     const std::array<Point, 3> exact{{{8, 4}, {40, 36}, {2, 20}}};
     const auto edges = decodeTriangleEdges(encode(exact, 16));
-    const auto split = edgeTriangles(edges);
+    const auto split = triangulateEdges(edges);
     EdgeTriangles original;
     for (unsigned i = 0; i < 3; i++) original.vertices[i] = {float(exact[i][0]), float(exact[i][1])};
     original.vertexCount = 3;
@@ -106,8 +125,28 @@ int main() {
         }
     }
 
-    // Vertices lie on the walked edges; attributes are evaluated from the
-    // major edge exactly as the original plane (dy from floor(YH), dx from H).
+    // Attribute planes: offsets at the pinned decoder's three corners match its
+    // formulas (on H: dx = 0; at (XL, YM): dx = XL - H(YM)). A plane sampled
+    // at the new vertices and interpolated inside each triangle reproduces
+    // the plane itself, so shade/texture/depth gradients are unchanged.
+    const auto top = planeOffset(edges, {float(edges.majorX(edges.yh)), float(edges.yh)});
+    const auto middle = planeOffset(edges, {float(edges.xl), float(edges.ym)});
+    require(top.dy == float(edges.yh - edges.yFloor()) && top.dx == 0, "Major-edge plane offset changed");
+    require(std::abs(middle.dx - (edges.xl - edges.majorX(edges.ym))) < 1e-5, "Minor-vertex plane offset changed");
+    auto shade = [&](double x, double y) {
+        const auto o = planeOffset(edges, {float(x), float(y)});
+        return 0.25 + 0.0625 * o.dy - 0.03125 * o.dx;
+    };
+    for (uint32_t s = 0; s < split.vertexCount; s += 3) {
+        const auto& a = split.vertices[s]; const auto& b = split.vertices[s + 1]; const auto& c = split.vertices[s + 2];
+        const double area = (double(b.x) - a.x) * (c.y - a.y) - (double(b.y) - a.y) * (c.x - a.x);
+        if (std::abs(area) < 1e-9) continue;
+        const double x = (a.x + b.x + c.x) / 3.0, y = (a.y + b.y + c.y) / 3.0;
+        const double interpolated = (shade(a.x, a.y) + shade(b.x, b.y) + shade(c.x, c.y)) / 3.0;
+        require(std::abs(interpolated - shade(x, y)) < 1e-5, "Shade gradient changed inside the edge area");
+    }
+
+    // Vertices lie on the walked edges.
     for (uint32_t i = 0; i < split.vertexCount; i++) {
         const auto& v = split.vertices[i];
         require(v.y >= edges.yh && v.y <= edges.yl, "Vertex left the YH..YL span");
@@ -118,17 +157,21 @@ int main() {
 
     // The RDP draws no span where the minor edge crosses to the wrong side of
     // H. Left-major H at x=10; M crosses it at y=10 and is inverted below.
-    TriangleEdges crossing{true, 0, 20, 20, 10, 20, 0, 0, -1, 0};
-    const auto cut = edgeTriangles(crossing);
+    const TriangleEdges crossing{.leftMajor = true, .yh = 0, .ym = 20, .yl = 20, .xh = 10, .xm = 20, .xl = 0,
+                                 .dxhdy = 0, .dxmdy = -1, .dxldy = 0};
+    const auto cut = triangulateEdges(crossing);
     require(covers(cut, 15, 2) && !covers(cut, 9, 15) && !covers(cut, 10.5, 12), "Inverted span was rasterized");
 
     // YM outside YH..YL uses only the edge pair the walker reaches.
-    require(edgeTriangles({true, 5, 5, 5, 0, 0, 0, 1, 1, 1}).vertexCount == 0, "Zero-height triangle emitted geometry");
-    TriangleEdges upper{true, 0, 30, 10, 0, 10, 99, 0, 0, 0};
-    const auto upperOnly = edgeTriangles(upper);
+    require(triangulateEdges({.leftMajor = true, .yh = 5, .ym = 5, .yl = 5, .xh = 0, .xm = 0, .xl = 0,
+                              .dxhdy = 1, .dxmdy = 1, .dxldy = 1}).vertexCount == 0, "Zero-height triangle emitted geometry");
+    const TriangleEdges upper{.leftMajor = true, .yh = 0, .ym = 30, .yl = 10, .xh = 0, .xm = 10, .xl = 99,
+                              .dxhdy = 0, .dxmdy = 0, .dxldy = 0};
+    const auto upperOnly = triangulateEdges(upper);
     require(covers(upperOnly, 5, 5) && !covers(upperOnly, 5, 11) && !covers(upperOnly, 50, 5), "YM beyond YL used the L edge");
-    TriangleEdges lower{true, 4, 0, 10, 0, 99, 10, 0, 0, 0};
-    const auto lowerOnly = edgeTriangles(lower);
+    const TriangleEdges lower{.leftMajor = true, .yh = 4, .ym = 0, .yl = 10, .xh = 0, .xm = 99, .xl = 10,
+                              .dxhdy = 0, .dxmdy = 0, .dxldy = 0};
+    const auto lowerOnly = triangulateEdges(lower);
     require(covers(lowerOnly, 5, 5) && !covers(lowerOnly, 5, 3) && !covers(lowerOnly, 50, 5), "YM above YH used the M edge");
 
     std::puts("RDP triangle edge reconstruction regression passed");

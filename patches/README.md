@@ -93,14 +93,12 @@ a minimal numeric reproducer, and the live GPU acceptance evidence.
 Patch 0016 has a ROM-free coverage reproducer in
 `tests/test_rdp_triangle_edges.cpp`. The pinned and current upstream
 [raw RDP decoder](https://github.com/rt64/rt64/blob/main/src/gbi/rt64_gbi_rdp.cpp)
-builds each triangle from H at YH, H at YL and (XL, YM), ignoring the M and L
-slopes. With rounded microcode slopes, neighbours that share an edge then
-rebuild it as two different lines. The patch adds `rt64_rdp_triangle_edges.h`,
-which emits the two trapezoids the RDP edge walker fills, drops inverted
-spans, and evaluates every attribute from the existing coefficient planes.
-Each output triangle is clipped by patch 0014, so 0016 applies after it.
-Captured BOSS frames, the measurement tool and live acceptance are recorded in
-the [renderer reference](../docs/reference/renderer.md#raw-triangle-edge-reconstruction).
+builds each triangle from three corners extrapolated along H, ignoring the M
+and L slopes, so neighbours rebuild a shared edge as two different lines. The
+patch adds `rt64_rdp_triangle_edges.h` to emit the trapezoids the RDP edge
+walker fills. Each output triangle is clipped by patch 0014, so 0016 applies
+after it. The mechanism, measurements and limits are in the
+[renderer reference](../docs/reference/renderer.md#raw-triangle-edge-reconstruction).
 
 The overlay patches are shared host UI behavior, copied from the Lamborghini
 peer's storage and enum-layout patches at the same dependency pins. The WDC

@@ -1,5 +1,5 @@
 diff --git a/src/gbi/rt64_gbi_rdp.cpp b/src/gbi/rt64_gbi_rdp.cpp
-index 9621677..d18d857 100644
+index 9621677..558d91f 100644
 --- a/src/gbi/rt64_gbi_rdp.cpp
 +++ b/src/gbi/rt64_gbi_rdp.cpp
 @@ -4,6 +4,7 @@
@@ -16,12 +16,20 @@ index 9621677..d18d857 100644
              getTrianglePointers(triangleData, array_length, trianglesEnd, triangles, overrun);
 -            size_t vertexCount = triangles.size() * 3;
 +            // Each RDP triangle becomes up to two trapezoids (four triangles).
-+            size_t vertexCount = triangles.size() * 12;
++            size_t vertexCount = triangles.size() * MaxEdgeVertices;
 +            uint32_t areaVertexCount = 0;
  
              std::vector<interop::float4> &posWorkBuffer = state->rdp->triPosWorkBuffer;
              std::vector<interop::float4> &colorWorkBuffer = state->rdp->triColWorkBuffer;
-@@ -352,75 +355,30 @@ namespace RT64 {
+@@ -334,7 +337,6 @@ namespace RT64 {
+             setMinSize(colorWorkBuffer, vertexCount);
+             setMinSize(texcoordWorkBuffer, vertexCount);
+ 
+-            size_t workBufferIndex = 0;
+             uint32_t tile = -1;
+             uint32_t level = -1;
+ 
+@@ -352,75 +354,28 @@ namespace RT64 {
                  bool textured = (commandId & (uint32_t)RDPTriangle::Textured) != 0;
                  bool shaded = (commandId & (uint32_t)RDPTriangle::Shaded) != 0;
  
@@ -87,19 +95,17 @@ index 9621677..d18d857 100644
 +                    edgeWords[i * 2 + 1] = curData[i].w1;
 +                }
 +                const TriangleEdges edges = decodeTriangleEdges(edgeWords);
-+                const EdgeTriangles edgeArea = edgeTriangles(edges);
++                const EdgeTriangles edgeArea = triangulateEdges(edges);
 +                areaVertexCount = edgeArea.vertexCount;
 +
-+                // Attribute coefficients are planes anchored on the major edge: dy is measured from
-+                // the scanline of XH, dx from the H edge on the vertex's own row.
-+                const float yFloor = float(edges.yFloor());
-+                std::array<float, 12> dy, dx;
++                std::array<float, MaxEdgeVertices> dy, dx;
 +                for (uint32_t i = 0; i < areaVertexCount; i++) {
 +                    const EdgeVertex &vertex = edgeArea.vertices[i];
++                    const PlaneOffset offset = planeOffset(edges, vertex);
 +                    posWorkBuffer[i].x = vertex.x;
 +                    posWorkBuffer[i].y = vertex.y;
-+                    dy[i] = vertex.y - yFloor;
-+                    dx[i] = float(vertex.x - edges.majorX(vertex.y));
++                    dy[i] = offset.dy;
++                    dx[i] = offset.dx;
 +                }
  
                  curData += triangleBaseWords;
@@ -118,7 +124,7 @@ index 9621677..d18d857 100644
                  if (shaded) {
                      hlslpp::int4 baseColorFixed{
                          ((curData[0].w0 >> 16) << 16) | (curData[2].w0 >> 16),
-@@ -443,39 +401,22 @@ namespace RT64 {
+@@ -443,39 +398,22 @@ namespace RT64 {
                          ((curData[4].w1 & 0xFFFF) << 16) | (curData[6].w1 & 0xFFFF),
                      };
  
@@ -165,7 +171,7 @@ index 9621677..d18d857 100644
                  }
  
                  if (textured) {
-@@ -497,115 +438,86 @@ namespace RT64 {
+@@ -497,115 +435,87 @@ namespace RT64 {
                          ((curData[4].w1 >> 16) << 16) | (curData[6].w1 >> 16)
                      };
  
@@ -297,9 +303,10 @@ index 9621677..d18d857 100644
 -                    clippedPositions[i][c] = clipped.vertices[i].position[c];
 -                    clippedColors[i][c] = clipped.vertices[i].color[c];
 +            const TriangleScissor clipBounds = rasterClipBounds({scissor.ulx / 4.0f, scissor.uly / 4.0f, scissor.lrx / 4.0f, scissor.lry / 4.0f});
-+            // Up to four edge-area triangles, each clipped to at most five triangles.
-+            std::array<interop::float4, 60> clippedPositions, clippedColors;
-+            std::array<interop::float2, 60> clippedUVs;
++            // Each edge-area triangle can clip into a polygon of several triangles.
++            constexpr size_t maxClippedVertices = (MaxEdgeVertices / 3) * std::tuple_size_v<decltype(ClippedTriangle::vertices)>;
++            std::array<interop::float4, maxClippedVertices> clippedPositions, clippedColors;
++            std::array<interop::float2, maxClippedVertices> clippedUVs;
 +            uint32_t clippedCount = 0;
 +            for (uint32_t start = 0; start + 3 <= areaVertexCount; start += 3) {
 +                std::array<TriangleVertex, 3> triangle;
@@ -329,10 +336,10 @@ index 9621677..d18d857 100644
              return trianglesEnd;
 diff --git a/src/gbi/rt64_rdp_triangle_edges.h b/src/gbi/rt64_rdp_triangle_edges.h
 new file mode 100644
-index 0000000..3b0248a
+index 0000000..97eb374
 --- /dev/null
 +++ b/src/gbi/rt64_rdp_triangle_edges.h
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,78 @@
 +//
 +// RT64
 +//
@@ -357,17 +364,21 @@ index 0000000..3b0248a
 +        double lowX(double y) const { return xl + dxldy * (y - ym); }
 +    };
 +
++    // Decode the first four command words (w0/w1 pairs) of a triangle command.
 +    inline TriangleEdges decodeTriangleEdges(const std::array<uint32_t, 8>& words) {
 +        auto y = [](uint32_t v) { return double(int16_t(uint16_t(v << 2)) >> 2) / 4.0; };
 +        auto x = [](uint32_t v) { return double(int32_t(v)) / 65536.0; };
-+        return {(words[0] & 0x800000) != 0, y(words[1]), y(words[1] >> 16), y(words[0]),
-+                x(words[4]), x(words[6]), x(words[2]), x(words[5]), x(words[7]), x(words[3])};
++        return {.leftMajor = (words[0] & 0x800000) != 0,
++                .yh = y(words[1]), .ym = y(words[1] >> 16), .yl = y(words[0]),
++                .xh = x(words[4]), .xm = x(words[6]), .xl = x(words[2]),
++                .dxhdy = x(words[5]), .dxmdy = x(words[7]), .dxldy = x(words[3])};
 +    }
 +
 +    struct EdgeVertex { float x, y; };
++    // Two trapezoids, each split into two triangles.
++    constexpr uint32_t MaxEdgeVertices = 12;
 +    struct EdgeTriangles {
-+        // Two trapezoids, each at most two triangles.
-+        std::array<EdgeVertex, 12> vertices{};
++        std::array<EdgeVertex, MaxEdgeVertices> vertices{};
 +        uint32_t vertexCount = 0;
 +    };
 +
@@ -377,7 +388,7 @@ index 0000000..3b0248a
 +    // corners disagree (slopes rounded by the microcode). Extrapolating
 +    // corners along H instead opens sub-pixel seams that the RDP's
 +    // multi-sample coverage hides but GPU centre sampling exposes.
-+    inline EdgeTriangles edgeTriangles(const TriangleEdges& e) {
++    inline EdgeTriangles triangulateEdges(const TriangleEdges& e) {
 +        EdgeTriangles result;
 +        if (!(e.yl > e.yh)) return result;
 +        const double side = e.leftMajor ? 1.0 : -1.0;
@@ -385,11 +396,11 @@ index 0000000..3b0248a
 +            if (!(y1 > y0)) return;
 +            // Span width is linear in y. The RDP draws nothing where the
 +            // minor edge has crossed to the wrong side of H.
-+            const double w0 = side * (minorX(y0) - e.majorX(y0));
-+            const double w1 = side * (minorX(y1) - e.majorX(y1));
-+            if (!(w0 > 0) && !(w1 > 0)) return;
-+            if (w0 < 0) y0 += (y1 - y0) * w0 / (w0 - w1);
-+            else if (w1 < 0) y1 = y0 + (y1 - y0) * w0 / (w0 - w1);
++            const double width0 = side * (minorX(y0) - e.majorX(y0));
++            const double width1 = side * (minorX(y1) - e.majorX(y1));
++            if (!(width0 > 0) && !(width1 > 0)) return;
++            if (width0 < 0) y0 += (y1 - y0) * width0 / (width0 - width1);
++            else if (width1 < 0) y1 = y0 + (y1 - y0) * width0 / (width0 - width1);
 +            const EdgeVertex a{float(e.majorX(y0)), float(y0)}, b{float(minorX(y0)), float(y0)};
 +            const EdgeVertex c{float(minorX(y1)), float(y1)}, d{float(e.majorX(y1)), float(y1)};
 +            for (const auto& v : {a, b, c, a, c, d}) result.vertices[result.vertexCount++] = v;
@@ -398,5 +409,12 @@ index 0000000..3b0248a
 +        trapezoid(e.yh, ym, [&](double y) { return e.middleX(y); });
 +        trapezoid(ym, e.yl, [&](double y) { return e.lowX(y); });
 +        return result;
++    }
++
++    // Shade, texture and depth coefficients are planes anchored on H: DE
++    // applies per row from floor(YH), DX per pixel from H on the same row.
++    struct PlaneOffset { float dy, dx; };
++    inline PlaneOffset planeOffset(const TriangleEdges& e, const EdgeVertex& v) {
++        return {float(v.y - e.yFloor()), float(v.x - e.majorX(v.y))};
 +    }
 +}

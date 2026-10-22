@@ -5,7 +5,7 @@ import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools' / 'rdp'))
-from rdp_triangles import HEADER, gap_samples, read_capture, shared_edges, triangles
+from rdp_triangles import EDGES, HEADER, THREE_POINT, gap_samples, read_capture, shared_edges, triangles
 
 
 def encode(vertices, slope_bits=16):
@@ -53,27 +53,28 @@ class SeamAnalyserTests(unittest.TestCase):
         tris = self.decode(16)
         self.assertEqual(tris[0].scissor, (0, 0, 320, 240))
         self.assertEqual((tris[0].yh, tris[0].yl), (10, 230))
-        self.assertAlmostEqual(tris[0].h(230), 200, places=2)
+        self.assertAlmostEqual(tris[0].major_x(230), 200, places=2)
         # Both spans lie left of their own H edge; the second triangle's
         # interior is right of its L edge, the shared diagonal.
         self.assertEqual(tris[0].interior_side(), -1)
         self.assertEqual(tris[1].interior_side(), -1)
 
-    def test_shared_diagonal_is_paired(self):
-        pairs = list(shared_edges(self.decode(16)))
-        self.assertEqual(len(pairs), 1)
-        self.assertEqual((pairs[0].left_edge, pairs[0].right_edge), ('H', 'L'))
+    def test_shared_diagonal_is_paired_under_both_models(self):
+        for model in (EDGES, THREE_POINT):
+            pairs = list(shared_edges(self.decode(16), model))
+            self.assertEqual(len(pairs), 1)
+            self.assertEqual((pairs[0].left_edge, pairs[0].right_edge), ('H', 'L'))
 
-    def test_coarse_slopes_open_rt64_seam_but_not_rdp_edges(self):
+    def test_coarse_slopes_open_three_point_seam_but_not_edges(self):
         # A 10-bit reciprocal leaves each H extrapolation up to ~0.2px from
         # the shared vertex; the RDP's own edges still coincide.
         (pair,) = shared_edges(self.decode(10))
-        rt64_samples, rt64_gap = gap_samples(pair, 'rt64', 4.8)
-        rdp_samples, rdp_gap = gap_samples(pair, 'rdp', 4.8)
-        self.assertGreater(rt64_samples, 0)
-        self.assertGreater(rt64_gap, 0.01)
-        self.assertEqual(rdp_samples, 0)
-        self.assertLess(rdp_gap, 0.01)
+        three_point_samples, three_point_gap = gap_samples(pair, THREE_POINT, 4.8)
+        edge_samples, edge_gap = gap_samples(pair, EDGES, 4.8)
+        self.assertGreater(three_point_samples, 0)
+        self.assertGreater(three_point_gap, 0.01)
+        self.assertEqual(edge_samples, 0)
+        self.assertLess(edge_gap, 0.01)
 
 
 if __name__ == '__main__':

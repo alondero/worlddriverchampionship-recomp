@@ -81,12 +81,15 @@ fully visible and visible-singularity cases. Extreme finite inputs exercise
 bounded polygon storage and attribute-overflow fallback.
 An offset-aware standard four-sample MSAA fixture checks that conservative
 clipping retains edge coverage at 1x, 2x and 3x, including fractional scissors.
-The raw RDP edge test encodes two synthetic triangles sharing a diagonal with
-10-bit slopes, as a limited-precision microcode would. It counts GPU sample
-centres left uncovered between them at 1x, 2x, 4.8x and 8x; the pinned
-three-point reconstruction fails it. It also checks that exact coefficients keep
-the original four-sample MSAA coverage, that every vertex lies on an RDP edge,
-and that inverted spans and YM outside YH..YL draw only what the edge walker does.
+The raw RDP edge test counts GPU sample centres left uncovered between two
+neighbours at 1x, 2x, 4.8x and 8x. It uses a synthetic pair with 10-bit slopes
+and a pair reduced from a captured Hawaii frame (rounded coefficients, no
+command words); the three-point reconstruction fails both. It also checks
+that exact coefficients keep the original four-sample MSAA coverage,
+that attribute-plane offsets and interpolated shade match the plane, and that
+every vertex lies on an RDP edge. It also checks that inverted spans and YM
+outside YH..YL draw only what the edge walker does. GPU vertex snapping is not
+modelled.
 `tests/test_rdp_seams.py` covers the capture decoder and seam measurement in
 `tools/rdp/` with the same synthetic encoding.
 

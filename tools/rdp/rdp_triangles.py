@@ -13,6 +13,8 @@ import struct
 from dataclasses import dataclass
 
 HEADER = b"WDCRDP01"
+THREE_POINT = "three-point"
+EDGES = "edges"
 
 
 def command_words(w0: int) -> int:
@@ -53,32 +55,39 @@ class Triangle:
     def y_floor(self) -> float:
         return math.floor(self.yh)
 
-    def h(self, y: float) -> float:
+    def major_x(self, y: float) -> float:
         return self.xh + self.dxhdy * (y - self.y_floor)
 
-    def m(self, y: float) -> float:
+    def middle_x(self, y: float) -> float:
         return self.xm + self.dxmdy * (y - self.y_floor)
 
-    def l(self, y: float) -> float:
+    def low_x(self, y: float) -> float:
         return self.xl + self.dxldy * (y - self.ym)
 
     @property
     def ymid(self) -> float:
         return min(max(self.ym, self.yh), self.yl)
 
-    def rt64_vertices(self):
-        """Pinned RT64 GBI_RDP::decodeTriangles: two H points and (XL, YM)."""
-        return ((self.h(self.yh), self.yh), (self.h(self.yl), self.yl), (self.xl, self.ym))
+    def three_point_vertices(self):
+        """RT64's original decodeTriangles corners: two H points and (XL, YM)."""
+        return ((self.major_x(self.yh), self.yh), (self.major_x(self.yl), self.yl), (self.xl, self.ym))
 
     def edges(self, model: str):
-        """Return {name: (x0, y0, x1, y1)} with y0 <= y1 for one model."""
-        if model == "rt64":
-            v1, v2, v3 = self.rt64_vertices()
+        """Return {name: (x0, y0, x1, y1)} with y0 <= y1 for one model.
+
+        THREE_POINT is RT64 before patch 0016; EDGES is the lines the RDP
+        walks (patch 0016). EDGES ignores 0016's inverted-span cut, which can
+        only lengthen its segments and so overstates, never hides, its gaps.
+        """
+        if model == THREE_POINT:
+            v1, v2, v3 = self.three_point_vertices()
             return {"H": (*v1, *v2), "M": (*v1, *v3), "L": (*v3, *v2)}
+        if model != EDGES:
+            raise ValueError(model)
         ym = self.ymid
-        return {"H": (self.h(self.yh), self.yh, self.h(self.yl), self.yl),
-                "M": (self.m(self.yh), self.yh, self.m(ym), ym),
-                "L": (self.l(ym), ym, self.l(self.yl), self.yl)}
+        return {"H": (self.major_x(self.yh), self.yh, self.major_x(self.yl), self.yl),
+                "M": (self.middle_x(self.yh), self.yh, self.middle_x(ym), ym),
+                "L": (self.low_x(ym), ym, self.low_x(self.yl), self.yl)}
 
     def closure(self):
         """Distances, in pixels, where the RDP's edges fail to meet.
@@ -88,15 +97,15 @@ class Triangle:
         amounts by which its shape departs from the rasterized edges.
         """
         ym = self.ymid
-        return (abs(self.h(self.yh) - self.m(self.yh)) if ym > self.yh else 0.0,
-                abs(self.m(ym) - self.l(ym)) if self.yh < ym < self.yl else 0.0,
-                abs(self.h(self.yl) - self.l(self.yl)) if ym < self.yl else 0.0)
+        return (abs(self.major_x(self.yh) - self.middle_x(self.yh)) if ym > self.yh else 0.0,
+                abs(self.middle_x(ym) - self.low_x(ym)) if self.yh < ym < self.yl else 0.0,
+                abs(self.major_x(self.yl) - self.low_x(self.yl)) if ym < self.yl else 0.0)
 
     def interior_side(self) -> int:
         """+1 when spans extend right of H, else -1 (measured, not the flag)."""
         y = (self.yh + self.yl) / 2
-        minor = self.m(y) if y < self.ymid else self.l(y)
-        return 1 if minor > self.h(y) else -1
+        minor = self.middle_x(y) if y < self.ymid else self.low_x(y)
+        return 1 if minor > self.major_x(y) else -1
 
 
 def read_capture(data: bytes):
@@ -144,16 +153,16 @@ class SharedEdge:
     right_edge: str
 
 
-def shared_edges(tris, tolerance=0.25):
-    """Pair triangles whose RDP-defined edges coincide with opposite interiors.
+def shared_edges(tris, model=EDGES, tolerance=0.25):
+    """Pair triangles whose edges coincide, under `model`, with opposite interiors.
 
-    Matching uses the edge-faithful geometry, which is what the RDP rasterizes.
+    Pairs require equal y endpoints and x endpoints within `tolerance`.
     Horizontal and zero-height edges are ignored; T-junctions are not paired.
     """
     buckets = {}
     for tri in tris:
         side = tri.interior_side()
-        for name, (x0, y0, x1, y1) in tri.edges("rdp").items():
+        for name, (x0, y0, x1, y1) in tri.edges(model).items():
             if y1 - y0 < 0.5:
                 continue
             # The minor edges bound the opposite side of the span from H.
