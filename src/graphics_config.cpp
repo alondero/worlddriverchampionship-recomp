@@ -19,6 +19,7 @@ std::filesystem::path file;
 Settings normalize(Settings s) {
     s.resolution = std::clamp(s.resolution, 0, 8);
     if (s.aspect < 0 || s.aspect > 1) s.aspect = 1;
+    if (s.hud < 0 || s.hud > 2) s.hud = 1;
     if (s.rate != 0 && s.rate != -1 && (s.rate < 30 || s.rate > 360)) s.rate = 0;
     if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8) s.samples = 1;
     if (s.filtering < 0 || s.filtering > 2) s.filtering = 1;
@@ -49,6 +50,7 @@ void load(const std::filesystem::path& path) {
                 }
             };
             integer("resolution", s.resolution); integer("aspect", s.aspect);
+            integer("hud", s.hud);
             integer("rate", s.rate); integer("samples", s.samples);
             integer("filtering", s.filtering); integer("precision", s.precision);
             s.fullscreen = j.value("fullscreen", false);
@@ -72,7 +74,7 @@ bool apply(Settings s) {
     try {
         if (file.empty()) throw std::runtime_error("settings path is not configured");
         nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
-            {"aspect", s.aspect}, {"rate", s.rate}, {"samples", s.samples},
+            {"aspect", s.aspect}, {"hud", s.hud}, {"rate", s.rate}, {"samples", s.samples},
             {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen}};
         auto temporary = file;
         temporary += ".tmp";

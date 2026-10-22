@@ -2,11 +2,13 @@
 #define HLSL_CPU
 #include "hle/rt64_application.h"
 #include "hle/rt64_state.h"
+#include "hle/rt64_rdp.h"
 #include "render/rt64_shader_library.h"
 #include "ultramodern/renderer_context.hpp"
 #include "boss_rsp.h"
 #include "graphics_rt64.h"
 #include "game_camera.h"
+#include "game_hud.h"
 #include <algorithm>
 #include <cstdio>
 #include <memory>
@@ -25,6 +27,64 @@ class Renderer final : public ultramodern::renderer::RendererContext {
     uint8_t* rdram;
     wdc::graphics::Settings settings;
     float aspect_target = 0.0f;
+    wdc::hud::Stream hud_stream;
+    bool hud_active = false;
+    uint32_t hud_left = 0, hud_right = 0;
+    RT64::ExtendedAlignment saved_rect;
+    void end_hud() {
+        if (!hud_active) return;
+        app->state->rdp->setRectAlign(saved_rect);
+        app->state->rdp->popScissor();
+        hud_active = false;
+    }
+    void hud_marker(uint32_t payload) {
+        end_hud();
+        if (payload == wdc::hud::end_marker) return;
+        auto& rdp = *app->state->rdp;
+        hud_left = payload >> 16; hud_right = payload & 0xFFFF;
+        const unsigned width = rdp.colorImage.width;
+        if (!width || hud_left >= hud_right || hud_right > width) return;
+        saved_rect = rdp.extended.global.rect;
+        const auto scissor = rdp.scissorRectStack[rdp.scissorStackSize - 1];
+        const auto mode = rdp.scissorModeStack[rdp.scissorStackSize - 1];
+        rdp.pushScissor();
+        RT64::ExtendedAlignment align;
+        align.leftOrigin = hud_left * G_EX_ORIGIN_RIGHT / width;
+        align.rightOrigin = hud_right * G_EX_ORIGIN_RIGHT / width;
+        // Origins supply the viewport edges; retain the ROM's vertical clip.
+        rdp.setScissor(mode, 0, scissor.uly, 0, scissor.lry, align);
+        hud_active = true;
+    }
+    void send_rdp(uint8_t* memory, uint32_t start, uint32_t end) {
+        uint32_t run = start;
+        auto submit = [&](uint32_t until) {
+            if (run < until) app->processDisplayLists(memory, run, until, false);
+            run = until;
+        };
+        // BOSS supplies aligned, word-swapped RDRAM or DMEM synchronously on
+        // the graphics worker (range checked by boss_rsp.cpp). Read native u32
+        // words, never retain pointers or mutate the guest command stream.
+        for (uint32_t pos = start; pos < end; pos += 8) {
+            const auto* words = reinterpret_cast<const uint32_t*>(memory + pos);
+            const bool boundary = hud_stream.remaining == 0;
+            if (hud_stream.consume(words[0])) {
+                submit(pos);
+                hud_marker(words[1]);
+                run = pos + 8;
+            } else if (boundary && hud_active &&
+                       (((words[0] >> 24) & 63) == 36 || ((words[0] >> 24) & 63) == 37)) {
+                submit(pos);
+                const float midpoint = float(hud_left + hud_right) * 2.0f;
+                const float rect_center = float(((words[0] >> 12) & 4095) + ((words[1] >> 12) & 4095)) / 2.0f;
+                const unsigned anchor = rect_center < midpoint ? hud_left : hud_right;
+                RT64::ExtendedAlignment align;
+                align.leftOrigin = align.rightOrigin = anchor * G_EX_ORIGIN_RIGHT / app->state->rdp->colorImage.width;
+                align.leftOffset = align.rightOffset = -int(anchor * 4);
+                app->state->rdp->setRectAlign(align);
+            }
+        }
+        submit(end);
+    }
     void sync_settings() {
         const auto next = wdc::graphics::snapshot();
         const auto size = app->core.decodeVI().fbSize();
@@ -110,8 +170,9 @@ public:
     void send_dl(const OSTask* task) override {
         sync_settings();
         wdc::rsp::run(rdram, task, [](void* context, uint8_t* memory, uint32_t start, uint32_t end) {
-            static_cast<Renderer*>(context)->app->processDisplayLists(memory, start, end, false);
+            static_cast<Renderer*>(context)->send_rdp(memory, start, end);
         }, this);
+        end_hud(); // Fail closed if a task ever omits its closing marker.
     }
     void send_dummy_workload(uint32_t) override {}
     void update_screen() override {

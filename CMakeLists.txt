@@ -90,7 +90,7 @@ if(WDC_FUNC_C_SOURCES OR WDC_FUNC_CXX_SOURCES)
         "${N64MR}/N64Recomp/include")
 endif()
 
-set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/boss_rsp.cpp
+set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_hud.cpp src/boss_rsp.cpp
     src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/aspMain.cpp")
     list(APPEND WDC_SOURCES src/aspMain.cpp)
@@ -156,6 +156,9 @@ if(WDC_ENABLE_FRONTEND AND NOT WDC_HEADLESS)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(wdc_hud_stream_tests tests/test_hud_stream.cpp)
+    target_include_directories(wdc_hud_stream_tests PRIVATE src)
+    add_test(NAME wdc_hud_stream COMMAND wdc_hud_stream_tests)
     add_executable(wdc_rdp_triangle_clip_tests tests/test_rdp_triangle_clip.cpp)
     target_include_directories(wdc_rdp_triangle_clip_tests PRIVATE lib/rt64/src)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -197,7 +200,7 @@ if(BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c"
                 DEPENDS tests/extract_camera_test.py ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
-            add_executable(wdc_camera_rom_tests tests/test_camera_rom.cpp src/game_camera.cpp
+            add_executable(wdc_camera_rom_tests tests/test_camera_rom.cpp src/game_camera.cpp src/game_hud.cpp
                 "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c")
             target_include_directories(wdc_camera_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_camera_rom_tests PRIVATE -fno-strict-aliasing)

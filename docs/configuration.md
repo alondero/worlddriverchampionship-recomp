@@ -43,8 +43,13 @@ the requested value. Output filtering affects presentation, not texture assets.
 Higher precision is an internal framebuffer setting, not HDR monitor output.
 
 Match window widens the game camera and horizontal visibility to fit wide
-windows and fullscreen displays. Cars retain their proportions; HUD and menu
-rectangles keep their original size and are centered. The game's outer TV
+windows and fullscreen displays. Cars retain their proportions. **HUD placement**
+in the Graphics tab controls the race map, instruments and timing blocks:
+Original keeps the centered 4:3 layout; Clamp to 16:9 (default) moves them toward
+the edges up to a 16:9 area; Full width follows the output edges. The needle
+travels with its dial. Changes apply live and are saved with the other settings.
+At 4:3 or narrower output these choices coincide. Menus, pause panels and the
+wrong-way message stay centered. The game's outer TV
 overscan margins are removed by expanding its viewport and scissor, without
 cropping the scene. Cinematic layouts and fixed 2D artwork can still leave
 unused space. Narrow windows and Original use a fitted 4:3 view.
@@ -66,6 +71,7 @@ You can also edit the file while the player is closed. Schema version 2:
   "version": 2,
   "resolution": 0,
   "aspect": 1,
+  "hud": 1,
   "rate": 0,
   "samples": 1,
   "filtering": 1,
@@ -75,6 +81,8 @@ You can also edit the file while the player is closed. Schema version 2:
 ```
 
 Resolution accepts 0 (auto) or 1-8; aspect accepts 0 (original) or 1 (window);
+HUD placement accepts 0 (original), 1 (clamp to 16:9), or 2 (full width).
+Older version 2 files without `hud` use the default clamp.
 rate accepts 0 (original), -1 (display), or 30-360 Hz; samples accepts
 1, 2, 4, 8. Filtering accepts 0 (nearest), 1 (linear), 2 (pixel scaling);
 precision accepts 0 (auto), 1 (standard), 2 (high). Unknown enum values use

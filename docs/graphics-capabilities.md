@@ -14,7 +14,7 @@ also describe frame-pacing and high-precision framebuffer improvements.
 | --- | --- | --- |
 | Higher resolution | Auto window scale, original/2x, downsampling | Auto or explicit native 1-8x scaling |
 | Anti-aliasing | MSAA off/2x/4x/8x | Same requested sample counts, device fallback |
-| Widescreen / ultrawide | RT64 aspect plus game projection, sky and HUD handling | Camera and horizontal culling follow the window; HUD rectangles remain proportional |
+| Widescreen / ultrawide | RT64 aspect plus game projection, sky and HUD handling | Camera/culling follow the window; configurable race HUD pinning preserves sprite and needle proportions |
 | High rendering rates | Original/display/manual targets and RT64 interpolation | Experimental targets only; no new interpolated WDC motion |
 | Fullscreen | SDL window mode, F11 and Alt+Enter | Desktop fullscreen, hidden Windows menu, saved preference |
 | Color precision | Auto/standard/high internal framebuffer | Saved startup option; requires restart |

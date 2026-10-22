@@ -15,7 +15,9 @@ inline void configure(RT64::UserConfiguration& c, Settings requested,
     // factor as the guest camera, independent of the framebuffer's pixel shape.
     c.aspectRatio = C::AspectRatio::Manual;
     c.aspectTarget = framebuffer_aspect * width_scale;
-    c.extAspectRatio = C::AspectRatio::Original;
+    c.extAspectRatio = s.hud == 0 ? C::AspectRatio::Original :
+        s.hud == 1 ? C::AspectRatio::Manual : C::AspectRatio::Expand;
+    c.extAspectTarget = framebuffer_aspect * (4.0f / 3.0f);
     c.refreshRate = s.rate == 0 ? C::RefreshRate::Original : s.rate == -1 ? C::RefreshRate::Display : C::RefreshRate::Manual;
     c.refreshRateTarget = s.rate > 0 ? s.rate : 60;
     c.antialiasing = s.samples == 8 ? C::Antialiasing::MSAA8X : s.samples == 4 ? C::Antialiasing::MSAA4X : s.samples == 2 ? C::Antialiasing::MSAA2X : C::Antialiasing::None;

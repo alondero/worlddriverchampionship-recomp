@@ -1,5 +1,6 @@
 #undef NDEBUG
 #include "game_camera.h"
+#include "game_hud.h"
 #include "recomp.h"
 #include <array>
 #include <bit>
@@ -12,6 +13,8 @@
 extern "C" void func_80011D54(uint8_t*, recomp_context*);
 extern "C" void func_8000FC18(uint8_t*, recomp_context*);
 extern "C" void func_8002D99C(uint8_t*, recomp_context*);
+extern "C" void wdc_hud_begin(uint8_t*, recomp_context*);
+extern "C" void wdc_hud_end(uint8_t*, recomp_context*);
 extern "C" void func_8002D558(uint8_t*, recomp_context* ctx) {
     ctx->r2 = int32_t(0x80403000);
 }
@@ -136,20 +139,35 @@ int main(int argc, char** argv) {
             MEM_W(i * 16 + 8, points) = 192 + i * 256;
             MEM_W(i * 16 + 12, points) = -128;
         }
-        for (int width : {960, 1280, 2560}) {
+        for (int placement : {0, 1, 2}) for (int width : {720, 960, 1280, 2560}) {
+            wdc::hud::set_placement(placement);
             wdc::camera::set_output_size(width, 720);
             const float scale = wdc::camera::width_scale();
             MEM_W(0, int32_t(0x8007ED84)) = int32_t(0x80405000);
+            MEM_W(0, int32_t(0x8007FE74)) = int32_t(0x80408000);
+            MEM_W(0, int32_t(0x8007E570)) = scene;
+            MEM_W(0, scene) = 0; MEM_W(8, scene) = 320 << shift;
             recomp_context ctx{}; ctx.f_odd = &ctx.f0.u32h;
             ctx.r29 = int32_t(0x807FF000); ctx.r4 = int32_t(0x80080578);
             ctx.r5 = points; ctx.r6 = points + 16; ctx.r7 = points + 32;
+            wdc_hud_begin(rdram, &ctx);
+            assert(uint32_t(MEM_W(0, int32_t(0x80407FC0))) == wdc::hud::marker);
+            assert(MEM_W(4, int32_t(0x80407FC0)) == (320 << shift));
             func_8002D99C(rdram, &ctx);
+            wdc_hud_end(rdram, &ctx);
+            assert(uint32_t(MEM_W(0, int32_t(0x80407F80))) == wdc::hud::marker);
+            assert(uint32_t(MEM_W(4, int32_t(0x80407F80))) == wdc::hud::end_marker);
+            const auto closed_cursor = MEM_W(0, int32_t(0x8007ED84));
+            wdc_hud_end(rdram, &ctx); // Merge-label-only path must not emit a second close.
+            assert(MEM_W(0, int32_t(0x8007ED84)) == closed_cursor);
             for (int i = 0; i < 3; ++i) {
                 const int x = MEM_H(0x10 + i * 16, triangle);
                 const float center = float(640 << shift);
                 // After RT64 stretches raw triangles, their x must match the
                 // centred, unstretched rectangle path (within half a subpixel).
-                const float rectangle_x = center * scale + (needle_x[i] << shift) - center;
+                const float travel = placement == 0 ? 0 :
+                    (placement == 1 ? std::min(scale, 4.0f / 3.0f) : scale) - 1;
+                const float rectangle_x = center * scale + (needle_x[i] << shift) - center + center * travel;
                 assert(std::abs(x * scale - rectangle_x) <= 0.51f * scale);
                 assert(MEM_H(0x12 + i * 16, triangle) == needle_y[i]);
                 assert(MEM_H(0x18 + i * 16, triangle) == 192 + i * 256);
