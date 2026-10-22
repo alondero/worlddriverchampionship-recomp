@@ -1,6 +1,7 @@
 #undef NDEBUG
 #include "game_camera.h"
 #include "game_hud.h"
+#include "game_visibility.h"
 #include "recomp.h"
 #include <array>
 #include <bit>
@@ -73,6 +74,16 @@ int main(int argc, char** argv) {
     };
     const float original_extent = project(960, 720, 240, 1);
     const auto original = matrix;
+    wdc::visibility::configure(false, false, 4);
+    project(960, 720, 240, 1);
+    // Distance changes depth projection only; FOV, aspect, near plane and
+    // camera-space transforms are still supplied by the original routines.
+    assert(matrix[10] != original[10] && matrix[14] != original[14]);
+    for (int i = 0; i < 16; ++i) {
+        assert(std::isfinite(matrix[i]));
+        if (i != 10 && i != 14) assert(matrix[i] == original[i]);
+    }
+    wdc::visibility::configure(false, false, 1);
     const float wide_extent = project(1920, 1080, 240, 1);
     // The horizontal FOV grows while vertical projection/depth stay identical.
     assert(std::abs(wide_extent / original_extent - 4.0f / 3.0f) < 1e-5f);

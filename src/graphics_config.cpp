@@ -1,4 +1,5 @@
 #include "graphics_config.h"
+#include "game_visibility.h"
 #include "json/json.hpp"
 #include <algorithm>
 #include <cstdio>
@@ -17,6 +18,7 @@ Settings current;
 std::filesystem::path file;
 }
 Settings normalize(Settings s) {
+    s.draw_distance = std::clamp(s.draw_distance, 1, 4);
     s.resolution = std::clamp(s.resolution, 0, 8);
     if (s.aspect < 0 || s.aspect > 1) s.aspect = 1;
     if (s.hud < 0 || s.hud > 2) s.hud = 1;
@@ -54,6 +56,9 @@ void load(const std::filesystem::path& path) {
             integer("rate", s.rate); integer("samples", s.samples);
             integer("filtering", s.filtering); integer("precision", s.precision);
             s.fullscreen = j.value("fullscreen", false);
+            s.full_car_detail = j.value("full_car_detail", false);
+            s.full_track_detail = j.value("full_track_detail", false);
+            integer("draw_distance", s.draw_distance);
             // Version 1 forcibly disabled widescreen, including saved 0 values.
             // Upgrade those preferences to the working camera-aware default.
             if (j.value("version", 1) == 1) s.aspect = 1;
@@ -67,15 +72,20 @@ void load(const std::filesystem::path& path) {
     }
     std::lock_guard lock(mutex);
     current = s;
+    visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
 }
 bool apply(Settings s) {
     s = normalize(s);
     { std::lock_guard lock(mutex); current = s; }
+    visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
     try {
         if (file.empty()) throw std::runtime_error("settings path is not configured");
         nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
-            {"aspect", s.aspect}, {"hud", s.hud}, {"rate", s.rate}, {"samples", s.samples},
-            {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen}};
+            {"aspect", s.aspect}, {"rate", s.rate}, {"samples", s.samples},
+            {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen},
+            {"hud", s.hud},
+            {"full_car_detail", s.full_car_detail}, {"full_track_detail", s.full_track_detail},
+            {"draw_distance", s.draw_distance}};
         auto temporary = file;
         temporary += ".tmp";
         std::ofstream out(temporary, std::ios::trunc);

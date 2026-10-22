@@ -10,7 +10,7 @@ the live change.
 
 Press **Escape or F1** to open the settings overlay, including in fullscreen.
 The initial window is 1280x720; F11 / Alt+Enter uses the desktop resolution.
-The Graphics tab exposes all saved graphics options. Choose values, then press
+The Graphics and Enhancements tabs expose the saved graphics options. Choose values, then press
 **Apply**; closing or switching tabs with changes offers Apply/Discard.
 **Restore defaults** stages the original choices for the same Apply/Discard
 flow. The Controls tab lists the current keyboard bindings.
@@ -76,7 +76,10 @@ You can also edit the file while the player is closed. Schema version 2:
   "samples": 1,
   "filtering": 1,
   "precision": 0,
-  "fullscreen": false
+  "fullscreen": false,
+  "full_car_detail": false,
+  "full_track_detail": false,
+  "draw_distance": 1
 }
 ```
 
@@ -87,6 +90,17 @@ rate accepts 0 (original), -1 (display), or 30-360 Hz; samples accepts
 1, 2, 4, 8. Filtering accepts 0 (nearest), 1 (linear), 2 (pixel scaling);
 precision accepts 0 (auto), 1 (standard), 2 (high). Unknown enum values use
 defaults, numeric ranges are bounded, and wrong types reject the file.
+
+The **Enhancements** tab offers **Full car detail**, **Full track detail**, and
+**Draw distance** (Original, 2x, 3x, 4x). These follow Apply/Discard and take
+effect live. Full car detail retains the nearest detail level and prevents the
+lowest-detail row from hiding distant cars. Full track detail retains the
+nearest detail level for visible sections. Draw distance extends the far plane
+and the number of sections shown ahead/behind within the game's 64-section
+limit. Use Full car detail together with increased distance for distant cars.
+Some scenery transitions remain; fog is unchanged. Higher settings can reduce
+performance. The defaults preserve original detail and distance. F9 also resets
+these options. See [the ROM evidence](reference/visibility.md).
 
 Development environment variables should be prefixed `WDC_`, documented here,
 and bounded or disabled by default. Temporary probes must state their removal

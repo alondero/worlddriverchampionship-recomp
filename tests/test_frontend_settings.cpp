@@ -80,6 +80,52 @@ int main() {
             page.save_config();
             require(requested && requested->rate == (mode == 0 ? 0 : -1), "original/display rate mapping failed");
         }
+        // Enhancement edits are staged separately and preserve graphics choices.
+        requested.reset();
+        auto& enhancements = recompui::config::get_config("enhancements");
+        enhancements.load_config();
+        require(enhancements.external_storage && enhancements.requires_confirmation,
+            "enhancements must use host storage and Apply/Discard");
+        enhancements.update_option_value("full_car_detail", true);
+        enhancements.update_option_value("full_track_detail", true);
+        enhancements.update_option_value("draw_distance", uint32_t(4));
+        wdc::ui::refresh_settings();
+        require(!requested && !wdc::graphics::snapshot().full_car_detail,
+            "staged enhancement reached game");
+        enhancements.revert_temp_config();
+        require(!requested && !enhancements.is_dirty(), "Discard published enhancements");
+        enhancements.update_option_value("full_car_detail", true);
+        enhancements.update_option_value("full_track_detail", true);
+        enhancements.update_option_value("draw_distance", uint32_t(4));
+        require(enhancements.save_config() && requested, "enhancement Apply failed");
+        auto enhanced = wdc::graphics::snapshot();
+        enhanced.full_car_detail = true;
+        enhanced.full_track_detail = true;
+        enhanced.draw_distance = 4;
+        require(*requested == enhanced, "enhancement Apply overwrote graphics");
+        require(wdc::graphics::apply(*requested), "enhancement publish failed");
+        requested.reset();
+        wdc::graphics::load(path);
+        require(wdc::graphics::snapshot() == enhanced, "enhancements did not survive restart");
+        page.load_config();
+        page.update_option_value("resolution", uint32_t(6));
+        require(page.save_config() && requested && requested->full_car_detail &&
+            requested->full_track_detail && requested->draw_distance == 4,
+            "graphics Apply reset enhancements");
+        requested.reset();
+        enhancements.load_config();
+        wdc::ui::stage_defaults(1);
+        require(enhancements.is_dirty() && !requested && wdc::graphics::snapshot() == enhanced,
+            "enhancement defaults were not staged");
+        require(std::get<uint32_t>(enhancements.get_temp_option_value("draw_distance")) == 1 &&
+            !std::get<bool>(enhancements.get_temp_option_value("full_car_detail")) &&
+            !std::get<bool>(enhancements.get_temp_option_value("full_track_detail")), "wrong enhancement defaults");
+        enhancements.revert_temp_config();
+        require(!enhancements.is_dirty() && wdc::graphics::snapshot() == enhanced, "discard defaults changed game");
+        wdc::ui::stage_defaults(1);
+        require(enhancements.save_config() && requested && !requested->full_car_detail &&
+            !requested->full_track_detail && requested->draw_distance == 1 && requested->resolution == enhanced.resolution,
+            "defaults Apply lost graphics or retained enhancements");
         // An invalid host file must not be replaced just by loading the UI.
         { std::ofstream out(path); out << "{"; }
         requested.reset();

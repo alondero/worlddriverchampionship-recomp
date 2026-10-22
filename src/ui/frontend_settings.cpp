@@ -8,6 +8,7 @@ namespace wdc::ui {
 namespace {
 using recomp::config::ConfigValueVariant;
 constexpr const char* graphics_id = "graphics";
+constexpr const char* enhancements_id = "enhancements";
 void sync(recomp::config::Config& page, const char* id, ConfigValueVariant value) {
     const auto index = page.get_config_schema().options_by_id.at(id);
     // A host shortcut can update a clean field while another field is staged.
@@ -18,7 +19,7 @@ void sync(recomp::config::Config& page, const char* id, ConfigValueVariant value
 void apply_graphics() {
     auto& page = recompui::config::get_config(graphics_id);
     auto integer = [&](const char* id) { return int(std::get<uint32_t>(page.get_option_value(id))); };
-    graphics::Settings settings;
+    auto settings = graphics::snapshot();
     settings.resolution = integer("resolution");
     settings.aspect = integer("aspect");
     settings.hud = integer("hud");
@@ -28,6 +29,14 @@ void apply_graphics() {
     settings.filtering = integer("filtering");
     settings.precision = integer("precision");
     settings.fullscreen = integer("fullscreen") != 0;
+    request_settings(settings);
+}
+void apply_enhancements() {
+    auto& page = recompui::config::get_config(enhancements_id);
+    auto settings = graphics::snapshot();
+    settings.full_car_detail = std::get<bool>(page.get_option_value("full_car_detail"));
+    settings.full_track_detail = std::get<bool>(page.get_option_value("full_track_detail"));
+    settings.draw_distance = int(std::get<uint32_t>(page.get_option_value("draw_distance")));
     request_settings(settings);
 }
 void controls(recompui::ContextId context, recompui::Element* parent) {
@@ -60,6 +69,22 @@ void refresh_settings() {
     sync(page, "filtering", uint32_t(s.filtering));
     sync(page, "precision", uint32_t(s.precision));
     sync(page, "fullscreen", uint32_t(s.fullscreen));
+    auto& enhancements = recompui::config::get_config(enhancements_id);
+    sync(enhancements, "full_car_detail", s.full_car_detail);
+    sync(enhancements, "full_track_detail", s.full_track_detail);
+    sync(enhancements, "draw_distance", uint32_t(s.draw_distance));
+}
+void stage_defaults(int tab_index) {
+    // The port creates Graphics first and Enhancements second. The pinned
+    // frontend exposes the selected index, but not the selected config ID.
+    if (tab_index != 0 && tab_index != 1) return;
+    auto& page = recompui::config::get_config(tab_index == 0 ? graphics_id : enhancements_id);
+    for (const auto& option : page.get_config_schema().options) {
+        const auto value = std::visit([](const auto& choice) -> ConfigValueVariant {
+            return choice.default_value;
+        }, option.variant);
+        page.update_option_value(option.id, value);
+    }
 }
 void create_settings() {
     namespace ui = recompui::config;
@@ -85,6 +110,17 @@ void create_settings() {
         {{0, "Auto"}, {1, "Standard"}, {2, "High"}}, 0u);
     page.set_load_callback(refresh_settings);
     page.set_save_callback(apply_graphics);
+    auto& enhancements = ui::create_config_tab("Enhancements", enhancements_id, true);
+    enhancements.external_storage = true;
+    enhancements.add_bool_option("full_car_detail", "Full car detail",
+        "Keeps the nearest car detail level at all visible distances. Draw distance still limits visibility. May reduce performance.", false);
+    enhancements.add_bool_option("full_track_detail", "Full track detail",
+        "Keeps the nearest track detail level for submitted sections. Does not load extra sections; use Draw distance to show more scenery. May reduce performance.", false);
+    enhancements.add_enum_option("draw_distance", "Draw distance",
+        "Extends the far plane and the number of track sections shown ahead and behind, up to the game's safe section limit. Combine with Full car detail to retain distant cars. Some scenery transitions may remain. Higher values cost performance.",
+        {{1, "Original"}, {2, "2x"}, {3, "3x"}, {4, "4x"}}, 1u);
+    enhancements.set_load_callback(refresh_settings);
+    enhancements.set_save_callback(apply_enhancements);
     // The framework reads General internally. None of its controller settings
     // currently affect WDC's keyboard adapter, so keep this internal tab hidden.
     auto& general = ui::create_general_tab({.has_rumble_strength = false});
