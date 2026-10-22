@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 source, destination = map(Path, sys.argv[1:3])
-roots = {"func_800218F0", "func_8002343C", "func_800230D4",
+roots = {"func_800108B4", "func_800218F0", "func_8002343C", "func_800230D4",
          "func_8001A74C", "func_8001A0C8", "func_8001A090"}
 natives = {
     "func_80001D4C", "func_8000F8D8", "func_800153F4", "func_8001A040",
@@ -13,6 +13,7 @@ natives = {
     "func_80023F2C", "func_8002CF30", "func_8002D1FC", "func_8002D2B0",
     "func_8002D314", "func_8002D4F4", "func_8003062C",
     "wdc_car_detail", "wdc_car_distance", "wdc_track_detail", "wdc_track_visibility",
+    "wdc_menu_car_visibility",
     "func_8001A8E8", "func_8001FBB0", "func_80022D84", "func_80022E34",
     "func_80071580", "func_8001A9BC", "func_8002CFB4",
 }

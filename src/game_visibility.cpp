@@ -19,6 +19,28 @@ void wdc::visibility::configure(bool full_cars, bool full_track, int distance) {
         (full_cars ? 8u : 0u) | (full_track ? 16u : 0u), std::memory_order_relaxed);
 }
 
+// USA func_800108B4, before 800108D0: t7 is the car-list loop bound.
+// The menu keeps three preview cars staged outside the original 4:3 camera;
+// widening that camera exposes their shadows (and bodies at ultrawide).
+// Title (44) and main menu (0) have no car preview. Suppress their draw loop
+// explicitly, retaining the ROM's list finalization and all simulation updates.
+// Game render thread, before BOSS submission. Read-only, game-owned u32 guest
+// words in word-swapped RDRAM: 8007D848 is the render callback dispatched by
+// func_80001D88 (set by func_80001D70); 8007E570 is the active scene; 80094810
+// is menu 80092EE8 + 1928, the current page returned by func_800525EC.
+// Only menu renderer 8004E950's primary scene 800ABE40 uses this policy.
+// That scene storage is reused by races, so the callback guard is essential.
+// Other renderers/scenes/pages
+// (including transitions) retain the ROM count, so stale menu state is harmless.
+// Fixed addresses are inside 8 MiB RDRAM; no pointers are dereferenced/retained.
+// Remove when the guest menu owns explicit preview visibility.
+extern "C" void wdc_menu_car_visibility(uint8_t* rdram, recomp_context* ctx) {
+    if (uint32_t(MEM_W(0, int32_t(0x8007D848))) != 0x8004E950u) return;
+    if (uint32_t(MEM_W(0, int32_t(0x8007E570))) != 0x800ABE40u) return;
+    const int32_t page = MEM_W(0, int32_t(0x80094810));
+    if (page == 0 || page == 44) ctx->r15 = 0;
+}
+
 // USA game-thread register hooks. Float32 distances use the ROM's world units;
 // perspective multiplies them by 32 downstream. No guest pointers or state are
 // changed here. Each operand is freshly produced by the ROM, so disabling the

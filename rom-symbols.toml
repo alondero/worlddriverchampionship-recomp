@@ -134,6 +134,11 @@ text = "{ extern void wdc_align_hud_triangle(uint8_t*, recomp_context*); wdc_ali
 
 # Distance and detail policy: see docs/reference/visibility.md and ROM tests.
 [[hooks]]
+func = "func_800108B4"
+before_vram = 0x800108D0
+text = "{ extern void wdc_menu_car_visibility(uint8_t*, recomp_context*); wdc_menu_car_visibility(rdram, ctx); }"
+
+[[hooks]]
 func = "func_80011D54"
 before_vram = 0x80011DE8
 text = "{ extern void wdc_projection_distance(uint8_t*, recomp_context*); wdc_projection_distance(rdram, ctx); }"
