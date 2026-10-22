@@ -15,9 +15,39 @@ Run the source-only checks from the repository root:
 
 ```bash
 python -B scripts/check_docs.py
+python -B scripts/check_repo.py
 python -m unittest discover tests
 git diff --check
 ```
+
+The source-check workflow runs on every push and pull request. It also checks
+that no ignored files are tracked and scans Git history for credentials with
+[Gitleaks](https://github.com/gitleaks/gitleaks).
+
+## ROM-free host tests
+
+This mode builds the same eight C++ host-test targets used by the player build,
+without compiling the player, renderer, frontend or ROM translation. It uses
+headers from pinned public dependencies and three of the normal dependency
+patches. From a fresh checkout:
+
+```bash
+git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64
+git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
+git -C lib/N64ModernRuntime apply ../../patches/0008-runtime-controller-pak-kind.patch
+git -C lib/N64ModernRuntime apply ../../patches/0013-runtime-rsp-unsigned-packed-loads.patch
+git -C lib/rt64 apply ../../patches/0014-rt64-rdp-screen-clipping.patch
+cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
+cmake --build build-host-tests --parallel 2
+ctest --test-dir build-host-tests --output-on-failure --no-tests=error
+```
+
+On Windows, use the native CMake and MinGW tools described in
+[Building](../BUILDING.md), and set `Python3_EXECUTABLE` to the actual Python
+executable if CMake finds a Windows Store alias. Skip each patch already applied
+by a player build; `git apply --reverse --check` can verify that state.
+
+## ROM-backed and player checks
 
 Once the ROM and generated image exist:
 

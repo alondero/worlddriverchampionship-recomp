@@ -52,6 +52,7 @@ in source or docs.
 
 ```text
 python -B scripts/check_docs.py
+python -B scripts/check_repo.py
 python -m unittest discover tests
 git diff --check
 ```

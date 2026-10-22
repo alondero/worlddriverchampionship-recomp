@@ -29,6 +29,26 @@ android/local.properties
 *.aab
 *.jks
 *.keystore
+*.exe
+*.dll
+*.pdb
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.zip
+*.7z
+*.tar
+*.tar.gz
+
+# Credentials and private build inputs.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/rom-assets/
 
 # Editor and operating-system files.
 .vs/
@@ -45,6 +65,10 @@ Thumbs.db
 *.tmp
 *.astate
 *.lstate
+/*.png
+/*.jpg
+/*.mp4
+captures/
 recordings/_*.jsonl
 Testing/
 __pycache__/
@@ -58,6 +82,7 @@ tools/emu_instrumentation/
 # Local agent state and machine-specific notes.
 .claude/settings.local.json
 .claude/worktrees/
+.worktrees/
 .claude/*.gdb
 .codex/
 .commandcode/
@@ -66,18 +91,9 @@ CLAUDE.local.md
 nextsessionprompt.md
 .worktreeinclude
 
-# Agent Harnesses (runtime, local settings, and ephemeral files)
-.codex/
+# Other agent harnesses (local settings and ephemeral files).
 CODEX.local.md
 codex.local.md
-.agents/hooks.json
-.agents/settings.local.json
-.agents/tasks/
-.agents/memory/
-.agents/worktrees/
-.agents/sessions/
-.agents/tmp/
-.agents/*.local.*
 AGENTS.local.md
 .antigravity/
 .antigravitycli/

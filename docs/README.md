@@ -4,6 +4,7 @@ Start with:
 
 - [Architecture](architecture.md) — host/runtime/guest ownership and seams.
 - [Testing](testing.md) — evidence levels and test selection.
+- [Publishing](publishing.md) — source hygiene and public-release checks.
 - [Debugging](debugging.md) — reproduce, minimise, instrument, verify.
 - [Configuration](configuration.md) — host settings and environment knobs.
 - [Graphics capabilities](graphics-capabilities.md) — peer comparison and WDC limits.
