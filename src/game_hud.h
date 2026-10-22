@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace wdc::hud {
@@ -7,6 +8,28 @@ namespace wdc::hud {
 // unused by WDC and is consumed by our renderer before reaching RT64.
 constexpr uint32_t marker = 0xE0574443;
 constexpr uint32_t end_marker = 0xFFFFFFFF;
+constexpr uint32_t edge_fill = 0xFFFFFFFE; // begins a menu-art bracket
+// Menu frame art fills the original picture. For a texrect at RDP 10.2
+// quarter-pixel x [ulx, lrx) with S10.5 s and S5.10 dsdx, return fills from
+// that art edge to the output edge in RT64 stretch-rect coordinates, where
+// 0..width*4 spans the output. Each repeats the outer texel column (dsdx 0),
+// overlapping the art by one pixel to hide rounding and misalignment.
+struct Fill { int32_t x0, x1, s; };
+struct Fills { unsigned count = 0; Fill fill[2]{}; };
+inline Fills edge_fills(int32_t ulx, int32_t lrx, int32_t uls, int32_t dsdx,
+                        unsigned width, float scale) {
+    Fills out;
+    if (!(scale > 1.0f) || !width || lrx <= ulx) return out;
+    // A regular rect keeps its proportions about the frame's centre.
+    const int32_t right = int32_t(width * 4), inset = 16 * 4; // TV overscan margin
+    auto shown = [&](int32_t x) { return width * 2.0f + (x - width * 2.0f) / scale; };
+    if (ulx <= inset)
+        out.fill[out.count++] = {0, int32_t(std::ceil(shown(ulx))) + 4, uls + dsdx / 64};
+    if (lrx >= right - inset)
+        out.fill[out.count++] = {int32_t(std::floor(shown(lrx))) - 4, right,
+                                 uls + int32_t(int64_t(dsdx) * (lrx - ulx - 2) / 128)};
+    return out;
+}
 inline float travel_scale(float camera_scale, int placement) {
     return placement == 0 ? 0.0f :
         (placement == 1 ? std::min(camera_scale, 4.0f / 3.0f) : camera_scale) - 1.0f;

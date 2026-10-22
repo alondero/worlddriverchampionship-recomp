@@ -158,6 +158,49 @@ together, the needle retained its hub, and the pause panel stayed centered.
 Split-screen and other race variants use viewport-relative origins but have
 not been visually verified. Captures remain local ignored evidence.
 
+## Menu frame edge fill
+
+Menu screens frame a widened 3D scene with header and footer bands. The
+USA band builder `func_800500E0(object)` blits the band art once at
+`0x80050104` through the tiled sprite blitter `func_8006DA18` (x 8, y from
+object `+0x58`, ten 152x12 strips at 2x horizontal magnification). It then
+draws title overlays. `func_8005063C(object)` blits a separator bar once at
+`0x8005065C` through `func_8006CCD4`. Every screen with this frame calls
+each builder for its top and bottom pair. The art spans x 8..312 of the
+320x480 menu buffer, and RT64 keeps these texrects at 4:3 proportions.
+
+Hooks before and after each of those two calls emit HUD-style marker
+packets (payload `0xFFFFFFFE` to begin, `0xFFFFFFFF` to end) through the
+same frame-arena adapter. The begin hook reserves room for its end packet
+and skips the bracket when the arena is full; the effect is cosmetic.
+Inside a bracket, the renderer submits each complete texrect, then draws
+fills for edges within the 16-pixel TV overscan margin. Each fill spans
+from the art edge to the output edge with `G_EX_ASPECT_STRETCH`, where
+framebuffer x 0..width covers the output. It uses the art's tile, t and
+dtdy, with s fixed at the outer pixel centre and dsdx 0, so it repeats the
+outer texel column. It overlaps the art by one pixel to hide rounding and
+rect misalignment, and runs under a full-width copy of the scissor.
+`wdc::hud::edge_fills` owns the geometry. RT64 shrinks regular rects about
+the frame centre by the camera width scale, so fills vanish at 4:3 and in
+narrow windows. Copy and fill cycle modes are skipped.
+
+Buttons, scrolling title text, banners, icons and panels are outside the
+brackets and keep their original placement. Scrolling text and banners are
+clipped at the art's original edge by the game's scissor; a fill would
+streak them as they scroll. A texrect split across BOSS DMA chunks keeps
+its first word across `send_rdp` calls, and its fills follow the
+continuation word; no fixture covers that split yet.
+
+`wdc_menu_rom` executes the translated band and bar builders with their
+generated hooks: it checks that the art blits alone are bracketed, that
+title overlays fall outside, and that a full arena skips the bracket. The
+host stream test checks fill geometry at 16:9, 2:1, the overscan margin,
+4:3, narrow and degenerate rects. Windows/D3D12 was checked live on the
+main and Quick Race menus at 16:9 and about 2.3:1, with Original 4:3
+unchanged. Hawaii practice HUD and pause panel were also unchanged. The
+seam where a fill meets the art showed no gap. Other menu screens built
+from the same builders have not been inspected individually.
+
 ## Gauge triangle alignment
 
 The two gauge layouts in `func_8002E13C` call `func_8002D99C` to build

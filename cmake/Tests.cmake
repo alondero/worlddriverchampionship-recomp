@@ -82,6 +82,17 @@ if(BUILD_TESTING)
             add_test(NAME wdc_pfs_rom COMMAND wdc_pfs_rom_tests
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
             set_tests_properties(wdc_pfs_rom PROPERTIES TIMEOUT 30)
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/menu_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_menu_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/menu_test_funcs.c"
+                DEPENDS tests/extract_menu_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_menu_rom_tests tests/test_menu_rom.cpp src/game_hud.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/menu_test_funcs.c")
+            target_include_directories(wdc_menu_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_menu_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_menu_rom COMMAND wdc_menu_rom_tests)
+            set_tests_properties(wdc_menu_rom PROPERTIES TIMEOUT 30)
         endif()
         add_test(NAME wdc_rom_transforms
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rom_transforms.py")

@@ -132,6 +132,28 @@ func = "func_8002D99C"
 before_vram = 0x8002DAA4
 text = "{ extern void wdc_align_hud_triangle(uint8_t*, recomp_context*); wdc_align_hud_triangle(rdram, ctx); }"
 
+# Menu frame art reaches wide output edges: bracket only the band blit and
+# the separator-bar blit; the band builder's later overlays stay centered.
+[[hooks]]
+func = "func_800500E0"
+before_vram = 0x80050104
+text = "{ extern void wdc_menu_fill_begin(uint8_t*, recomp_context*); wdc_menu_fill_begin(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800500E0"
+before_vram = 0x8005010C
+text = "{ extern void wdc_menu_fill_end(uint8_t*, recomp_context*); wdc_menu_fill_end(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8005063C"
+before_vram = 0x8005065C
+text = "{ extern void wdc_menu_fill_begin(uint8_t*, recomp_context*); wdc_menu_fill_begin(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8005063C"
+before_vram = 0x80050664
+text = "{ extern void wdc_menu_fill_end(uint8_t*, recomp_context*); wdc_menu_fill_end(rdram, ctx); }"
+
 # Distance and detail policy: see docs/reference/visibility.md and ROM tests.
 [[hooks]]
 func = "func_800108B4"
