@@ -37,14 +37,11 @@ void initialize(plume::RenderInterface* interface, plume::RenderDevice* device) 
     button->set_flex_shrink(0.0f);
     button->add_pressed_callback([] {
         // Stage defaults; Apply/Discard handles them just like individual edits.
-        auto& page = recompui::config::get_config("graphics");
-        for (const auto& option : page.get_config_schema().options) {
-            const auto value = std::visit([](const auto& choice) -> recomp::config::ConfigValueVariant {
-                return choice.default_value;
-            }, option.variant);
-            page.update_option_value(option.id, value);
+        auto* active = recompui::config::get_config_modal()->get_active_tab();
+        if (active) {
+            auto* tabs = static_cast<recompui::TabSet*>(active->get_parent());
+            stage_defaults(tabs->get_active_tab());
         }
-        recompui::config::set_tab("graphics");
     });
     context.close();
 }

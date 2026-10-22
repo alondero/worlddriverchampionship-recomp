@@ -74,3 +74,11 @@ layout fixture retains the ROM's scene partition arithmetic and rectangle
 writer while replacing mode switching, orientation setters and heap clearing.
 It checks full-screen bounds and horizontal/vertical split boundaries.
 Missing/indirect calls fail extraction.
+
+`wdc_visibility_rom` exercises the translated car-detail selector, car
+visibility decisions, track-detail buckets and bounded linked-section list.
+It tests stock/enhanced thresholds, live restoration, preserved near/side and
+section rejection, mode remapping, short loops and invalid extension links.
+Packet allocation and non-decision setup are explicit boundaries; final BOSS
+rendering is not mocked as a passing visual test. See
+[distance and detail evidence](reference/visibility.md).
