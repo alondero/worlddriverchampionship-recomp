@@ -17,6 +17,15 @@ on WDC evidence.
 6. Verify a clean submodule can apply the full series and that a second run is
    idempotent.
 
+The build scripts apply a series with `scripts/patch_series.py`. The tool owns
+the paths a series writes: it restores them to the submodule's pinned index
+state, removes the files the series creates, and applies the patches in order.
+Local edits to paths a series does not touch are preserved, and a patch that no
+longer fits the pinned tree fails the build. Git's reverse-applicability probe
+cannot be used on its own here, because patch 0016 rewrites the clipping call
+that patch 0014 added; the reverse check for 0014 fails even when its changes
+are present.
+
 The sibling projects demonstrate useful patch categories—scheduler/VI/audio,
 RDRAM, frontend integration, interpolation, and Android compatibility—but
 their hunks may contain game-specific assumptions. Do not import them before

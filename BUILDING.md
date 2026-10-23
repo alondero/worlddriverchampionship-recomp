@@ -32,7 +32,11 @@ requires a ROM argument or the expected working directory; use the launcher.
 ## Build stages
 
 1. Initialise recursive pinned submodules without resetting local changes.
-2. Apply [dependency patches](patches/README.md) idempotently; fail on conflicts.
+2. Apply the [dependency patches](patches/README.md) through
+   `scripts/patch_series.py`: each series restores the paths it owns to the
+   pinned submodule state, then applies its patches in order, so repeated
+   builds are idempotent. A patch that does not fit the pinned tree fails the
+   build.
 3. Configure and build N64Recomp/RSPRecomp host tools.
 4. Validate the ROM and generate symbols/configuration from measured inputs.
 5. Translate CPU code and BOSS RSP code.
