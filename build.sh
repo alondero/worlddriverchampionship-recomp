@@ -27,9 +27,14 @@ git submodule update --init --recursive
 echo "[dependency patches]"
 # The helper restores the paths a series owns to the pinned submodule state
 # before applying it, so repeated builds stay idempotent even where a later
-# patch rewrites the context an earlier patch matched.
+# patch rewrites the context an earlier patch matched. Every submodule gets
+# exactly one ordered series, and the series match build.ps1.
 apply_patch_series() {
     local submodule="$1"; shift
+    if [[ $# -eq 0 ]]; then
+        echo "no patches for $submodule on this host" >&2
+        return 0
+    fi
     local args=(-B "$ROOT/scripts/patch_series.py" --submodule "$submodule")
     local patch
     for patch in "$@"; do
@@ -37,27 +42,41 @@ apply_patch_series() {
     done
     python3 "${args[@]}"
 }
-apply_patch_series lib/N64ModernRuntime \
-    "$ROOT/patches/0006-runtime-lle-interrupt-ownership.patch" \
-    "$ROOT/patches/0013-runtime-rsp-unsigned-packed-loads.patch" \
-    "$ROOT/patches/0008-runtime-controller-pak-kind.patch" \
-    "$ROOT/patches/0009-runtime-host-config-storage.patch"
-apply_patch_series lib/rt64 \
-    "$ROOT/patches/0014-rt64-rdp-screen-clipping.patch" \
-    "$ROOT/patches/0015-rt64-raw-triangle-scissor.patch" \
-    "$ROOT/patches/0016-rt64-rdp-edge-trapezoids.patch"
-apply_patch_series lib/N64ModernRuntime/N64Recomp "$ROOT/patches/0007-rsprecomp-boss-support.patch"
-apply_patch_series lib/RecompFrontend \
-    "$ROOT/patches/0010-frontend-enum-wrap.patch" \
-    "$ROOT/patches/0011-frontend-runtime-compat.patch" \
-    "$ROOT/patches/0012-frontend-host-services.patch"
 windows_host=0
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) windows_host=1 ;;
 esac
+rt64_patches=(
+    "$ROOT/patches/0014-rt64-rdp-screen-clipping.patch"
+    "$ROOT/patches/0015-rt64-raw-triangle-scissor.patch"
+    "$ROOT/patches/0016-rt64-rdp-edge-trapezoids.patch"
+)
+runtime_patches=(
+    "$ROOT/patches/0006-runtime-lle-interrupt-ownership.patch"
+    "$ROOT/patches/0008-runtime-controller-pak-kind.patch"
+    "$ROOT/patches/0009-runtime-host-config-storage.patch"
+    "$ROOT/patches/0013-runtime-rsp-unsigned-packed-loads.patch"
+)
+frontend_patches=(
+    "$ROOT/patches/0010-frontend-enum-wrap.patch"
+    "$ROOT/patches/0011-frontend-runtime-compat.patch"
+    "$ROOT/patches/0012-frontend-host-services.patch"
+)
+windows_rt64_patches=()
+windows_plume_patches=()
 if [[ "${WDC_APPLY_WINDOWS_PATCHES:-0}" == 1 || "$windows_host" == 1 ]]; then
-    apply_patch_series lib/rt64 "$ROOT/patches/0005-rt64-mingw-gcc-compat.patch"
-    apply_patch_series lib/rt64/src/contrib/plume "$ROOT/patches/0004-plume-d3d12-mingw-com-abi-struct-return.patch"
+    # Windows-only patches join the same series as the shared ones, so a
+    # submodule is never patched by two separate runs.
+    windows_rt64_patches=("$ROOT/patches/0005-rt64-mingw-gcc-compat.patch")
+    windows_plume_patches=("$ROOT/patches/0004-plume-d3d12-mingw-com-abi-struct-return.patch")
+fi
+apply_patch_series lib/rt64 "${windows_rt64_patches[@]}" "${rt64_patches[@]}"
+apply_patch_series lib/N64ModernRuntime "${runtime_patches[@]}"
+apply_patch_series lib/N64ModernRuntime/N64Recomp \
+    "$ROOT/patches/0007-rsprecomp-boss-support.patch"
+apply_patch_series lib/RecompFrontend "${frontend_patches[@]}"
+if [[ ${#windows_plume_patches[@]} -gt 0 ]]; then
+    apply_patch_series lib/rt64/src/contrib/plume "${windows_plume_patches[@]}"
 fi
 echo "[configure: first pass]"
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON

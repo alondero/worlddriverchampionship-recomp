@@ -17,35 +17,86 @@ first. Local edits to paths the series does not touch are preserved.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+DIFF_HEADER_RE = re.compile(r"^diff --git (?P<rest>.+)$")
+QUOTED_PATH_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+ESCAPE_RE = re.compile(r"\\([0-7]{3}|.)")
+
+
+def unescape_git_path(text: str) -> str:
+    """Decode the C-style escapes git uses for quoted paths."""
+    def replace(match: re.Match[str]) -> str:
+        sequence = match.group(1)
+        if len(sequence) == 3 and sequence.isdigit():
+            return chr(int(sequence, 8))
+        return {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\"}.get(sequence, sequence)
+    return ESCAPE_RE.sub(replace, text)
+
+
+def strip_path_prefix(path: str) -> str:
+    """Return the repository-relative path of a diff path token."""
+    path = path.strip()
+    if len(path) >= 2 and path.startswith('"') and path.endswith('"'):
+        path = unescape_git_path(path[1:-1])
+    for prefix in ("a/", "b/"):
+        if path.startswith(prefix):
+            return path[len(prefix):]
+    return path
+
+
+def diff_header_paths(line: str) -> tuple[str, str] | None:
+    """Return the (old, new) paths of a `diff --git` header.
+
+    Git quotes a path that contains spaces or other unusual characters, so the
+    header is split on the quoted form first and only then on whitespace.
+    """
+    match = DIFF_HEADER_RE.match(line)
+    if not match:
+        return None
+    rest = match.group("rest")
+    if rest.startswith('"'):
+        quoted = QUOTED_PATH_RE.findall(rest)
+        if len(quoted) == 2:
+            return strip_path_prefix(f'"{quoted[0]}"'), strip_path_prefix(f'"{quoted[1]}"')
+        return None
+    parts = rest.split(" ", 1)
+    if len(parts) != 2:
+        return None
+    return strip_path_prefix(parts[0]), strip_path_prefix(parts[1])
 
 
 def parse_series(patch_paths: list[Path]) -> tuple[list[str], list[str]]:
     """Return the paths a series writes and the files it creates.
 
-    Both lists are relative to the submodule root and keep series order.
+    Both lists are relative to the submodule root and keep series order. The
+    target path comes from the `---`/`+++` headers, which stay correct for
+    renames and for paths that contain spaces.
     """
     owned: list[str] = []
     created: list[str] = []
     for patch in patch_paths:
-        current: str | None = None
+        old_path: str | None = None
+        new_path: str | None = None
         for line in patch.read_text(encoding="utf-8", errors="replace").splitlines():
             if line.startswith("diff --git "):
-                parts = line.split()
-                if len(parts) < 4:
-                    current = None
+                old_path = None
+                new_path = None
+                continue
+            if line.startswith("--- "):
+                old_path = strip_path_prefix(line[4:])
+            elif line.startswith("+++ "):
+                new_path = strip_path_prefix(line[4:])
+                target = new_path if new_path != "/dev/null" else old_path
+                if not target or target == "/dev/null":
                     continue
-                path = parts[3]
-                if path.startswith("b/"):
-                    path = path[2:]
-                current = path
-                if path not in owned:
-                    owned.append(path)
-            elif line.startswith("--- ") and current is not None:
-                if line[4:].strip() == "/dev/null" and current not in created:
-                    created.append(current)
+                if target not in owned:
+                    owned.append(target)
+                if old_path == "/dev/null" and target not in created:
+                    created.append(target)
     return owned, created
 
 
@@ -62,11 +113,12 @@ def restore(submodule: Path, owned: list[str], created: list[str]) -> tuple[list
         raise RuntimeError(f"cannot list {submodule}: {listed.stderr.strip()}")
     tracked = {entry for entry in listed.stdout.split("\0") if entry}
 
-    reset = [path for path in owned if path not in created and path in tracked]
+    # Every path a series writes is restored to the pinned index state, whether
+    # the series modifies it or creates it. A created path that the pinned tree
+    # already tracks keeps its tracked copy, so the submodule stays free of
+    # deletions.
+    reset = [path for path in owned if path in tracked]
     removed = [path for path in created if path not in tracked and (submodule / path).exists()]
-    # A series that creates a file the pinned tree already tracks keeps the
-    # tracked copy; restoring it keeps the submodule free of deletions.
-    reset += [path for path in created if path in tracked]
     if reset:
         result = run_git(submodule, "checkout", "--", *reset)
         if result.returncode != 0:

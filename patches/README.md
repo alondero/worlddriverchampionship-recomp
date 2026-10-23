@@ -26,6 +26,12 @@ cannot be used on its own here, because patch 0016 rewrites the clipping call
 that patch 0014 added; the reverse check for 0014 fails even when its changes
 are present.
 
+Each submodule receives exactly one series, so a second run for the same
+submodule can never restore away the changes of the first run. `build.ps1` and
+`build.sh` declare the same series in the same order, with the Windows-only
+patches inside the series of their own submodule, and
+`tests/test_build_scripts.py` fails when the two scripts diverge.
+
 The sibling projects demonstrate useful patch categories—scheduler/VI/audio,
 RDRAM, frontend integration, interpolation, and Android compatibility—but
 their hunks may contain game-specific assumptions. Do not import them before
