@@ -101,6 +101,23 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x80078940 = "wdc_pak_read"
 0x80079700 = "wdc_pak_write"
 
+# The input worker can preempt its creator at osStartThread. Defer that call
+# until all eight controller snapshots have been initialized by the ROM loop.
+[[instructions]]
+func = "func_8002CB0C"
+vram = 0x8002CCF4
+expected = 0x0C01BE08 # jal osStartThread
+value = 0x00000000
+
+# USA OSThread at 0x800B7620: runtime-owned, guest KSEG0 address passed on the
+# creating game thread; no host memory access. Same argument and OS failure
+# behavior as the original call. Replace with source-level reordering when
+# this initializer has a maintained decompilation.
+[[hooks]]
+func = "func_8002CB0C"
+before_vram = 0x8002CD20
+text = "{ extern void osStartThread_recomp(uint8_t*, recomp_context*); ctx->r4 = (int32_t)0x800B7620; osStartThread_recomp(rdram, ctx); }"
+
 # Aspect is consumed by both the horizontal culling extent and perspective.
 # Keep the injection in generator inputs, never in generated CPU code.
 [[hooks]]

@@ -93,6 +93,17 @@ if(BUILD_TESTING)
             target_compile_options(wdc_menu_rom_tests PRIVATE -fno-strict-aliasing)
             add_test(NAME wdc_menu_rom COMMAND wdc_menu_rom_tests)
             set_tests_properties(wdc_menu_rom PROPERTIES TIMEOUT 30)
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/startup_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_startup_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/startup_test_funcs.c"
+                DEPENDS tests/extract_startup_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_startup_rom_tests tests/test_startup_rom.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/startup_test_funcs.c")
+            target_include_directories(wdc_startup_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_startup_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_startup_rom COMMAND wdc_startup_rom_tests)
+            set_tests_properties(wdc_startup_rom PROPERTIES TIMEOUT 30)
         endif()
         add_test(NAME wdc_rom_transforms
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rom_transforms.py")

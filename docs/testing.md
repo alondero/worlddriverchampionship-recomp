@@ -62,6 +62,10 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+`wdc_startup_rom` checks that the translated input-worker startup initializes
+every controller snapshot before making the worker runnable, including on
+restart. See [startup ordering](reference/runtime.md#input-worker-startup-ordering).
+
 Headless runs must have a bounded frame/VI budget and a machine-readable result
 when they are used in CI. A passing process exit alone is not proof that the
 game reached the intended scene or submitted a graphics/audio task.

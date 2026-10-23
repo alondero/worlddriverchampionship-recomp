@@ -156,6 +156,16 @@ def main() -> int:
         output.extend(['[[patches.hook]]', f'func = "{hook["func"]}"',
                        f'before_vram = {hook["before_vram"]:#x}',
                        f'text = \'{hook["text"]}\'', ''])
+    for patch in symbol_config.get("instructions", []):
+        address = patch["vram"]
+        if not any(name == patch["func"] and start <= address < start + size
+                   for name, start, size in functions) or address % 4:
+            raise SystemExit(f"Instruction patch outside function: {address:#x}")
+        word = struct.unpack_from(">I", rom, section_rom + address - entry)[0]
+        if word != patch["expected"]:
+            raise SystemExit(f"Instruction patch mismatch at {address:#x}: {word:#x}")
+        output.extend(['[[patches.instruction]]', f'func = "{patch["func"]}"',
+                       f'vram = {address:#x}', f'value = {patch["value"]:#x}', ''])
     # Cache maintenance is redundant with coherent host RDRAM. Preserve the
     # surrounding guest computation, including the game's custom assembly.
     # Privileged CPU helpers cannot execute on the host; until identified and
