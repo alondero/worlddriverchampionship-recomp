@@ -1,0 +1,98 @@
+diff --git a/recompinput/include/recompinput/input_events.h b/recompinput/include/recompinput/input_events.h
+index 5f4420f..be6fcc0 100644
+--- a/recompinput/include/recompinput/input_events.h
++++ b/recompinput/include/recompinput/input_events.h
+@@ -3,6 +3,10 @@
+ #include "recompinput.h"
+ 
+ namespace recompinput {
++    // Hosts owning the SDL event loop call process_event once per event, then
++    // finish_events once per batch. Call on the SDL thread, serialized with UI.
++    void process_event(SDL_Event& event);
++    void finish_events();
+     void handle_events();
+     void purge_deferred_controller_profiles();
+ }
+diff --git a/recompinput/src/input_events.cpp b/recompinput/src/input_events.cpp
+index c76a1dc..3568b2a 100644
+--- a/recompinput/src/input_events.cpp
++++ b/recompinput/src/input_events.cpp
+@@ -75,7 +75,10 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+         SDL_ControllerDeviceEvent* controller_event = &event->cdevice;
+         SDL_GameController* controller = SDL_GameControllerOpen(controller_event->which);
+         printf("Controller added: %d\n", controller_event->which);
+-        if (controller != nullptr) {
++        if (controller == nullptr) {
++            break;
++        }
++        {
+             printf("  Instance ID: %d\n", SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller)));
+             printf("  Path: %s\n", SDL_JoystickPath(SDL_GameControllerGetJoystick(controller)));
+             recompinput::add_controller_state(SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller)), controller);
+@@ -101,7 +104,9 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+     {
+         SDL_ControllerDeviceEvent* controller_event = &event->cdevice;
+         printf("Controller removed: %d\n", controller_event->which);
++        auto* controller = recompinput::get_controller_from_joystick_id(controller_event->which);
+         recompinput::remove_controller_state(controller_event->which);
++        if (controller) SDL_GameControllerClose(controller);
+     }
+     break;
+     case SDL_EventType::SDL_QUIT: {
+@@ -123,9 +128,10 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+     break;
+     case SDL_EventType::SDL_CONTROLLERBUTTONDOWN:
+         if (binding::is_binding() && binding::is_controller_being_bound(event->cbutton.which)) {
+-            // TODO: Needs the controller profile index.
+-            auto menuToggleBinding0 = profiles::get_input_binding(0, GameInput::TOGGLE_MENU, 0);
+-            auto menuToggleBinding1 = profiles::get_input_binding(0, GameInput::TOGGLE_MENU, 1);
++            const int profile = players::is_single_player_mode() ? profiles::get_sp_controller_profile_index() :
++                profiles::get_controller_profile_index_from_sdl_controller(get_controller_from_joystick_id(event->cbutton.which));
++            auto menuToggleBinding0 = profiles::get_input_binding(profile, GameInput::TOGGLE_MENU, 0);
++            auto menuToggleBinding1 = profiles::get_input_binding(profile, GameInput::TOGGLE_MENU, 1);
+             // note - magic number: 0 is InputType::None
+             if ((menuToggleBinding0.input_type != InputType::None && event->cbutton.button == menuToggleBinding0.input_id) ||
+                 (menuToggleBinding1.input_type != InputType::None && event->cbutton.button == menuToggleBinding1.input_id)) {
+@@ -246,9 +252,12 @@ bool sdl_event_filter(void* userdata, SDL_Event* event) {
+     return false;
+ }
+ 
++void process_event(SDL_Event& event) {
++    sdl_event_filter(nullptr, &event);
++}
++
+ void handle_events() {
+     SDL_Event cur_event;
+-    static bool started = false;
+     static bool exited = false;
+     while (SDL_PollEvent(&cur_event) && !exited) {
+         exited = sdl_event_filter(nullptr, &cur_event);
+@@ -268,6 +277,11 @@ void handle_events() {
+         SDL_SetRelativeMouseMode(cursor_locked ? SDL_TRUE : SDL_FALSE);
+     }
+ 
++    finish_events();
++}
++
++void finish_events() {
++    static bool started = false;
+     binding::stop_skipping_events();
+ 
+     if (!started && ultramodern::is_game_started()) {
+diff --git a/recompinput/src/input_state.cpp b/recompinput/src/input_state.cpp
+index 03ed871..274afe5 100644
+--- a/recompinput/src/input_state.cpp
++++ b/recompinput/src/input_state.cpp
+@@ -314,7 +314,11 @@ void recompinput::get_mouse_deltas(float* x, float* y) {
+ }
+ 
+ void recompinput::apply_joystick_deadzone(float x_in, float y_in, float* x_out, float* y_out) {
+-    float joystick_deadzone = (float)recompui::config::general::get_joystick_deadzone() / 100.0f;
++    float joystick_deadzone = std::clamp((float)recompui::config::general::get_joystick_deadzone() / 100.0f, 0.0f, 1.0f);
++    if (joystick_deadzone >= 1.0f) {
++        *x_out = *y_out = 0.0f;
++        return;
++    }
+ 
+     if (fabsf(x_in) < joystick_deadzone) {
+         x_in = 0.0f;

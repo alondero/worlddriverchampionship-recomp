@@ -17,7 +17,10 @@ Supply your own USA ROM, then run:
 ./play.ps1
 ```
 
-Enter is Start/pause, X is A/accelerate, Z is B/brake, and arrows/WASD steer.
+Gamepads are supported: left stick steers, A accelerates, B brakes, Start pauses,
+and Back/View opens settings (Xbox button labels). Keyboard defaults remain
+Enter for Start/pause, X for A/accelerate, Z for B/brake, and arrows/WASD to steer.
+Use Settings > Controls to rebind either device; see [Controllers](docs/controllers.md).
 For the tested path: skip intro with Enter, press Enter at the title, then
 X for Quick Race, Down and X for Practice Laps, X for Hawaii, and X for automatic transmission.
 
@@ -25,13 +28,12 @@ Controller Pak saves are enabled on port 1 and persist in
 `build/user-data/saves/worlddriverchampionship.us.mpk`. See
 [save configuration](docs/configuration.md) for backup and failure behavior.
 
-Known limitations: keyboard only,
-and rendering glitches. SDL audio output is experimental. Linux and Android
+Known limitations include rendering glitches and no rumble. SDL audio output is experimental. Linux and Android
 are not validated. No ROM, generated game code, or binary is committed.
 
 Graphics: automatic or 1-8x resolution scaling, MSAA, output filtering, saved
 settings, and fullscreen (F11 / Alt+Enter). Press Escape or F1 for the tabbed
-settings overlay, with Apply/Discard, Restore Defaults and a control reference.
+settings overlay, with Apply/Discard, Restore Defaults and editable controls.
 Race presentation widens the camera to match the window, preserves car/HUD
 proportions and removes the outer TV borders. Original 4:3 remains available.
 Experimental presentation-rate controls are available; interpolated motion

@@ -66,6 +66,19 @@ ctest --test-dir build --output-on-failure
 every controller snapshot before making the worker runnable, including on
 restart. See [startup ordering](reference/runtime.md#input-worker-startup-ordering).
 
+With the frontend enabled, `wdc_input` exercises SDL virtual-gamepad hotplug,
+native profile evaluation/remapping/persistence, analog axes and overlay input
+gating without a ROM or GPU. `wdc_frontend_settings` checks staged host-owned
+graphics/enhancement settings and the pending-open gate. Build these targets
+explicitly if only frontend checks are needed:
+
+```bash
+cmake --build build --target wdc_input_tests wdc_frontend_settings_tests
+ctest --test-dir build -R "wdc_(input|frontend_settings)$" --output-on-failure
+```
+
+See the [input reference](reference/input.md) for ownership and test limits.
+
 Headless runs must have a bounded frame/VI budget and a machine-readable result
 when they are used in CI. A passing process exit alone is not proof that the
 game reached the intended scene or submitted a graphics/audio task.

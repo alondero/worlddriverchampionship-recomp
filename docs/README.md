@@ -15,6 +15,7 @@ Start with:
 - [Renderer reference](reference/renderer.md) — RT64 ownership and port hooks.
 - [Distance and detail](reference/visibility.md) — car/track LOD, section pop-in and enhancement hooks.
 - [Audio reference](reference/audio.md) — RSP audio and host output.
+- [Input reference](reference/input.md) — peer controls patterns and shared frontend APIs.
 - [Glossary](glossary.md) — project terminology.
 
 Player-facing pages should stay short and avoid internal terms. Developer pages
