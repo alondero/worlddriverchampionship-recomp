@@ -34,10 +34,12 @@ patches. From a fresh checkout:
 ```bash
 git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64
 git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
-git -C lib/N64ModernRuntime apply ../../patches/0008-runtime-controller-pak-kind.patch
-git -C lib/N64ModernRuntime apply ../../patches/0013-runtime-rsp-unsigned-packed-loads.patch
-git -C lib/rt64 apply ../../patches/0014-rt64-rdp-screen-clipping.patch
-git -C lib/rt64 apply ../../patches/0016-rt64-rdp-edge-trapezoids.patch
+python3 -B scripts/patch_series.py --submodule lib/N64ModernRuntime \
+    --patch patches/0008-runtime-controller-pak-kind.patch \
+    --patch patches/0013-runtime-rsp-unsigned-packed-loads.patch
+python3 -B scripts/patch_series.py --submodule lib/rt64 \
+    --patch patches/0014-rt64-rdp-screen-clipping.patch \
+    --patch patches/0016-rt64-rdp-edge-trapezoids.patch
 cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
 cmake --build build-host-tests --parallel 2
 ctest --test-dir build-host-tests --output-on-failure --no-tests=error
@@ -45,8 +47,11 @@ ctest --test-dir build-host-tests --output-on-failure --no-tests=error
 
 On Windows, use the native CMake and MinGW tools described in
 [Building](../BUILDING.md), and set `Python3_EXECUTABLE` to the actual Python
-executable if CMake finds a Windows Store alias. Skip each patch already applied
-by a player build; `git apply --reverse --check` can verify that state.
+executable if CMake finds a Windows Store alias. The patch helper restores the
+paths a series owns before applying it, so it is safe to run against a tree a
+player build already patched. `git apply --reverse --check` cannot verify that
+state for patch 0014, because patch 0016 rewrites the context it matched.
+`tests/test_patch_series.py` covers the helper on a synthetic repository.
 
 ## ROM-backed and player checks
 

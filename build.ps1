@@ -50,15 +50,6 @@ $python = (Get-Command python.exe).Source
 if ($pythonScripts -and (Test-Path (Join-Path (Split-Path $pythonScripts) 'python.exe'))) {
     $python = Join-Path (Split-Path $pythonScripts) 'python.exe'
 }
-function Test-Patch([string]$submodule, [string]$patch, [switch]$Reverse) {
-    # Windows PowerShell converts redirected native stderr into error records.
-    # A failed applicability probe is expected, not a terminating build error.
-    $ErrorActionPreference = 'Continue'
-    $options = @('apply', '--ignore-whitespace', '--check')
-    if ($Reverse) { $options += '--reverse' }
-    git -C $submodule @options $patch 2>$null
-    return $LASTEXITCODE -eq 0
-}
 $rom = (Resolve-Path $RomPath -ErrorAction SilentlyContinue)
 if (-not $rom) { throw "Missing ROM '$RomPath'. Supply your own USA dump at the repository root." }
 
@@ -75,7 +66,7 @@ if ($Clean -and (Test-Path build/build.ninja)) {
 }
 
 Invoke-Step "submodules" { git submodule update --init --recursive }
-Invoke-Step "apply dependency patches (preserving local edits)" {
+Invoke-Step "apply dependency patches (restoring patch-owned paths)" {
         $patches = @(
             @{ Sub = "lib/rt64"; Patch = "patches/0005-rt64-mingw-gcc-compat.patch" },
             @{ Sub = "lib/rt64/src/contrib/plume"; Patch = "patches/0004-plume-d3d12-mingw-com-abi-struct-return.patch" },
@@ -91,15 +82,20 @@ Invoke-Step "apply dependency patches (preserving local edits)" {
             @{ Sub = "lib/rt64"; Patch = "patches/0015-rt64-raw-triangle-scissor.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0016-rt64-rdp-edge-trapezoids.patch" }
         )
+        # Group by submodule so each series is applied in one ordered run. The
+        # helper restores the paths a series owns to the pinned submodule state
+        # before applying it, which keeps repeated builds idempotent even where
+        # a later patch rewrites the context an earlier patch matched.
+        $series = [ordered]@{}
         foreach ($item in $patches) {
-            $patchPath = Join-Path $repo $item.Patch
-            if (Test-Patch $item.Sub $patchPath -Reverse) { continue }
-            if (Test-Patch $item.Sub $patchPath) {
-                git -C $item.Sub apply --ignore-whitespace $patchPath
-                if ($LASTEXITCODE -ne 0) { throw "Failed to apply $($item.Patch)" }
-            } else {
-                throw "Patch conflicts with local edits: $($item.Patch)"
-            }
+            if (-not $series.Contains($item.Sub)) { $series[$item.Sub] = @() }
+            $series[$item.Sub] += (Join-Path $repo $item.Patch)
+        }
+        foreach ($sub in $series.Keys) {
+            $toolArgs = @('-B', (Join-Path $repo 'scripts/patch_series.py'), '--submodule', $sub)
+            foreach ($patchPath in $series[$sub]) { $toolArgs += @('--patch', $patchPath) }
+            & $python @toolArgs
+            if ($LASTEXITCODE -ne 0) { throw "Failed to apply dependency patches to $sub" }
         }
 }
 Invoke-Step "configure (first pass)" {
