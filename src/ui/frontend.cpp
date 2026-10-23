@@ -2,6 +2,9 @@
 #include "frontend_settings.h"
 #include "overlay_state.h"
 #include "sdl_host.h"
+#include "input.h"
+#include "recompinput/input_binding.h"
+#include "recompinput/profiles.h"
 #include "graphics_window.h"
 #include "recompui/recompui.h"
 #include "recompui/config.h"
@@ -26,17 +29,20 @@ OverlayState overlay;
 std::mutex settings_mutex;
 std::optional<graphics::Settings> pending_settings;
 std::string error;
+recompui::Button* restore_defaults{};
 void initialize(plume::RenderInterface* interface, plume::RenderDevice* device) {
+    std::lock_guard input_lock(input::mutex());
     init_hook(interface, device);
     auto context = recompui::config::get_config_context_id();
     context.open();
     auto* modal = recompui::config::get_config_modal();
     auto* button = context.create_element<recompui::Button>(modal->get_header()->get_right(),
         "Restore defaults", recompui::ButtonStyle::Tertiary, recompui::ButtonSize::Medium);
+    restore_defaults = button;
     button->set_white_space(recompui::WhiteSpace::Nowrap);
     button->set_flex_shrink(0.0f);
     button->add_pressed_callback([] {
-        // Stage defaults; Apply/Discard handles them just like individual edits.
+        // Use each tab's edit policy: graphics stages changes; General is live.
         auto* active = recompui::config::get_config_modal()->get_active_tab();
         if (active) {
             auto* tabs = static_cast<recompui::TabSet*>(active->get_parent());
@@ -46,6 +52,7 @@ void initialize(plume::RenderInterface* interface, plume::RenderDevice* device) 
     context.close();
 }
 void render(plume::RenderCommandList* commands, plume::RenderFramebuffer* framebuffer) {
+    std::lock_guard input_lock(input::mutex());
     const auto request = overlay.take_request();
     // Keep capture raised while consuming an Open, including before contexts
     // are visible. The SDL/game threads may read the gate during this callback.
@@ -67,10 +74,19 @@ void render(plume::RenderCommandList* commands, plume::RenderFramebuffer* frameb
         if (recompui::is_prompt_open()) recompui::close_prompt();
         else if (recompui::config::close()) recompui::hide_all_contexts();
     }
+    // Controls has its own device-specific Reset to defaults button.
+    auto context = recompui::config::get_config_context_id();
+    context.open();
+    auto* active = recompui::config::get_config_modal()->get_active_tab();
+    auto* tabs = active ? static_cast<recompui::TabSet*>(active->get_parent()) : nullptr;
+    if (tabs && tabs->get_active_tab() == 3) restore_defaults->display_hide();
+    else restore_defaults->display_show();
+    context.close();
     draw_hook(commands, framebuffer);
     overlay.publish_capture(recompui::is_context_capturing_input());
 }
 void deinitialize() {
+    std::lock_guard input_lock(input::mutex());
     deinit_hook();
     overlay.publish_capture(false);
 }
@@ -81,6 +97,7 @@ void install() {
     recompui::programconfig::set_program_id(u8"WorldDriverChampionshipRecomp");
     recompui::register_primary_font("LatoLatin-Regular.ttf", "LatoLatin");
     recompui::register_extra_font("LatoLatin-Bold.ttf");
+    input::configure();
     create_settings();
     recompui::config::finalize();
     // WDC starts its selected ROM automatically. The default frontend launcher
@@ -97,21 +114,27 @@ bool captures_input() { return overlay.captures_input(); }
 void toggle_settings() { if (captures_input()) overlay.close(); else overlay.open(); }
 bool handle_event(const SDL_Event& event) {
     if (event.type == SDL_KEYDOWN && (event.key.keysym.mod & KMOD_CTRL)) snapshot_host_input();
-    if (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_F1)) {
+    if (!recompinput::binding::is_binding() && event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_F1)) {
         if (!event.key.repeat) toggle_settings();
         return true;
     }
-    if (captures_input()) {
-        switch (event.type) {
-        case SDL_KEYDOWN: case SDL_KEYUP: case SDL_TEXTINPUT:
-        case SDL_MOUSEMOTION: case SDL_MOUSEBUTTONDOWN: case SDL_MOUSEBUTTONUP: case SDL_MOUSEWHEEL:
-            recompui::queue_event(event);
-            break;
-        default: break;
+    // Raise WDC's capture gate immediately for a mapped controller menu open.
+    // Native UI events close it and handle navigation/remapping on presentation.
+    if (!captures_input() && !recompinput::binding::is_binding() && event.type == SDL_CONTROLLERBUTTONDOWN) {
+        const int profile = recompinput::profiles::get_sp_controller_profile_index();
+        for (size_t i = 0; i < recompinput::num_bindings_per_input; ++i) {
+            const auto field = recompinput::profiles::get_input_binding(profile, recompinput::GameInput::TOGGLE_MENU, i);
+            if (field.input_type == recompinput::InputType::ControllerDigital && field.input_id == event.cbutton.button) {
+                toggle_settings();
+                // Do not queue the opening press: the native menu would close
+                // itself again when processing it after our Open request.
+                return true;
+            }
         }
-        return true;
     }
-    return false;
+    auto copy = event;
+    input::handle_event(copy);
+    return captures_input();
 }
 void request_settings(graphics::Settings settings) {
     std::lock_guard lock(settings_mutex);

@@ -13,12 +13,15 @@ The initial window is 1280x720; F11 / Alt+Enter uses the desktop resolution.
 The Graphics and Enhancements tabs expose the saved graphics options. Choose values, then press
 **Apply**; closing or switching tabs with changes offers Apply/Discard.
 **Restore defaults** stages the original choices for the same Apply/Discard
-flow. The Controls tab lists the current keyboard bindings.
+flow. The Controls tab edits the live keyboard and gamepad bindings, including
+per-device reset. Bindings save on leaving that tab. General exposes joystick
+deadzone and background controller input; changes take effect immediately and
+save when leaving that tab.
 
 Navigate with the mouse, arrows or Tab and Enter. Escape/F1 closes the overlay;
 the header also has close and quit buttons. Pause a race with Enter before
 opening settings: the game continues running while the overlay is open, but
-menu input is blocked from the game. Held gameplay keys must be released before
+menu input is blocked from the game. Held gameplay buttons/stick must be released before
 input resumes. Color precision requires a restart; the other changes apply live.
 
 The window title shows requested settings. Graphics options are reached through
@@ -123,8 +126,10 @@ Linux generation currently requires the default filename at the repository root.
   deletes the partial capture. Captures contain ROM-derived data and stay local. Remove this probe once RT64
   can record raw RDP batches submitted by BOSS.
 
-The player stores runtime data under ignored `build/user-data`. Gamepad input,
-rebinding, rumble, and an audio volume control remain future work. The overlay
+The player stores runtime data under ignored `build/user-data`. Native
+RecompFrontend profiles persist in `controls.json`; deadzone and background
+input preferences persist in `general.json`. See [Controllers](controllers.md)
+for defaults and remapping. Rumble and an audio volume control remain future work. The overlay
 exposes the configuration options currently supported by the port.
 
 Controller Pak saves are enabled on controller port 1 and stored as a raw
@@ -143,7 +148,8 @@ The overlay uses the same RecompFrontend tabbed UI as the Automobili Lamborghini
 peer port. Contexts and staged edits belong to the presentation callback;
 Apply queues a whole settings snapshot for the SDL main thread to publish,
 save and use for window operations. RecompFrontend does not write `graphics.json`.
-An internal General tab supplies framework defaults and is hidden because its
-controller options do not affect WDC's keyboard input adapter.
+The General and Controls tabs use RecompFrontend's native storage and input
+library. Profile edits and SDL sampling serialize with presentation; guest
+controller callbacks read only a coherent host snapshot.
 The host also queues the frontend's cursor, clipboard, mouse capture and dialog
 operations to SDL's main thread. Font/icon assets are loaded beside the executable.

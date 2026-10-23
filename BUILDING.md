@@ -48,7 +48,7 @@ the CPU symbol/configuration TOMLs. Edit `rom-symbols.toml`,
 `scripts/gen_syms_toml.py`, or `aspMain.us.toml`, never generated C/C++.
 
 The script carries two Windows compatibility patches, three BOSS/runtime
-patches, a Controller Pak device-kind patch, four settings-overlay patches,
+patches, a Controller Pak device-kind patch, five frontend/input patches,
 and raw RDP screen-clipping, scissor-scaling and edge-reconstruction patches.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
@@ -69,7 +69,7 @@ For the ROM-free C++ checks used by pull-request CI, see
 
 A separate `-DWDC_HEADLESS=ON` build provides a 15-second CPU/RSP diagnostic.
 The desktop scripts explicitly enable `WDC_ENABLE_FRONTEND`; direct CMake
-builds can set it to `OFF` to retain the graphics-shortcut-only player. Headless
+builds can set it to `OFF` to retain the fixed keyboard-only player with graphics shortcuts. Headless
 builds omit the frontend automatically.
 It deliberately exits with code 2 at its time limit: this is not a gameplay
 pass. Setting `WDC_DIAGNOSTIC=1` applies the same time limit to the player.

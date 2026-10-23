@@ -20,11 +20,16 @@
 #include "graphics_config.h"
 #include "graphics_window.h"
 #include "ui/frontend.h"
+#ifdef WDC_ENABLE_FRONTEND
+#include "ui/input.h"
+#endif
 std::unique_ptr<ultramodern::renderer::RendererContext> wdc_create_renderer(
     uint8_t*, ultramodern::renderer::WindowHandle, bool);
 static SDL_Window* window;
+#ifndef WDC_ENABLE_FRONTEND
 static std::atomic<uint16_t> buttons{};
 static std::atomic<int> stick_x{}, stick_y{};
+#endif
 #endif
 
 extern "C" void recomp_entrypoint(uint8_t*, recomp_context*);
@@ -135,6 +140,9 @@ int main(int argc, char** argv) {
     cfg.gfx_callbacks.update_gfx = [](void*) {
         wdc::audio::pump();
         wdc::ui::pump();
+#ifdef WDC_ENABLE_FRONTEND
+        std::lock_guard input_lock(wdc::input::mutex());
+#endif
         bool captured = wdc::ui::captures_input();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -162,6 +170,9 @@ int main(int argc, char** argv) {
             }
 #endif
         }
+#ifdef WDC_ENABLE_FRONTEND
+        wdc::input::sample(captured);
+#else
         auto* keys = SDL_GetKeyboardState(nullptr);
         uint16_t next_buttons = (keys[SDL_SCANCODE_RETURN] && !(SDL_GetModState() & KMOD_ALT) ? 0x1000 : 0) | (keys[SDL_SCANCODE_X] ? 0x8000 : 0) |
                   (keys[SDL_SCANCODE_Z] ? 0x4000 : 0) | (keys[SDL_SCANCODE_SPACE] ? 0x2000 : 0) |
@@ -179,6 +190,7 @@ int main(int argc, char** argv) {
         if (!captured && !wdc::ui::captures_input() && !held) wait_for_release = false;
         if (wait_for_release) { next_buttons = 0; next_x = 0; next_y = 0; }
         buttons = next_buttons; stick_x = next_x; stick_y = next_y;
+#endif
     };
 #endif
     cfg.events_callbacks.vi_callback = [] { ++vis; };
@@ -188,11 +200,16 @@ int main(int argc, char** argv) {
         *buttons = 0; *x = *y = 0; return port == 0;
     };
 #ifdef WDC_PLAYER
+#ifdef WDC_ENABLE_FRONTEND
+    cfg.input_callbacks.get_input = wdc::input::read;
+#else
     cfg.input_callbacks.get_input = [](int port, uint16_t* out_buttons, float* x, float* y) {
         if (wdc::ui::captures_input()) { *out_buttons = 0; *x = *y = 0; return port == 0; }
+        if (port != 0) { *out_buttons = 0; *x = *y = 0; return false; }
         *out_buttons = buttons.load(); *x = float(stick_x.load()); *y = float(stick_y.load());
         return port == 0;
     };
+#endif
 #endif
     cfg.input_callbacks.get_connected_device_info = wdc::pak::device_info;
     cfg.audio_callbacks.queue_samples = [](int16_t*, size_t) {};

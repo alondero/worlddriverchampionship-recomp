@@ -54,13 +54,14 @@ the WDC runtime demonstrates the same need.
 | `0014-rt64-rdp-screen-clipping.patch` | RT64 | All | Clip reconstructed off-screen vertices in RDP screen space before GPU submission. |
 | `0015-rt64-raw-triangle-scissor.patch` | RT64 | All | Scale raw-triangle scissors in the same framebuffer space as their vertices. |
 | `0016-rt64-rdp-edge-trapezoids.patch` | RT64 | All | Rebuild raw RDP triangles from their H/M/L edges instead of three extrapolated corners. |
+| `0017-frontend-host-input.patch` | RecompFrontend | Desktop | Expose single-event/batch handling for the host SDL loop; handle failed opens/disconnects, use the controller profile for binding cancellation and bound deadzone. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
@@ -134,3 +135,12 @@ system interface and input handler; window size and modifier state are snapshots
 while cursor, clipboard, mouse capture, background hints and error dialogs are
 queued to the main thread. Assets resolve beside the executable even when the
 launcher runs from the checkout root. Configuration storage is unchanged.
+
+Patch 0017 lets WDC feed native hotplug, binding and menu events without a
+second SDL queue consumer. WDC retains fullscreen, quit and file-drop policy.
+The host serializes input handling with the binding editor and sends only a
+snapshot to guest callbacks. A failed controller open stops before GUID access;
+disconnect removes state and closes the owned SDL handle. Binding cancellation
+uses the controller profile instead of keyboard profile zero. A 100% deadzone
+produces a neutral stick instead of dividing by zero. `wdc_input` exercises these paths with SDL's
+virtual controller API; it does not require a ROM or physical controller.

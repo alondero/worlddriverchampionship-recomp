@@ -1,8 +1,6 @@
 #include "frontend.h"
 #include "frontend_settings.h"
 #include "recompui/config.h"
-#include "elements/ui_container.h"
-#include "elements/ui_label.h"
 
 namespace wdc::ui {
 namespace {
@@ -39,23 +37,6 @@ void apply_enhancements() {
     settings.draw_distance = int(std::get<uint32_t>(page.get_option_value("draw_distance")));
     request_settings(settings);
 }
-void controls(recompui::ContextId context, recompui::Element* parent) {
-    using namespace recompui;
-    auto* content = context.create_element<Container>(parent, FlexDirection::Column, JustifyContent::FlexStart);
-    content->set_padding(32.0f);
-    content->set_gap(16.0f);
-    content->set_overflow_y(Overflow::Auto);
-    context.create_element<Label>(content, "Keyboard controls", LabelStyle::Large);
-    for (const char* line : {
-        "Enter: Start / pause", "X: A / accelerate / select", "Z: B / brake / back",
-        "Arrows or WASD: steer / move", "Space: Z trigger", "Right Shift: R",
-        "Escape or F1: open / close settings", "F11 or Alt+Enter: fullscreen",
-        "Menu: mouse, arrows / Tab and Enter. Use Apply to save changes.",
-        "Controls are fixed in this version. Gamepad input, rebinding and rumble are not available.",
-        "Pause the race with Enter before opening settings. The game continues running while settings are open."}) {
-        context.create_element<Label>(content, line, LabelStyle::Normal);
-    }
-}
 }
 void refresh_settings() {
     auto& page = recompui::config::get_config(graphics_id);
@@ -75,10 +56,11 @@ void refresh_settings() {
     sync(enhancements, "draw_distance", uint32_t(s.draw_distance));
 }
 void stage_defaults(int tab_index) {
-    // The port creates Graphics first and Enhancements second. The pinned
+    // The port creates Graphics, Enhancements, then General. The pinned
     // frontend exposes the selected index, but not the selected config ID.
-    if (tab_index != 0 && tab_index != 1) return;
-    auto& page = recompui::config::get_config(tab_index == 0 ? graphics_id : enhancements_id);
+    if (tab_index < 0 || tab_index > 2) return;
+    auto& page = recompui::config::get_config(tab_index == 0 ? graphics_id :
+        tab_index == 1 ? enhancements_id : recompui::config::general::id.c_str());
     for (const auto& option : page.get_config_schema().options) {
         const auto value = std::visit([](const auto& choice) -> ConfigValueVariant {
             return choice.default_value;
@@ -121,11 +103,7 @@ void create_settings() {
         {{1, "Original"}, {2, "2x"}, {3, "3x"}, {4, "4x"}}, 1u);
     enhancements.set_load_callback(refresh_settings);
     enhancements.set_save_callback(apply_enhancements);
-    // The framework reads General internally. None of its controller settings
-    // currently affect WDC's keyboard adapter, so keep this internal tab hidden.
-    auto& general = ui::create_general_tab({.has_rumble_strength = false});
-    general.external_storage = true;
-    ui::set_tab_visible(ui::general::id, false);
-    ui::create_tab("Controls", "wdc-controls", controls);
+    ui::create_general_tab({.has_rumble_strength = false});
+    ui::create_controls_tab();
 }
 }

@@ -61,6 +61,7 @@ frontend_patches=(
     "$ROOT/patches/0010-frontend-enum-wrap.patch"
     "$ROOT/patches/0011-frontend-runtime-compat.patch"
     "$ROOT/patches/0012-frontend-host-services.patch"
+    "$ROOT/patches/0017-frontend-host-input.patch"
 )
 windows_rt64_patches=()
 windows_plume_patches=()
