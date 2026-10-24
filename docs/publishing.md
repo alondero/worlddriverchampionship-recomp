@@ -44,9 +44,13 @@ Use the source workflow's `check`, `host-tests` and `secrets` jobs as required
 pull-request checks when configuring branch protection. Enable GitHub secret
 scanning and push protection when available for the repository.
 
-The manual build workflow requires a separately configured private ROM source.
-It runs the full test suite before removing the ROM and packaging only the player
-and frontend assets. It does not publish a GitHub Release. Review package contents
-and retain project, dependency and font notices before distributing a build.
-The public source checks do not validate a playable build; Windows is the tested
-player platform, while Linux and Android player support remain unvalidated.
+The manual build workflow requires a separately configured private ROM source:
+the `ROM_ASSETS_REPO` repository variable and the `ROM_ASSETS_PAT` secret. It
+builds the Windows x64 and Linux x64 players, runs the test suite, removes the
+ROM, and packages the player, its runtime libraries and the frontend assets. A
+publishing run creates the GitHub Release for the dispatched tag and attaches
+both packages; a `publish: false` run only builds, so the pipeline can be
+validated before a tag exists. Review package contents and retain project,
+dependency and font notices before distributing a build. The public source
+checks do not validate a playable build; Windows is the tested player platform,
+while Linux and Android player support remain unvalidated.

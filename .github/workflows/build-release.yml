@@ -3,6 +3,10 @@ name: Build and release
 # Manual release workflow. The copyrighted ROM is checked out from a private
 # companion repository, used only during translation, and removed before the
 # package is assembled. Configure ROM_ASSETS_REPO and ROM_ASSETS_PAT first.
+#
+# `publish: false` builds the dispatched commit without creating a release, so
+# the pipeline can be validated before a tag exists. A publishing run checks
+# out the immutable tag instead.
 
 on:
   workflow_dispatch:
@@ -10,13 +14,21 @@ on:
       tag:
         description: "Release tag"
         required: true
-      draft:
-        description: "Create as a draft"
+      publish:
+        description: "Publish a GitHub release (false only builds)"
         type: boolean
         default: true
+      prerelease:
+        description: "Mark the release as a prerelease"
+        type: boolean
+        default: false
+      draft:
+        description: "Create the release as a draft"
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   ROM_FILENAME: "World Driver Championship (USA).z64"
@@ -27,13 +39,24 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.tag }}
+          # Publishing runs build the tag; dry runs build the dispatched commit
+          # so pending build-input changes can be validated before tagging.
+          ref: ${{ (inputs.publish == true || inputs.publish == 'true') && inputs.tag || github.sha }}
           submodules: recursive
           persist-credentials: false
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3 pkg-config libsdl2-dev libvulkan-dev libfreetype-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libdbus-1-dev
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3 pkg-config libsdl2-dev libvulkan-dev libfreetype-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libdbus-1-dev zip unzip binutils
+      - name: Check ROM asset configuration
+        env:
+          ROM_ASSETS_REPO: ${{ vars.ROM_ASSETS_REPO }}
+          ROM_ASSETS_PAT: ${{ secrets.ROM_ASSETS_PAT }}
+        run: |
+          if [ -z "$ROM_ASSETS_REPO" ] || [ -z "$ROM_ASSETS_PAT" ]; then
+            echo "::error::vars.ROM_ASSETS_REPO and/or secrets.ROM_ASSETS_PAT are not set -- cannot recompile without a ROM."
+            exit 1
+          fi
       - name: Fetch private ROM
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -42,24 +65,196 @@ jobs:
           path: rom-assets
           persist-credentials: false
       - name: Place ROM
-        run: cp "rom-assets/$ROM_FILENAME" "$ROM_FILENAME"
+        run: |
+          cp "rom-assets/$ROM_FILENAME" "$ROM_FILENAME"
+          rm -rf rom-assets
       - name: Build
         run: bash build.sh
       - name: Build and run tests
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
         run: |
           cmake --build build --parallel 2
           ctest --test-dir build --output-on-failure --no-tests=error
+      - name: Measure Linux runtime requirements
+        run: |
+          set -euo pipefail
+          glibc_floor=$(objdump -T build/worlddriverchampionship_modern | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 || true)
+          {
+            printf 'Architecture: x64\n'
+            printf 'Source commit: %s\n' "$(git rev-parse HEAD)"
+            printf 'Required glibc symbol version: %s\n' "$glibc_floor"
+            printf 'Compiler: %s\n' "$(gcc -dumpfullversion)"
+            printf 'CMake: %s\n' "$(cmake --version | head -n 1)"
+            printf 'Runtime libraries: SDL2, Vulkan loader\n'
+          } | tee build/linux-build-info.txt
       - name: Remove ROM
         if: always()
         run: rm -f "$ROM_FILENAME" && rm -rf rom-assets
       - name: Package
         run: |
+          set -euo pipefail
           mkdir -p dist
           cp build/worlddriverchampionship_modern dist/
           cp -r build/assets dist/
+          cp build/linux-build-info.txt dist/
+          # Symbol table for the translated guest code: field crash reports
+          # resolve guest addresses to function names.
+          cp worlddriverchampionship.syms.toml dist/
           cd dist
           zip -r ../worlddriverchampionship-recomp-linux-x64.zip .
+          unzip -t ../worlddriverchampionship-recomp-linux-x64.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: worlddriverchampionship-linux-x64
+          name: worlddriverchampionship-recomp-linux-x64
           path: worlddriverchampionship-recomp-linux-x64.zip
+          if-no-file-found: error
+          retention-days: 14
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Enable long paths
+        # RT64's contrib tree contains paths > 260 chars; Windows runners
+        # reject these without this flag set.
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ (inputs.publish == true || inputs.publish == 'true') && inputs.tag || github.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          choco install mingw -y --no-progress
+          choco install ninja -y --no-progress
+          python -m pip install --upgrade pip
+          python -m pip install cmake
+          # Put MinGW ahead of any MSYS2 toolchain that might also be on PATH.
+          echo "C:\ProgramData\mingw64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Verify toolchain
+        shell: pwsh
+        run: |
+          gcc --version
+          cmake --version
+          ninja --version
+      - name: Check ROM asset configuration
+        shell: pwsh
+        env:
+          ROM_ASSETS_REPO: ${{ vars.ROM_ASSETS_REPO }}
+          ROM_ASSETS_PAT: ${{ secrets.ROM_ASSETS_PAT }}
+        run: |
+          if (-not $env:ROM_ASSETS_REPO -or -not $env:ROM_ASSETS_PAT) {
+            Write-Error 'vars.ROM_ASSETS_REPO and/or secrets.ROM_ASSETS_PAT are not set -- cannot recompile without a ROM.'
+            exit 1
+          }
+      - name: Fetch private ROM
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ vars.ROM_ASSETS_REPO }}
+          token: ${{ secrets.ROM_ASSETS_PAT }}
+          path: rom-assets
+          persist-credentials: false
+      - name: Place ROM
+        shell: pwsh
+        run: |
+          Copy-Item "rom-assets\$env:ROM_FILENAME" ".\$env:ROM_FILENAME"
+          Remove-Item -Recurse -Force rom-assets
+      - name: Build
+        shell: pwsh
+        run: ./build.ps1 -RomPath "$env:ROM_FILENAME"
+      - name: Build and run tests
+        shell: pwsh
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure --no-tests=error
+      - name: Measure Windows runtime requirements
+        shell: pwsh
+        run: |
+          $gcc = (gcc -dumpfullversion)
+          $cmake = (cmake --version | Select-Object -First 1)
+          $commit = (git rev-parse HEAD).Trim()
+          @(
+            'Architecture: x64'
+            "Source commit: $commit"
+            "Compiler: MinGW-w64 GCC $gcc"
+            "CMake: $cmake"
+            'Renderer: Direct3D 12'
+          ) | Set-Content -Path build/windows-build-info.txt -Encoding utf8NoBOM
+      - name: Remove ROM
+        if: always()
+        shell: pwsh
+        run: Remove-Item -Force -ErrorAction SilentlyContinue "$env:ROM_FILENAME"
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          # SDL2, DXC and FreeType are dynamic dependencies, so a missing DLL
+          # crashes on the player's machine at startup, not here. Fail the build
+          # loudly instead of shipping a broken zip.
+          $payload = @(
+            'build\worlddriverchampionship_modern.exe',
+            'build\SDL2.dll',
+            'build\dxcompiler.dll',
+            'build\dxil.dll',
+            'build\freetype.dll',
+            'build\libgcc_s_seh-1.dll',
+            'build\libstdc++-6.dll',
+            'build\libwinpthread-1.dll',
+            'build\assets',
+            'build\windows-build-info.txt',
+            'worlddriverchampionship.syms.toml'
+          )
+          $missing = $payload | Where-Object { -not (Test-Path $_) }
+          if ($missing) { throw "Packaging aborted -- required files missing: $($missing -join ', ')" }
+          Copy-Item -Recurse $payload dist\
+          Compress-Archive -Path dist\* -DestinationPath worlddriverchampionship-recomp-windows-x64.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: worlddriverchampionship-recomp-windows-x64
+          path: worlddriverchampionship-recomp-windows-x64.zip
+          if-no-file-found: error
+          retention-days: 14
+
+  release:
+    if: ${{ (inputs.publish == true || inputs.publish == 'true') }}
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_flags=()
+          if [ "${{ inputs.prerelease }}" = "true" ]; then release_flags+=(--prerelease); fi
+          if [ "${{ inputs.draft }}" = "true" ]; then release_flags+=(--draft); fi
+          printf '%s\n' \
+            'Pre-release quality. An experimental World Driver Championship port for early testing and feedback.' \
+            '' \
+            '**You must supply your own legally dumped ROM.** This download contains no game data.' \
+            "Supply a big-endian 16 MiB USA dump named '$ROM_FILENAME'." \
+            '' \
+            'Windows x64 with Direct3D 12 is the platform with recorded gameplay evidence.' \
+            'The Linux x64 package was built by CI but has not been validated in-game, and Android is not part of this release.' \
+            '' \
+            'See BUILDING.md for the ROM identity and source-build instructions, and the project documentation for controls, settings and known limitations.' \
+            > release-notes.md
+          gh release create "${{ inputs.tag }}" \
+            artifacts/worlddriverchampionship-recomp-windows-x64/worlddriverchampionship-recomp-windows-x64.zip \
+            artifacts/worlddriverchampionship-recomp-linux-x64/worlddriverchampionship-recomp-linux-x64.zip \
+            --repo "${{ github.repository }}" \
+            --title "World Driver Championship Recompiled ${{ inputs.tag }}" \
+            "${release_flags[@]}" \
+            --notes-file release-notes.md

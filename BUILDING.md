@@ -76,7 +76,10 @@ pass. Setting `WDC_DIAGNOSTIC=1` applies the same time limit to the player.
 
 ## Other platforms
 
-`build.sh` follows the same translation pipeline with SDL2/Vulkan, but Linux
-has not been built or tested in this milestone. It requires the default ROM
-filename at the repository root. Android remains scaffold-only; do not treat
-this Windows milestone as Android validation.
+`build.sh` follows the same translation pipeline with SDL2/Vulkan and requires
+the default ROM filename at the repository root. The release workflow builds
+this Linux x64 player and runs its CTest suite on every release build, so the
+Linux compilation and test path is exercised by CI. No Linux gameplay, audio
+or controller validation has been recorded, so Linux remains untested in-game.
+Android remains scaffold-only; do not treat the Linux build as Android
+validation.
