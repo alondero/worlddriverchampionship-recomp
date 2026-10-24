@@ -1,0 +1,24 @@
+diff --git a/librecomp/include/librecomp/rsp.hpp b/librecomp/include/librecomp/rsp.hpp
+index 748558c..8f2780b 100644
+--- a/librecomp/include/librecomp/rsp.hpp
++++ b/librecomp/include/librecomp/rsp.hpp
+@@ -95,7 +95,8 @@ static inline void RSP_MEM_H_STORE(uint32_t offset, uint32_t addr, uint32_t val)
+ #define DO_DMA_WRITE(wr_len) dma_dmem_to_rdram(rdram, dma_mem_address, dma_dram_address, (wr_len))
+ 
+ static inline void dma_rdram_to_dmem(uint8_t* rdram, uint32_t dmem_addr, uint32_t dram_addr, uint32_t rd_len) {
+-    rd_len += 1; // Read length is inclusive
++    // The inclusive hardware length rounds up to an eight-byte DMA word.
++    rd_len = (rd_len | 7u) + 1;
+     dram_addr &= 0xFFFFF8;
+     assert(dmem_addr + rd_len <= 0x1000);
+     for (uint32_t i = 0; i < rd_len; i++) {
+@@ -104,7 +105,8 @@ static inline void dma_rdram_to_dmem(uint8_t* rdram, uint32_t dmem_addr, uint32_
+ }
+ 
+ static inline void dma_dmem_to_rdram(uint8_t* rdram, uint32_t dmem_addr, uint32_t dram_addr, uint32_t wr_len) {
+-    wr_len += 1; // Write length is inclusive
++    // BOSS uses partial words at audio block boundaries; copy the whole word.
++    wr_len = (wr_len | 7u) + 1;
+     dram_addr &= 0xFFFFF8;
+     assert(dmem_addr + wr_len <= 0x1000);
+     for (uint32_t i = 0; i < wr_len; i++) {

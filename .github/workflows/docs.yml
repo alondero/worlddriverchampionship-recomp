@@ -54,6 +54,7 @@ jobs:
           git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
           git -C lib/N64ModernRuntime apply ../../patches/0008-runtime-controller-pak-kind.patch
           git -C lib/N64ModernRuntime apply ../../patches/0013-runtime-rsp-unsigned-packed-loads.patch
+          git -C lib/N64ModernRuntime apply ../../patches/0018-runtime-rsp-dma-rounding.patch
           git -C lib/rt64 apply ../../patches/0014-rt64-rdp-screen-clipping.patch
           git -C lib/rt64 apply ../../patches/0016-rt64-rdp-edge-trapezoids.patch
       - name: Configure ROM-free host tests
