@@ -26,7 +26,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same ten C++ host-test targets used by the player build,
+This mode builds the same eleven C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
 headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
@@ -79,6 +79,14 @@ ctest --test-dir build -R "wdc_(input|frontend_settings)$" --output-on-failure
 ```
 
 See the [input reference](reference/input.md) for ownership and test limits.
+
+`wdc_driving` checks pedal publication and guest-hook bounds with synthetic
+RDRAM. `wdc_driving_rom` runs the translated input, gearbox and drivetrain
+closure against USA ROM constants and controlled car parameters. It verifies
+progressive throttle/brake torque, reverse and full-power digital overrides,
+and rejects missing generated hooks. The frontend tests also cover Driving
+defaults/persistence/reset and virtual-gamepad pedal release gating. These
+checks do not validate physical pedal compatibility or racing feel.
 
 Headless runs must have a bounded frame/VI budget and a machine-readable result
 when they are used in CI. A passing process exit alone is not proof that the

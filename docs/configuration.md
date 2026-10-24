@@ -18,10 +18,20 @@ per-device reset. Bindings save on leaving that tab. General exposes joystick
 deadzone and background controller input; changes take effect immediately and
 save when leaving that tab.
 
+**Driving** provides independent Digital/Analog modes for throttle and brake,
+an SDL controller axis (including None), negative half-axis selection, deadzone
+(0.00-0.95) and saturation (0.05-1.00). Defaults are Digital, RT throttle,
+LT brake, positive half-axis, 0.05 deadzone and 1.00 saturation. When saturation
+is at or below the deadzone, the effective range ends 0.01 above the deadzone.
+Driving changes are live, save to `build/user-data/driving-controls.json` when
+leaving the tab, and follow the same live **Restore defaults** policy as General.
+Digital A/B overrides remain available. See [Controllers](controllers.md) for
+trigger binding conflicts and reverse controls.
+
 Navigate with the mouse, arrows or Tab and Enter. Escape/F1 closes the overlay;
 the header also has close and quit buttons. Pause a race with Enter before
 opening settings: the game continues running while the overlay is open, but
-menu input is blocked from the game. Held gameplay buttons/stick must be released before
+menu input is blocked from the game. Held gameplay buttons, stick and enabled pedals must be released before
 input resumes. Color precision requires a restart; the other changes apply live.
 
 The window title shows requested settings. Graphics options are reached through
@@ -151,7 +161,7 @@ The overlay uses the same RecompFrontend tabbed UI as the Automobili Lamborghini
 peer port. Contexts and staged edits belong to the presentation callback;
 Apply queues a whole settings snapshot for the SDL main thread to publish,
 save and use for window operations. RecompFrontend does not write `graphics.json`.
-The General and Controls tabs use RecompFrontend's native storage and input
+The Driving, General and Controls tabs use RecompFrontend's native storage and input
 library. Profile edits and SDL sampling serialize with presentation; guest
 controller callbacks read only a coherent host snapshot.
 The host also queues the frontend's cursor, clipboard, mouse capture and dialog
