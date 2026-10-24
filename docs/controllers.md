@@ -35,13 +35,29 @@ Analog steering retains partial stick
 deflection; keyboard directions use full deflection. Rumble is not implemented;
 a Controller Pak remains attached to port 1 for game saves.
 
+**Driving** adds optional analog throttle and brake. Set each **input mode** to
+**Analog** to enable it; both default to Digital. Throttle defaults to the right
+trigger (RT), brake to the left trigger (LT). You can choose any SDL gamepad
+stick/trigger axis or None, and select the negative half of a stick axis.
+Deadzone ignores the first 5% by default; saturation sets the axis position
+that reaches full power (100% by default). These settings are independent of
+the steering deadzone. Changes take effect immediately and save when leaving
+Driving; **Restore defaults** resets both pedals to Digital.
+
+A and B bindings still give full throttle/braking and select/back in menus.
+Analog pedals add driving actions without acting as menu A/B presses. Pull the
+steering stick down while accelerating to request reverse, as with digital A.
+LT/RT retain their Z/R bindings in Controls; clear conflicting bindings there
+if you want those axes to operate only as pedals. Pedals require an SDL
+gamepad axis; a wheel or pedal device needs a suitable SDL gamepad mapping.
+
 Opening settings blocks gameplay input immediately. Closing keeps input neutral
-until the mapped gameplay buttons and stick return to neutral. **Pause with
+until the mapped gameplay buttons, stick and enabled pedals return to neutral. **Pause with
 Start before opening settings if you want to stop a race**: settings do not
 pause the game. Use the overlay's quit button or close the window to exit.
 
 Bindings and general preferences use RecompFrontend's native storage under
-`build/user-data/controls.json` and `general.json`. See
+`build/user-data/controls.json`, `general.json` and `driving-controls.json`. See
 [configuration](configuration.md) for the independent Controller Pak save.
 Direct builds with `WDC_ENABLE_FRONTEND=OFF` retain the fixed keyboard-only
 adapter. The desktop build scripts enable the frontend by default.

@@ -1,10 +1,12 @@
 #include "input.h"
 #include "frontend.h"
+#include "game_driving.h"
 #include "recompinput/recompinput.h"
 #include "recompinput/input_events.h"
 #include "recompinput/profiles.h"
 #include "recompui/config.h"
 #include <atomic>
+#include <algorithm>
 #include <bit>
 #include <cmath>
 
@@ -15,8 +17,29 @@ std::recursive_mutex input_mutex;
 // [-32767,32767]; no guest RAM or SDL object crosses the runtime callback.
 std::atomic<uint64_t> snapshot{};
 bool wait_for_release{}; // SDL thread only.
-bool gameplay_held() {
+float pedal_value(const std::string& pedal) {
     using namespace recompinput;
+    const auto& config = recompui::config::get_config("driving-controls");
+    if (std::get<uint32_t>(config.get_option_value(pedal + "_mode")) != 1) return 0;
+    const auto axis = std::get<uint32_t>(config.get_option_value(pedal + "_axis"));
+    if (axis == 0 || axis > SDL_CONTROLLER_AXIS_MAX) return 0;
+    const bool negative = std::get<bool>(config.get_option_value(pedal + "_negative"));
+    // In single-player mode the pinned frontend shares connected controllers;
+    // get_player(0).controller is unassigned. Its axis evaluator owns hotplug
+    // and uses the strongest half-axis across those devices, just like N64 input.
+    const float value = get_input_analog(0, InputField::controller_analog(
+        SDL_GameControllerAxis(axis - 1), !negative));
+    auto number = [&](const char* suffix, double low, double high, double fallback) {
+        const double v = std::get<double>(config.get_option_value(pedal + suffix));
+        return float(std::isfinite(v) ? std::clamp(v, low, high) : fallback);
+    };
+    const float deadzone = number("_deadzone", 0, 0.95, 0.05);
+    const float saturation = std::max(deadzone + 0.01f, number("_saturation", 0.05, 1, 1));
+    return std::clamp((value - deadzone) / (saturation - deadzone), 0.0f, 1.0f);
+}
+bool gameplay_held(driving::Pedals pedals) {
+    using namespace recompinput;
+    if (pedals.throttle > 0 || pedals.brake > 0) return true;
     const float deadzone = float(recompui::config::general::get_joystick_deadzone() / 100.0);
     for (const auto device : {InputDevice::Keyboard, InputDevice::Controller}) {
         const int profile = profiles::get_input_profile_for_player(0, device);
@@ -79,12 +102,14 @@ void sample(bool captured) {
     uint16_t buttons{};
     float x{}, y{};
     recompinput::profiles::get_n64_input(0, &buttons, &x, &y);
+    driving::Pedals pedals{pedal_value("throttle"), pedal_value("brake")};
     // Native reads are neutral while the UI captures input. Once it closes,
     // keep blocking until the mapped buttons and deadzoned stick are neutral.
     captured |= ui::captures_input();
     if (captured) wait_for_release = true;
-    else if (wait_for_release && !gameplay_held()) wait_for_release = false;
-    if (captured || wait_for_release) { buttons = 0; x = y = 0; }
+    else if (wait_for_release && !gameplay_held(pedals)) wait_for_release = false;
+    if (captured || wait_for_release) { buttons = 0; x = y = 0; pedals = {}; }
+    driving::publish(0, pedals);
     const auto sx = static_cast<int16_t>(std::lround(x * 32767.0f));
     const auto sy = static_cast<int16_t>(std::lround(y * 32767.0f));
     snapshot.store(uint64_t(buttons) | (uint64_t(std::bit_cast<uint16_t>(sx)) << 16) |

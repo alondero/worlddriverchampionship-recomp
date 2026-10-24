@@ -37,6 +37,32 @@ int main() {
         const auto original_file = read(path);
         wdc::ui::create_settings();
         recompui::config::finalize();
+        auto& driving = recompui::config::get_config("driving-controls");
+        require(!driving.external_storage && !driving.requires_confirmation, "Driving must use live native storage");
+        require(std::get<uint32_t>(driving.get_option_value("throttle_mode")) == 0 &&
+            std::get<uint32_t>(driving.get_option_value("brake_mode")) == 0 &&
+            std::get<uint32_t>(driving.get_option_value("throttle_axis")) == 6 &&
+            std::get<uint32_t>(driving.get_option_value("brake_axis")) == 5 &&
+            std::get<double>(driving.get_option_value("throttle_deadzone")) == 0.05 &&
+            std::get<double>(driving.get_option_value("brake_saturation")) == 1.0,
+            "wrong Driving defaults");
+        driving.update_option_value("throttle_mode", 1u);
+        driving.update_option_value("brake_mode", 1u);
+        driving.update_option_value("throttle_axis", 4u);
+        driving.update_option_value("throttle_negative", true);
+        driving.update_option_value("brake_deadzone", 0.1);
+        require(driving.save_config(), "Driving save failed");
+        driving.update_option_value("throttle_axis", 0u);
+        require(driving.load_config() && std::get<uint32_t>(driving.get_option_value("throttle_axis")) == 4 &&
+            std::get<bool>(driving.get_option_value("throttle_negative")) &&
+            std::get<double>(driving.get_option_value("brake_deadzone")) == 0.1, "Driving settings did not survive reload");
+        wdc::ui::stage_defaults(2);
+        require(std::get<uint32_t>(driving.get_option_value("throttle_mode")) == 0 &&
+            std::get<uint32_t>(driving.get_option_value("throttle_axis")) == 6 &&
+            !std::get<bool>(driving.get_option_value("throttle_negative")) &&
+            std::get<double>(driving.get_option_value("brake_deadzone")) == 0.05,
+            "Driving reset did not follow live edit policy");
+        require(driving.save_config() && std::filesystem::exists(dir / "driving-controls.json"), "Driving defaults did not save");
         auto& page = recompui::config::get_config("graphics");
         require(read(path) == original_file && !requested, "opening overwrote host graphics storage");
         require(page.external_storage && page.requires_confirmation, "settings must be staged and host-owned");

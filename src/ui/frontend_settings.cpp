@@ -7,6 +7,7 @@ namespace {
 using recomp::config::ConfigValueVariant;
 constexpr const char* graphics_id = "graphics";
 constexpr const char* enhancements_id = "enhancements";
+constexpr const char* driving_id = "driving-controls";
 void sync(recomp::config::Config& page, const char* id, ConfigValueVariant value) {
     const auto index = page.get_config_schema().options_by_id.at(id);
     // A host shortcut can update a clean field while another field is staged.
@@ -56,16 +57,38 @@ void refresh_settings() {
     sync(enhancements, "draw_distance", uint32_t(s.draw_distance));
 }
 void stage_defaults(int tab_index) {
-    // The port creates Graphics, Enhancements, then General. The pinned
+    // The port creates Graphics, Enhancements, Driving, then General. The pinned
     // frontend exposes the selected index, but not the selected config ID.
-    if (tab_index < 0 || tab_index > 2) return;
+    if (tab_index < 0 || tab_index > 3) return;
     auto& page = recompui::config::get_config(tab_index == 0 ? graphics_id :
-        tab_index == 1 ? enhancements_id : recompui::config::general::id.c_str());
+        tab_index == 1 ? enhancements_id : tab_index == 2 ? driving_id : recompui::config::general::id.c_str());
     for (const auto& option : page.get_config_schema().options) {
         const auto value = std::visit([](const auto& choice) -> ConfigValueVariant {
             return choice.default_value;
         }, option.variant);
         page.update_option_value(option.id, value);
+    }
+}
+void create_driving_settings() {
+    auto& driving = recompui::config::create_config_tab("Driving", driving_id, false);
+    for (const auto& pedal : {std::string("throttle"), std::string("brake")}) {
+        const std::string label = pedal == "throttle" ? "Throttle" : "Brake";
+        driving.add_enum_option(pedal + "_mode", label + " input mode",
+            "Analog adds progressive pedal control. Digital A/B bindings still provide full power. Pedals do not select or cancel menu items.",
+            {{0, "Digital"}, {1, "Analog"}}, 0u);
+        driving.add_enum_option(pedal + "_axis", label + " controller axis",
+            "Choose an SDL gamepad axis. Remove conflicting bindings in Controls if the axis also activates an unwanted N64 input.",
+            {{0, "None"}, {1, "Left stick X"}, {2, "Left stick Y"}, {3, "Right stick X"},
+             {4, "Right stick Y"}, {5, "Left trigger (LT)"}, {6, "Right trigger (RT)"}}, pedal == "throttle" ? 6u : 5u);
+        driving.add_bool_option(pedal + "_negative", label + " negative half-axis",
+            "Use the negative direction of a stick axis. Leave off for triggers.", false);
+        driving.add_number_option(pedal + "_deadzone", label + " deadzone",
+            "Ignore axis movement below this level. Independent of the steering deadzone.", 0, 0.95, 0.01, 2, false, 0.05);
+        driving.add_number_option(pedal + "_saturation", label + " saturation",
+            "Axis level that produces full power. Values at or below the deadzone use a range of 0.01 above the deadzone.",
+            0.05, 1, 0.01, 2, false, 1);
+        for (const auto* suffix : {"_axis", "_negative", "_deadzone", "_saturation"})
+            driving.add_option_hidden_dependency(pedal + suffix, pedal + "_mode", 0u);
     }
 }
 void create_settings() {
@@ -103,6 +126,7 @@ void create_settings() {
         {{1, "Original"}, {2, "2x"}, {3, "3x"}, {4, "4x"}}, 1u);
     enhancements.set_load_callback(refresh_settings);
     enhancements.set_save_callback(apply_enhancements);
+    create_driving_settings();
     ui::create_general_tab({.has_rumble_strength = false});
     ui::create_controls_tab();
 }

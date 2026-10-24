@@ -1,6 +1,9 @@
 // Exercise the shipped SDL -> recompinput profiles -> WDC snapshot path with
 // a virtual gamepad. No ROM, physical controller, window or GPU is required.
 #include "ui/input.h"
+#include "ui/frontend_settings.h"
+#include "game_driving.h"
+#include "graphics_config.h"
 #include "recompinput/input_binding.h"
 #include "recompinput/profiles.h"
 #include "recompui/config.h"
@@ -15,6 +18,7 @@ SDL_Window* window = nullptr;
 std::vector<recomp::GameEntry> supported_games;
 static bool capture{};
 namespace wdc::ui { bool captures_input() { return capture; } }
+namespace wdc::ui { void request_settings(graphics::Settings) {} }
 static void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
@@ -37,6 +41,7 @@ int main() {
         require(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) == 0, "SDL init failed");
         recomp::register_config_path(dir);
         wdc::input::configure();
+        wdc::ui::create_driving_settings();
         recompui::config::create_general_tab({.has_rumble_strength = false});
         recompui::config::create_controls_tab();
         recompui::config::finalize();
@@ -63,6 +68,10 @@ int main() {
         auto axis = [&](SDL_GameControllerAxis a, int16_t value) {
             require(SDL_JoystickSetVirtualAxis(joystick, a, value) == 0, "axis injection failed");
         };
+        // SDL virtual joystick trigger endpoints are signed; SDL maps these
+        // to game-controller [0,32767]. Start both pedals at rest.
+        axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, -32768);
+        axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, -32768);
         button(SDL_CONTROLLER_BUTTON_A, true);
         axis(SDL_CONTROLLER_AXIS_LEFTX, 16384);
         axis(SDL_CONTROLLER_AXIS_LEFTY, -32768);
@@ -142,11 +151,66 @@ int main() {
         drain(); read(); require(std::isfinite(x) && std::isfinite(y) && x == 0.0f && y == 0.0f,
             "100 percent deadzone produced invalid axes");
 
+        // Pedals are opt-in and independent of the steering deadzone. Remove
+        // trigger N64 bindings to exercise sub-digital-threshold release gating.
+        profiles::set_input_binding(profiles::get_sp_controller_profile_index(), G::Z, 0, {});
+        profiles::set_input_binding(profiles::get_sp_controller_profile_index(), G::R, 0, {});
+        axis(SDL_CONTROLLER_AXIS_LEFTX, 0); axis(SDL_CONTROLLER_AXIS_LEFTY, 0);
+        button(SDL_CONTROLLER_BUTTON_X, false);
+        auto& driving = recompui::config::get_config("driving-controls");
+        axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 0); drain();
+        require(wdc::driving::read(0).throttle == 0, "digital default enabled analog throttle");
+        driving.update_option_value("throttle_mode", 1u);
+        driving.update_option_value("brake_mode", 1u);
+        drain(); read();
+        require(std::abs(wdc::driving::read(0).throttle - 0.473684f) < 0.001f && buttons == 0,
+            "half throttle or menu isolation failed");
+        axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, 32767); drain();
+        require(wdc::driving::read(0).brake > 0.999f, "full analog brake failed");
+        capture = true;
+        require(wdc::driving::read(0).throttle == 0 && wdc::driving::read(0).brake == 0,
+            "pending overlay leaked pedals before sampling");
+        drain(); capture = false; drain();
+        require(wdc::driving::read(0).throttle == 0 && wdc::driving::read(0).brake == 0,
+            "held pedals bypassed overlay release gate");
+        axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, -32768); drain();
+        require(wdc::driving::read(0).throttle == 0, "releasing brake rearmed held throttle");
+        axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, -32768); drain();
+        axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, -32000); drain();
+        require(wdc::driving::read(0).throttle == 0, "pedal deadzone failed");
+        axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 0); drain();
+        require(wdc::driving::read(0).throttle > 0.47f, "pedals did not resume after release");
+        driving.update_option_value("throttle_saturation", 0.5); drain();
+        require(wdc::driving::read(0).throttle > 0.999f, "pedal saturation failed");
+        driving.update_option_value("throttle_axis", 2u);
+        driving.update_option_value("throttle_negative", true);
+        axis(SDL_CONTROLLER_AXIS_LEFTY, -16384); drain();
+        require(wdc::driving::read(0).throttle == 1, "negative stick half-axis failed");
+        axis(SDL_CONTROLLER_AXIS_LEFTY, 16384); drain();
+        require(wdc::driving::read(0).throttle == 0, "opposite stick half activated pedal");
+        driving.update_option_value("throttle_deadzone", 0.95);
+        driving.update_option_value("throttle_saturation", 0.05);
+        axis(SDL_CONTROLLER_AXIS_LEFTY, -32768); drain();
+        require(wdc::driving::read(0).throttle == 1, "reversed pedal range divided by zero");
+        driving.update_option_value("throttle_axis", 0u); drain();
+        require(wdc::driving::read(0).throttle == 0, "None axis activated pedal");
+        driving.update_option_value("throttle_axis", 6u);
+        driving.update_option_value("throttle_negative", false);
+        driving.update_option_value("throttle_deadzone", 0.05);
+        driving.update_option_value("throttle_saturation", 1.0);
+        axis(SDL_CONTROLLER_AXIS_LEFTY, 0);
+        axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, 32767); drain();
+        require(wdc::driving::read(0).throttle > 0 && wdc::driving::read(0).brake > 0,
+            "simultaneous pedals failed");
+        require(wdc::driving::read(1).throttle == 0 && wdc::driving::read(-1).brake == 0,
+            "unconnected port received pedals");
         SDL_JoystickClose(joystick);
         require(SDL_JoystickDetachVirtual(device) == 0, "virtual detach failed");
         drain(); read();
         require(get_controller_from_joystick_id(id) == nullptr && buttons == 0 && x == 0 && y == 0,
             "unplug left stale gamepad input");
+        require(wdc::driving::read(0).throttle == 0 && wdc::driving::read(0).brake == 0,
+            "unplug left stale pedal input");
         SDL_Quit();
         std::filesystem::remove_all(dir);
         std::cout << "native gamepad input tests passed\n";

@@ -42,7 +42,7 @@ void initialize(plume::RenderInterface* interface, plume::RenderDevice* device) 
     button->set_white_space(recompui::WhiteSpace::Nowrap);
     button->set_flex_shrink(0.0f);
     button->add_pressed_callback([] {
-        // Use each tab's edit policy: graphics stages changes; General is live.
+        // Use each tab's edit policy: graphics stages; Driving/General are live.
         auto* active = recompui::config::get_config_modal()->get_active_tab();
         if (active) {
             auto* tabs = static_cast<recompui::TabSet*>(active->get_parent());
@@ -79,7 +79,7 @@ void render(plume::RenderCommandList* commands, plume::RenderFramebuffer* frameb
     context.open();
     auto* active = recompui::config::get_config_modal()->get_active_tab();
     auto* tabs = active ? static_cast<recompui::TabSet*>(active->get_parent()) : nullptr;
-    if (tabs && tabs->get_active_tab() == 3) restore_defaults->display_hide();
+    if (tabs && tabs->get_active_tab() == 4) restore_defaults->display_hide();
     else restore_defaults->display_show();
     context.close();
     draw_hook(commands, framebuffer);

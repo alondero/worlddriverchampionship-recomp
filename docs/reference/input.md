@@ -85,6 +85,40 @@ and never call SDL. Opening the menu raises the existing capture gate before
 presentation. Resuming requires every mapped gameplay input to return to
 neutral, including opposing bindings whose combined stick value is zero.
 
+## Analog driving bridge
+
+`src/game_driving.cpp` adds three USA hooks from `rom-symbols.toml`:
+
+| Boundary | Operand and behavior |
+| --- | --- |
+| `func_80002F58`, before `800031B4` | `a0` points to a controller ring record. Add accelerate/reverse/brake actions while preserving low menu/button bits. |
+| `func_80016DF8`, before `80016EB4` | Replace `a3`'s hardcoded float32 1.0 with normalized throttle for `func_80017530`. |
+| `func_80016DF8`, before `80017078` | Scale fresh front/rear brake torque in `f2`/`f0`, retaining front rolling resistance `min(20, full torque)`. |
+
+The game owns eight 0x200-byte ring slots at `800B97E8`; each holds four
+0x7C-byte port records. Record `+74` points to `OSContPad` at `800AAAE0 + port*6`.
+The bridge validates slot, port and pointer agreement before accessing fields.
+Record `+0` is a u32 action mask; `+25` is signed stick Y; `+27` disables driving
+actions; `+28` records controller errors. Big-endian guest fields use the
+word-swapped MEM helpers. The controller worker only adds high action bits:
+`00010000` acceleration, `00020000` reverse below Y=-40, `00040000` braking.
+Synthetic throttle/brake are tagged with bits 29/30. Physical A/B's low
+translated bits (`0010`/`0020`) take precedence and keep full digital power.
+Replay mode (`8007DF94 == 2`) ignores live pedals; replay/demo mask replacements
+also clear the tags, so untagged driving stays on the original path.
+
+SDL-thread sampling evaluates positive/negative half-axes through recompinput's
+shared axis API. The pinned single-player mode leaves
+`players::get_player(0).controller` unassigned; the shared API handles connected
+controllers consistently with existing button bindings. The Driving config is
+read under the input mutex and values are bounded before normalization. One
+lock-free atomic pair per port publishes unitless float32 values in [0,1]; only
+port 1 currently receives host input. Guest hooks never call SDL or retain guest
+pointers. The pending-open gate immediately masks pedal reads. Sampling also
+publishes zero while the overlay is open or waiting for all gameplay inputs,
+including enabled pedals below the digital button threshold, to release.
+Replace the address bridges with named input/drivetrain APIs when decompiled.
+
 The `wdc_input` CTest target uses SDL's virtual gamepad API with the real
 native profiles/event/polling code. It covers hotplug, failed opens, partial
 steering and Y direction, face/C/D-pad inputs, capture and release gating,
@@ -92,3 +126,15 @@ binding cancellation/remapping, saved-profile reload, a 100% deadzone,
 disconnection and absent guest ports. It requires frontend dependencies but
 no ROM, physical controller or GPU. This fixture does not establish physical
 device compatibility or validate racing feel.
+
+`wdc_input` also covers opt-in pedals, positive/negative half-axes, None,
+deadzones/saturation, simultaneous pedals, held-trigger release gating and
+detachment. `wdc_frontend_settings` checks Driving defaults, native persistence
+and live reset. `wdc_driving` uses synthetic RDRAM for all ring slots/ports,
+pointer bounds, disabled/error records, invalid host values, replay and digital
+overrides. `wdc_driving_rom` extracts the real input/drivetrain call closure,
+including gearbox, steering and torque calculations, with only the port hooks
+native. Controlled car parameters and USA ROM constants verify progressive
+drive/brake torque, reverse requests and digital overrides. Missing translated
+bodies, indirect calls or generated pedal hooks fail extraction. CTest bounds
+the ROM fixture to 30 seconds; it is not a physical-controller playthrough.

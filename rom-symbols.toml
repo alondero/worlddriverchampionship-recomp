@@ -201,3 +201,19 @@ text = "{ extern void wdc_track_detail(uint8_t*, recomp_context*); wdc_track_det
 func = "func_8002343C"
 before_vram = 0x80023674
 text = "{ extern void wdc_track_visibility(uint8_t*, recomp_context*); wdc_track_visibility(rdram, ctx); }"
+
+# Analog pedals add driving actions without synthesizing low menu/button bits.
+[[hooks]]
+func = "func_80002F58"
+before_vram = 0x800031B4
+text = "{ extern void wdc_driving_input_flags(uint8_t*, recomp_context*); wdc_driving_input_flags(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80016DF8"
+before_vram = 0x80016EB4
+text = "{ extern void wdc_analog_throttle(uint8_t*, recomp_context*); wdc_analog_throttle(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80016DF8"
+before_vram = 0x80017078
+text = "{ extern void wdc_analog_brake(uint8_t*, recomp_context*); wdc_analog_brake(rdram, ctx); }"
