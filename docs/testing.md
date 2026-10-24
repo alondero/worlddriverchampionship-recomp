@@ -26,7 +26,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same eleven C++ host-test targets used by the player build,
+This mode builds the same twelve C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
 headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
@@ -133,6 +133,15 @@ note allocation, write, reload with fresh guest RAM, read, free space and file
 metadata. SI lock queues and the timer count are replaced in this
 single-threaded harness; no Pak filesystem call is mocked. Missing translated
 bodies fail generation.
+
+`wdc_rumble` checks the motor adapter's object identity, errors, guest-memory
+preservation, absent ports and short lease. `wdc_rumble_rom` extracts the real
+USA detection/request/timer bodies and verifies pulse start/stop while a Pak
+block is written and reopened. Its gameplay predicate is controlled; the
+effect engine is translated. `wdc_input` observes rumble through SDL's virtual
+gamepad callback, including live strength, zero mute, settings/focus capture,
+shutdown and detach. These are deterministic host/ROM checks, not a physical
+controller playthrough. See [input](reference/input.md#rumble-alongside-saves).
 
 `wdc_camera_rom` extracts the real camera/perspective/matrix call closure.
 It loads ROM constants into word-swapped RDRAM and supplies a deterministic

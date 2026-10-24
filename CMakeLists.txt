@@ -99,7 +99,7 @@ if(WDC_FUNC_C_SOURCES OR WDC_FUNC_CXX_SOURCES)
 endif()
 
 set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp src/game_driving.cpp src/boss_rsp.cpp
-    src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp)
+    src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp src/rumble.cpp)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/aspMain.cpp")
     list(APPEND WDC_SOURCES src/aspMain.cpp)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64")

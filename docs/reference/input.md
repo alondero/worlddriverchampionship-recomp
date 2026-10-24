@@ -75,7 +75,7 @@ the native profiles. `src/main.cpp` owns the SDL queue and feeds events through
 patch 0017's `process_event()`, then finishes the batch and samples profiles.
 Fullscreen, quit and file-drop handling stay with WDC. The Controls tab is
 the native editor, with WDC action names; General exposes its deadzone and
-background-input settings without advertising unsupported rumble or aiming.
+background-input and rumble-strength settings without advertising unsupported aiming.
 
 The main thread and presentation callback acquire the same recursive mutex
 before accessing native input/profile state. It precedes the frontend's UI
@@ -138,3 +138,42 @@ native. Controlled car parameters and USA ROM constants verify progressive
 drive/brake torque, reverse requests and digital overrides. Missing translated
 bodies, indirect calls or generated pedal hooks fail extraction. CTest bounds
 the ROM fixture to 30 seconds; it is not a physical-controller playthrough.
+
+## Rumble alongside saves
+
+The accessory callback still reports `ControllerPak`. WDC uses distinct
+104-byte `OSPfs` objects: the save/menu probe starts at `800AAAF8`, while the
+motor worker uses `800AAC98` (port 2 would be `800AAD00`). These were measured
+from the USA calls at `8003BB24`, `8004D4DC`, `8004D904` and `8004DCEC`.
+The native motor adapter accepts only the port-1 motor object, returning
+`PFS_ERR_DEVICE` for the filesystem probe and `CONTRFAIL` for absent channels.
+No filesystem structure or Pak image is changed by a motor call. Initialization
+is host-owned; Start/Stop validate the object identity without dereferencing it.
+This deliberately bypasses the runtime's exclusive accessory-kind check.
+
+`func_8004D9B0` still creates the original effects; `func_8004D450` retains
+their pulse timers, enable checks and game-mode gates. The hook before
+`8004D760` renews a 150 ms host lease only for player 1. On the input worker,
+it reads the game's u16 effect-pending and motor-on fields at `800DF464` and
+`800DF468` with big-endian, word-swapped helpers; both are fixed within 8 MiB
+RDRAM. Finished/reset effects cancel the lease. No guest pointer escapes the
+call. Replace these addresses and the object identity with named effect and
+accessory interfaces when decompiled.
+
+The SDL main thread samples the atomic lease under the existing input mutex,
+reads General's saved strength, and borrows the frontend's open handles. It
+uses the high-frequency motor, as the shared frontend does, with 150 ms SDL
+commands. It does not open additional handles. Unsupported devices are skipped
+after their first failure. Settings capture, release gating, zero strength,
+focus loss, hotplug and normal exit clear feedback; a stalled guest or host
+cannot leave an indefinite motor command. Headless/keyboard-only builds have
+no physical sink. No dependency patch or change to save-device reporting is
+needed.
+
+`wdc_rumble` covers motor identity, errors, no guest-memory mutation, absent
+ports, lease expiry and cancellation. `wdc_rumble_rom` runs the real detection,
+request and effect-engine bodies with a controlled gameplay predicate, and
+writes/reloads a Pak block during a live effect. `wdc_input` checks actual SDL
+virtual-gamepad output, strength, zero mute, settings/focus gating, shutdown and
+detach. `wdc_frontend_settings` checks strength persistence and default reset.
+These checks do not establish physical gamepad compatibility or racing feel.

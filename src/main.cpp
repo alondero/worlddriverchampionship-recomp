@@ -13,6 +13,7 @@
 #include "xxHash/xxh3.h"
 #include "boss_rsp.h"
 #include "controller_pak.h"
+#include "rumble.h"
 #ifdef WDC_PLAYER
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -76,6 +77,8 @@ public:
 int main(int argc, char** argv) {
 #ifdef WDC_PLAYER
     SDL_SetMainReady();
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
 #ifdef _WIN32
     // Zelda64Recomp and BanjoRecomp avoid DirectSound's queued-audio issues.
     // Respect an explicit SDL_AUDIODRIVER, including test/dummy devices.
@@ -169,6 +172,9 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (event.type == SDL_QUIT) {
+#ifdef WDC_ENABLE_FRONTEND
+                wdc::input::stop_rumble();
+#endif
                 std::fflush(nullptr);
                 std::_Exit(0);
             }
@@ -227,6 +233,7 @@ int main(int argc, char** argv) {
 #endif
 #endif
     cfg.input_callbacks.get_connected_device_info = wdc::pak::device_info;
+    cfg.input_callbacks.set_rumble = wdc::rumble::set_motor;
     cfg.audio_callbacks.queue_samples = [](int16_t*, size_t) {};
     cfg.audio_callbacks.get_frames_remaining = []() -> size_t { return 0; };
     cfg.audio_callbacks.set_frequency = [](uint32_t frequency) { std::fprintf(stderr, "[wdc] audio Hz=%u\n", frequency); };
@@ -252,6 +259,9 @@ int main(int argc, char** argv) {
     }).detach();
     recomp::start(cfg);
 #ifdef WDC_PLAYER
+#ifdef WDC_ENABLE_FRONTEND
+    wdc::input::stop_rumble();
+#endif
     wdc::ui::shutdown();
     return 0;
 #else

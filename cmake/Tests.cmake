@@ -1,4 +1,8 @@
 if(BUILD_TESTING)
+    add_executable(wdc_rumble_tests tests/test_rumble.cpp src/rumble.cpp)
+    target_include_directories(wdc_rumble_tests PRIVATE src "${N64MR}/N64Recomp/include")
+    target_link_libraries(wdc_rumble_tests PRIVATE Threads::Threads)
+    add_test(NAME wdc_rumble COMMAND wdc_rumble_tests)
     add_executable(wdc_driving_tests tests/test_driving.cpp src/game_driving.cpp)
     target_include_directories(wdc_driving_tests PRIVATE src "${N64MR}/N64Recomp/include")
     add_test(NAME wdc_driving COMMAND wdc_driving_tests)
@@ -54,6 +58,20 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         if(NOT WDC_TESTS_ONLY AND TARGET WdcRecompiledFuncs AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_rumble_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c"
+                DEPENDS tests/extract_rumble_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_rumble_rom_tests tests/test_rumble_rom.cpp src/rumble.cpp src/controller_pak.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c")
+            target_include_directories(wdc_rumble_rom_tests PRIVATE src "${N64MR}/N64Recomp/include"
+                "${N64MR}/ultramodern/include")
+            target_compile_options(wdc_rumble_rom_tests PRIVATE -fno-strict-aliasing)
+            target_link_libraries(wdc_rumble_rom_tests PRIVATE Threads::Threads)
+            add_test(NAME wdc_rumble_rom COMMAND wdc_rumble_rom_tests
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_rumble_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/driving_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_driving_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/driving_test_funcs.c"

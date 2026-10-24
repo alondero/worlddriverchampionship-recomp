@@ -48,3 +48,25 @@ WDC's Controller Pak. The pinned WDC runtime returns error 1 from its PFS
 replacements. WDC therefore gives the filesystem entries non-SDK symbol names
 to keep their real translated bodies, exposing only the ControllerPak enum
 through a dependency patch. See [save configuration](configuration.md).
+
+## Rumble implementation
+
+[Lamborghini's motor bridge](https://github.com/alondero/automobililamborghini-recomp/blob/e398f066e50c4d61b5ab7db95cac861d2fdc66fd/src/libultra_stubs.c)
+keeps its Controller Pak visible and adapts the game's motor wrappers and PWM
+engine. Forcing a Rumble Pak flag would break its save flow. WDC likewise
+keeps save detection truthful, but its separate motor objects allow the original
+effect engine to remain translated.
+
+[AeroGauge's haptics](https://github.com/alondero/aerogauge-recomp/blob/023b13ef0d77adc1753b3e92d9da5d621f075405/src/aero_haptics.cpp)
+observe damage and turbo timers and publish bounded feedback to a main-thread
+SDL sink. WDC already has native effect requests, so it needs no synthetic
+collision/turbo policy. It adopts short device leases to contain pause/stall
+behavior.
+
+[Zelda64Recomp](https://github.com/Zelda64Recomp/Zelda64Recomp/blob/b65c482ed672258eb684ab94a4e8c8aa662615ee/src/game/input.cpp)
+and [Starfox64Recomp](https://github.com/sonicdcer/Starfox64Recomp/blob/f2996555d73ca480f3dc3639f375c50818847bfc/src/game/input.cpp)
+separate motor commands from SDL output, offer saved strength, and drive the
+high-frequency motor. Their virtual accessory reports Rumble Pak; WDC retains
+Controller Pak for its own filesystem. WDC uses its existing frontend device
+ownership and saved General setting, with a bounded duration instead of their
+long dummy motor duration. See [the WDC boundary](reference/input.md#rumble-alongside-saves).

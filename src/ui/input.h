@@ -11,5 +11,6 @@ std::recursive_mutex& mutex();
 void configure(); // Before config::finalize loads profiles.
 void handle_event(SDL_Event& event); // SDL main thread, once per event.
 void sample(bool captured); // SDL main thread, once after draining events.
+void stop_rumble(); // SDL main thread, before exit or closing controller handles.
 bool read(int port, uint16_t* buttons, float* x, float* y);
 }

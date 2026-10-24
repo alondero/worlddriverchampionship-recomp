@@ -37,6 +37,18 @@ int main() {
         const auto original_file = read(path);
         wdc::ui::create_settings();
         recompui::config::finalize();
+        auto& general = recompui::config::get_config(recompui::config::general::id);
+        const auto& rumble_id = recompui::config::general::options::rumble_strength;
+        require(recompui::config::general::has_rumble_strength_option() &&
+            recompui::config::general::get_rumble_strength() == 25.0, "wrong rumble default");
+        general.update_option_value(rumble_id, 63.0);
+        require(general.save_config(), "rumble settings did not save");
+        general.update_option_value(rumble_id, 0.0);
+        require(general.load_config() && recompui::config::general::get_rumble_strength() == 63.0,
+            "rumble strength did not survive reload");
+        wdc::ui::stage_defaults(3);
+        require(recompui::config::general::get_rumble_strength() == 25.0,
+            "General reset did not restore rumble strength");
         auto& driving = recompui::config::get_config("driving-controls");
         require(!driving.external_storage && !driving.requires_confirmation, "Driving must use live native storage");
         require(std::get<uint32_t>(driving.get_option_value("throttle_mode")) == 0 &&
