@@ -26,9 +26,9 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same nine C++ host-test targets used by the player build,
+This mode builds the same ten C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
-headers from pinned public dependencies and four of the normal dependency
+headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
 
 ```bash
@@ -36,7 +36,8 @@ git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64
 git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
 python3 -B scripts/patch_series.py --submodule lib/N64ModernRuntime \
     --patch patches/0008-runtime-controller-pak-kind.patch \
-    --patch patches/0013-runtime-rsp-unsigned-packed-loads.patch
+    --patch patches/0013-runtime-rsp-unsigned-packed-loads.patch \
+    --patch patches/0018-runtime-rsp-dma-rounding.patch
 python3 -B scripts/patch_series.py --submodule lib/rt64 \
     --patch patches/0014-rt64-rdp-screen-clipping.patch \
     --patch patches/0016-rt64-rdp-edge-trapezoids.patch

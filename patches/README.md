@@ -55,13 +55,14 @@ the WDC runtime demonstrates the same need.
 | `0015-rt64-raw-triangle-scissor.patch` | RT64 | All | Scale raw-triangle scissors in the same framebuffer space as their vertices. |
 | `0016-rt64-rdp-edge-trapezoids.patch` | RT64 | All | Rebuild raw RDP triangles from their H/M/L edges instead of three extrapolated corners. |
 | `0017-frontend-host-input.patch` | RecompFrontend | Desktop | Expose single-event/batch handling for the host SDL loop; handle failed opens/disconnects, use the controller profile for binding cancellation and bound deadzone. |
+| `0018-runtime-rsp-dma-rounding.patch` | N64ModernRuntime | All | Round inclusive RSP DMA lengths to eight-byte words; prevents stale stereo frames at BOSS audio block boundaries. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0014, 0015, 0016, 0017 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0014, 0015, 0016, 0017 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
@@ -77,6 +78,15 @@ reads unsigned DMEM bytes. LFV and LHV share the faulty seven-bit conversion;
 LPV's eight-bit conversion keeps the same final bits while using an unsigned
 operand. The patch changes these five reads to `RSP_MEM_BU`, preserving the
 existing addressing, element selection, and DMEM wrapping.
+
+Patch 0018 has a synthetic two-block audio reproducer in
+`tests/test_rsp_dma.cpp`. It corrects both RSP DMA helpers' inclusive length
+conversion to transfer whole eight-byte words, matching ares. The pinned and
+current upstream runtime instead copy the exact byte count, leaving a stale
+stereo frame at BOSS synthesis boundaries. See the
+[audio evidence](../docs/reference/audio.md) for the measured transfer pattern,
+upstream comparison and captured-task replay. No generated code changes are
+needed: generated BOSS code includes these helpers.
 
 Patch 0014 has a ROM-free perspective/coverage reproducer in
 `tests/test_rdp_triangle_clip.cpp`. A triangle with a negative W vertex beyond

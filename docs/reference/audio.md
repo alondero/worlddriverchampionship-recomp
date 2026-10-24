@@ -20,6 +20,34 @@ synchronously on the calling guest thread, before the next BOSS ring update.
 It retains addresses rather than host pointers. A frequency reset discards DMA
 state. The existing runtime dispatches AI events at VI boundaries.
 
+BOSS synthesizes 349-frame blocks during the intro, writing each block to the
+ring as 512, 512, and 372-byte RSP DMA requests. Every second block begins four
+bytes into an eight-byte word. The hardware aligns DRAM addresses down and
+rounds inclusive DMA lengths up to eight bytes; a request with length register
+`0x173` transfers 376 bytes. The pinned runtime only added one to that register,
+copying 372 bytes. This left one stereo frame from the previous ring lap every
+698 frames, producing periodic clicks already present in PCM before SDL.
+
+Patch 0018 fixes rounding in both RSP DMA directions. The addressing and guest
+AI clock are unchanged. The current upstream
+[runtime helper](https://github.com/N64Recomp/N64ModernRuntime/blob/main/librecomp/include/librecomp/rsp.hpp)
+has the same short-copy behavior; the reference
+[ares register handling](https://github.com/ares-emulator/ares/blob/master/ares/n64/rsp/io.cpp)
+and [DMA loop](https://github.com/ares-emulator/ares/blob/master/ares/n64/rsp/dma.cpp)
+transfer whole eight-byte words. `wdc_rsp_dma` reproduces the two-block pattern
+with synthetic word-swapped memory and checks both transfer directions, short
+lengths, full-page transfers, address masking and guard bytes.
+
+Verification used the USA ROM and a captured intro BOSS task: replaying it with
+rounded DMA lengths corrected exactly the missing stereo frame in the output
+ring. In the first 40 seconds of captured PCM, the original player had 168
+isolated impulses on one 698-frame phase; the patched player had none under
+the same check (opposite adjacent differences above 800 s16 units and six
+times the surrounding 32-frame difference RMS). This is a signal diagnostic,
+not a physical-output listening comparison. These checks distinguish
+synthesis corruption from host starvation;
+long scheduling stalls can still exhaust the playback reserve described below.
+
 `src/audio.cpp` reverses the halfwords in each word-swapped signed stereo pair,
 queues host-owned buffers under a mutex, and opens/feeds SDL only on the main
 thread. Playback starts paused and waits for 100 ms of actual PCM or three
