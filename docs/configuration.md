@@ -119,6 +119,9 @@ Linux generation currently requires the default filename at the repository root.
 - `WDC_MINGW_BIN`: optional Windows compiler directory; otherwise use PATH.
 - `WDC_PYTHON_SCRIPTS`: optional native Python CMake tools directory.
 - `WDC_DIAGNOSTIC=1`: exit after 15 seconds with diagnostic status and code 2.
+- `WDC_AUDIO_STATS=1`: log audio device period/reserve and playback start,
+  empty-queue recovery and backlog-discard events on the SDL main thread.
+  Disabled by default; no per-frame logging. See [audio](reference/audio.md).
 - `WDC_RDP_CAPTURE=<prefix>`: enable F10 to record the next complete BOSS task's
   raw RDP commands to `<prefix>-<n>.rdp` for `tools/rdp/analyze_seams.py`. Each
   press writes one file on the graphics worker; nothing is recorded otherwise.

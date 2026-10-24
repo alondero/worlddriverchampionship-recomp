@@ -66,6 +66,11 @@ public:
 int main(int argc, char** argv) {
 #ifdef WDC_PLAYER
     SDL_SetMainReady();
+#ifdef _WIN32
+    // Zelda64Recomp and BanjoRecomp avoid DirectSound's queued-audio issues.
+    // Respect an explicit SDL_AUDIODRIVER, including test/dummy devices.
+    SDL_setenv("SDL_AUDIODRIVER", "wasapi", 0);
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER)) {
         std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
         return 1;
