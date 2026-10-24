@@ -23,6 +23,16 @@
 #ifdef WDC_ENABLE_FRONTEND
 #include "ui/input.h"
 #endif
+// SDL_syswm.h includes X11/X.h on Linux, and X11 defines these names as
+// macros. That turns scoped enumerators such as SetupResult::Success into
+// SetupResult::0. Undefine them after the headers, mirroring the same block
+// in RT64's rt64_application_window.h.
+#undef None
+#undef Status
+#undef LockMask
+#undef ControlMask
+#undef Success
+#undef Always
 std::unique_ptr<ultramodern::renderer::RendererContext> wdc_create_renderer(
     uint8_t*, ultramodern::renderer::WindowHandle, bool);
 static SDL_Window* window;
