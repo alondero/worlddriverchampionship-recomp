@@ -21,8 +21,14 @@ static bool capture{};
 static uint16_t rumble_low{}, rumble_high{};
 static int rumble_calls{};
 static int failed_rumble_calls{};
+static bool fail_next_stop{};
+static int failed_stop_calls{};
 static int SDLCALL rumble_callback(void*, Uint16 low, Uint16 high) {
     rumble_low = low; rumble_high = high; ++rumble_calls;
+    if (low == 0 && high == 0 && fail_next_stop) {
+        fail_next_stop = false; ++failed_stop_calls;
+        return -1;
+    }
     return 0;
 }
 static int SDLCALL failed_rumble_callback(void*, Uint16, Uint16) {
@@ -100,6 +106,15 @@ int main() {
             "motor command did not reach virtual gamepad");
         strength(25); drain();
         require(rumble_high == 16383, "live rumble strength not applied");
+        fail_next_stop = true;
+        wdc::rumble::stop(); drain(); drain();
+        require(failed_stop_calls == 1, "transient stop failure was not exercised exactly once");
+        // SDL may cache the previous amplitude after a failed stop. Change the
+        // next effect's strength so this assertion observes a real driver write.
+        strength(50);
+        wdc::rumble::set_motor(0, true); drain();
+        require(rumble_high == 32767, "transient stop failure blacklisted a working controller");
+        strength(25); drain();
         strength(0); drain();
         require(rumble_high == 0 && !wdc::rumble::active(), "zero strength did not stop rumble");
         strength(100); drain();

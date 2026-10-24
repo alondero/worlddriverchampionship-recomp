@@ -13,7 +13,6 @@
 #include "xxHash/xxh3.h"
 #include "boss_rsp.h"
 #include "controller_pak.h"
-#include "rumble.h"
 #ifdef WDC_PLAYER
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -233,7 +232,6 @@ int main(int argc, char** argv) {
 #endif
 #endif
     cfg.input_callbacks.get_connected_device_info = wdc::pak::device_info;
-    cfg.input_callbacks.set_rumble = wdc::rumble::set_motor;
     cfg.audio_callbacks.queue_samples = [](int16_t*, size_t) {};
     cfg.audio_callbacks.get_frames_remaining = []() -> size_t { return 0; };
     cfg.audio_callbacks.set_frequency = [](uint32_t frequency) { std::fprintf(stderr, "[wdc] audio Hz=%u\n", frequency); };

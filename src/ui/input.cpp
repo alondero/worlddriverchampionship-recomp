@@ -2,6 +2,7 @@
 #include "frontend.h"
 #include "game_driving.h"
 #include "rumble.h"
+#include "rumble_output.h"
 #include "recompinput/recompinput.h"
 #include "recompinput/input_events.h"
 #include "recompinput/profiles.h"
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <unordered_map>
 
 namespace wdc::input {
 namespace {
@@ -19,19 +21,22 @@ std::recursive_mutex input_mutex;
 std::atomic<uint64_t> snapshot{};
 bool wait_for_release{}; // SDL thread only.
 bool focused = true;
+std::unordered_map<SDL_JoystickID, RumbleOutput> rumble_outputs;
 void apply_rumble(uint16_t strength) {
+    // This is WDC's only SDL rumble sender. Do not call recompinput::update_rumble
+    // alongside it: its smoothing and long duration conflict with the ROM pulses
+    // and the bounded lease. General supplies configuration only; see the input reference.
     // Borrow the frontend's open handles. Single-player input merges these same
     // controllers; do not create a second device manager or open extra handles.
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
         const auto id = SDL_JoystickGetDeviceInstanceID(i);
         auto* controller = recompinput::get_controller_from_joystick_id(id);
         if (!controller || !SDL_GameControllerGetAttached(controller)) continue;
-        auto& state = recompinput::get_controller_state(id);
-        if (state.rumble_failed) continue;
         // Match the shared frontend's high-frequency motor routing. Short
         // leases also stop the device if the host pump stalls or exits abruptly.
-        if (SDL_GameControllerRumble(controller, 0, strength, strength ? 150 : 0) != 0)
-            state.rumble_failed = true;
+        rumble_outputs[id].apply(strength, [&](uint16_t value) {
+            return SDL_GameControllerRumble(controller, 0, value, value ? 150 : 0);
+        });
     }
 }
 float pedal_value(const std::string& pedal) {
@@ -124,6 +129,7 @@ void handle_event(SDL_Event& event) {
     }
     if (event.type == SDL_CONTROLLERDEVICEADDED || event.type == SDL_CONTROLLERDEVICEREMOVED)
         stop_rumble(); // Clear pending effects before a handle is closed/reassigned.
+    if (event.type == SDL_CONTROLLERDEVICEREMOVED) rumble_outputs.erase(event.cdevice.which);
     recompinput::process_event(event);
 }
 

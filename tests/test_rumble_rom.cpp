@@ -15,9 +15,16 @@ void func_8004D79C(uint8_t*, recomp_context*);
 void func_8004D9B0(uint8_t*, recomp_context*);
 void func_8004DCA0(uint8_t*, recomp_context*);
 void wdc_motor_init(uint8_t*, recomp_context*);
-void wdc_pak_read(uint8_t*, recomp_context*);
-void wdc_pak_write(uint8_t*, recomp_context*);
+void wdc_motor_start(uint8_t*, recomp_context*);
+void wdc_pfs_init(uint8_t*, recomp_context*);
+void wdc_pfs_allocate_file(uint8_t*, recomp_context*);
+void wdc_pfs_find_file(uint8_t*, recomp_context*);
+void wdc_pfs_read_write_file(uint8_t*, recomp_context*);
 void func_80001D4C(uint8_t*, recomp_context* ctx) { ctx->r2 = 1; }
+void osCreateMesgQueue_recomp(uint8_t*, recomp_context*) {}
+void osRecvMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
+void osSendMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
+void osGetCount_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 123456; }
 }
 int main(int argc, char** argv) {
     assert(argc == 2);
@@ -37,10 +44,27 @@ int main(int argc, char** argv) {
         MEM_B(i, static_cast<int32_t>(0x80000400)) = data[i];
     recomp_context ctx{};
     ctx.r29 = static_cast<int32_t>(0x807FF000);
+    const gpr stack = ctx.r29;
+    const gpr shared_pfs = static_cast<int32_t>(0x800AAC98);
+    const gpr queue = static_cast<int32_t>(0x800AAAB0);
+    const gpr name = static_cast<int32_t>(0x80400000), ext = name + 32, number = name + 64;
+    const gpr buffer = name + 0x1000;
+    constexpr int note_size = 0x100;
     wdc::pak::configure(path);
     using namespace ultramodern::input;
+    // The real game uses this SAME OSPfs for file calls and motor requests.
+    ctx.r4 = queue; ctx.r5 = shared_pfs; ctx.r6 = 0;
+    wdc_pfs_init(rdram, &ctx);
+    assert(ctx.r2 == 0 && (MEM_W(0, shared_pfs) & 1) != 0);
+    std::vector<uint8_t> metadata;
+    for (int i = 12; i < 104; ++i) metadata.push_back(MEM_BU(i, shared_pfs));
     func_8004D79C(rdram, &ctx); // Original effect initializer enables the worker.
-    func_8004DCA0(rdram, &ctx); // Original detection initializes motor-only PFS.
+    func_8004DCA0(rdram, &ctx); // Original detection initializes the shared PFS's motor fields.
+    assert(MEM_W(4, shared_pfs) == queue);
+    assert(MEM_W(8, shared_pfs) == 0 && MEM_BU(0x65, shared_pfs) == 0xFF);
+    assert((MEM_W(0, shared_pfs) & 9) == 9); // Motor and filesystem both initialized.
+    for (int i = 12; i < 104; ++i)
+        if (i != 0x65) assert(MEM_BU(i, shared_pfs) == metadata[i - 12]);
     assert(MEM_BU(0, static_cast<int32_t>(0x800DF460)) == 1);
     assert(MEM_BU(0, static_cast<int32_t>(0x800DF461)) == 0);
     assert(wdc::pak::device_info(0).connected_pak == Pak::ControllerPak);
@@ -59,17 +83,47 @@ int main(int argc, char** argv) {
     func_8004D9B0(rdram, &ctx);
     func_8004D450(rdram, &ctx);
     assert(wdc::rumble::active());
-    // Store a block while the original effect is running, then reopen it.
-    ctx.r5 = 0; ctx.r6 = 0x3FF; ctx.r7 = static_cast<int32_t>(0x80400000);
-    for (int i = 0; i < 32; ++i) MEM_B(i, ctx.r7) = i + 7;
-    wdc_pak_write(rdram, &ctx);
+    // Allocate and write a real note through the translated filesystem while
+    // the effect is running. This exercises its status, channel, bank and ID readers.
+    MEM_B(0, name) = 0x1A; MEM_B(0, ext) = 0x1B;
+    ctx.r4 = shared_pfs; ctx.r5 = 0x3544; ctx.r6 = 0x4E574F45; ctx.r7 = name;
+    MEM_W(0x10, stack) = ext; MEM_W(0x14, stack) = note_size; MEM_W(0x18, stack) = number;
+    wdc_pfs_allocate_file(rdram, &ctx);
+    assert(ctx.r2 == 0 && MEM_BU(0x65, shared_pfs) == 0);
+    const int file_number = MEM_W(0, number);
+    for (int i = 0; i < note_size; ++i) MEM_B(i, buffer) = (i + 7) & 255;
+    ctx.r4 = shared_pfs; ctx.r5 = file_number; ctx.r6 = 1; ctx.r7 = 0;
+    MEM_W(0x10, stack) = note_size; MEM_W(0x14, stack) = buffer;
+    wdc_pfs_read_write_file(rdram, &ctx);
     // Storage may outlast the short host lease (e.g. antivirus on CI). Guest
     // effect state is the invariant here; the next worker tick renews feedback.
     assert(ctx.r2 == 0 && MEM_H(0, static_cast<int32_t>(0x800DF468)) == 1);
     wdc::pak::configure(path);
-    wdc_pak_read(rdram, &ctx);
+    ctx.r4 = queue; ctx.r5 = shared_pfs; ctx.r6 = 0;
+    wdc_pfs_init(rdram, &ctx);
+    assert(ctx.r2 == 0 && (MEM_W(0, shared_pfs) & 8) == 0);
+    // Reinitializing storage clears the SDK motor bit; host motor state remains
+    // independent. Another motor detection must retain the filesystem's fields.
+    ctx.r4 = shared_pfs;
+    wdc_motor_start(rdram, &ctx);
+    assert(ctx.r2 == 0 && wdc::rumble::active());
+    ctx.r4 = queue; ctx.r5 = shared_pfs; ctx.r6 = 0;
+    wdc_motor_init(rdram, &ctx);
+    assert(ctx.r2 == 0 && (MEM_W(0, shared_pfs) & 9) == 9);
+    ctx.r4 = shared_pfs; ctx.r5 = 0x3544; ctx.r6 = 0x4E574F45; ctx.r7 = name;
+    MEM_W(0x10, stack) = ext; MEM_W(0x14, stack) = number;
+    wdc_pfs_find_file(rdram, &ctx);
+    assert(ctx.r2 == 0 && MEM_W(0, number) == file_number);
+    for (int i = 0; i < note_size; ++i) MEM_B(i, buffer) = 0;
+    ctx.r4 = shared_pfs; ctx.r5 = file_number; ctx.r6 = 0; ctx.r7 = 0;
+    MEM_W(0x10, stack) = note_size; MEM_W(0x14, stack) = buffer;
+    wdc_pfs_read_write_file(rdram, &ctx);
     assert(ctx.r2 == 0);
-    for (int i = 0; i < 32; ++i) assert(MEM_BU(i, ctx.r7) == i + 7);
+    for (int i = 0; i < note_size; ++i) assert(MEM_BU(i, buffer) == ((i + 7) & 255));
+    // Reinitialization stopped the host motor. Restore its still-on guest state
+    // so the next original stop edge is tested against an active host lease.
+    ctx.r4 = shared_pfs;
+    wdc_motor_start(rdram, &ctx);
     func_8004D450(rdram, &ctx); // on countdown
     assert(wdc::rumble::active());
     func_8004D450(rdram, &ctx); // stop edge

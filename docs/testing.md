@@ -134,12 +134,15 @@ metadata. SI lock queues and the timer count are replaced in this
 single-threaded harness; no Pak filesystem call is mocked. Missing translated
 bodies fail generation.
 
-`wdc_rumble` checks the motor adapter's object identity, errors, guest-memory
-preservation, absent ports and short lease. `wdc_rumble_rom` extracts the real
-USA detection/request/timer bodies and verifies pulse start/stop while a Pak
-block is written and reopened. Its gameplay predicate is controlled; the
-effect engine is translated. `wdc_input` observes rumble through SDL's virtual
-gamepad callback, including live strength, zero mute, settings/focus capture,
+`wdc_rumble` checks the motor adapter's identity, errors, bounded field writes,
+metadata preservation, absent ports and short lease. Its per-device output
+fixture checks idle suppression, active refresh, exactly one stop and recovery
+after a failed stop before driver caching. `wdc_rumble_rom` extracts the real
+USA detection/request/timer and filesystem bodies and verifies pulse start/stop
+while a note is allocated, written and reopened using the same primary Pak
+object. Its gameplay predicate is controlled; the effect engine and filesystem
+are translated. `wdc_input` observes rumble through SDL's virtual
+gamepad callback, including a transient stop failure, live strength, zero mute, settings/focus capture,
 shutdown and detach. These are deterministic host/ROM checks, not a physical
 controller playthrough. See [input](reference/input.md#rumble-alongside-saves).
 

@@ -141,15 +141,38 @@ the ROM fixture to 30 seconds; it is not a physical-controller playthrough.
 
 ## Rumble alongside saves
 
-The accessory callback still reports `ControllerPak`. WDC uses distinct
-104-byte `OSPfs` objects: the save/menu probe starts at `800AAAF8`, while the
-motor worker uses `800AAC98` (port 2 would be `800AAD00`). These were measured
-from the USA calls at `8003BB24`, `8004D4DC`, `8004D904` and `8004DCEC`.
-The native motor adapter accepts only the port-1 motor object, returning
-`PFS_ERR_DEVICE` for the filesystem probe and `CONTRFAIL` for absent channels.
-No filesystem structure or Pak image is changed by a motor call. Initialization
-is host-owned; Start/Stop validate the object identity without dereferencing it.
-This deliberately bypasses the runtime's exclusive accessory-kind check.
+The accessory callback still reports `ControllerPak`. WDC's primary 104-byte
+`OSPfs` array starts at `800AAC98` (port 2 is `800AAD00`). File operations and
+the motor worker share this array. The separate auxiliary motor-detection
+object at `800AAAF8` must fail with `PFS_ERR_DEVICE`, keeping the save/menu
+accessory classification truthful. The native adapter accepts only the primary
+port-1 object, returns `CONTRFAIL` for absent channels and never changes the
+Pak image. This bypasses the runtime's exclusive accessory-kind check.
+
+ROM inspection identifies these users of the primary object:
+
+| Reader/caller | Object use |
+| --- | --- |
+| `func_80038DA4`, `func_80038FEC`, `func_80039318`, `func_8003A5F0`, `func_8003B264` | Pass the primary array to translated file-state, directory, free-space and note I/O routines. Those SDK routines read status, queue/channel, bank and filesystem metadata. |
+| `func_8003B984`, call at `8003BA24` | Initializes the primary filesystem object; `8003BA9C` copies its 32-byte ID from `+0C`. The later call at `8003BB24` probes the auxiliary object for a motor. |
+| `func_80062060`, call at `80062194` | Copies the primary object's ID at `+0C` into the game's Pak state. |
+| `func_8004DCA0`, `func_8004D450` | Pass primary objects to motor initialization/start/stop and consume return codes. `func_8004D9B0` creates timer requests without reading an `OSPfs`. |
+
+The ROM's `osMotorInit` stores queue/channel at `+4/+8` (`80073C08`,
+`80073C18`), clears status at `+0`, and writes bank `80` at `+65`
+(`80073C20`, `80073C28`). Its Start/Stop routines read queue and channel;
+their Joybus bodies are replaced. The pinned runtime initializes the same
+fields with bank `FF` and successful motor-status bit `8`.
+
+The port follows that runtime field layout on the input worker: big-endian
+u32 status/queue/channel and u8 bank, accessed through word-swapped helpers.
+All addresses are inside the fixed primary object in 8 MiB RDRAM. It adds
+motor-status bit `8` to existing status, retaining filesystem flags, ID and
+layout metadata. Bank `FF` invalidates the bank cache; the next translated
+file operation selects bank 0. Replacing status wholesale would break the
+shared filesystem. Invalid identities/channels perform no writes. No guest
+pointer is retained. Start/Stop retain a host initialization flag so a later
+filesystem reinitialization cannot disable the virtual motor.
 
 `func_8004D9B0` still creates the original effects; `func_8004D450` retains
 their pulse timers, enable checks and game-mode gates. The hook before
@@ -163,17 +186,35 @@ accessory interfaces when decompiled.
 The SDL main thread samples the atomic lease under the existing input mutex,
 reads General's saved strength, and borrows the frontend's open handles. It
 uses the high-frequency motor, as the shared frontend does, with 150 ms SDL
-commands. It does not open additional handles. Unsupported devices are skipped
-after their first failure. Settings capture, release gating, zero strength,
+commands. It does not open additional handles. Per-device output state sends
+zero only on the transition to off and refreshes nonzero commands while the
+lease holds, even if their strength is unchanged. A failed stop is not latched;
+the next effect can run. A failed nonzero command disables further active
+writes until that device reconnects; one stop is still attempted. Settings capture, release gating, zero strength,
 focus loss, hotplug and normal exit clear feedback; a stalled guest or host
 cannot leave an indefinite motor command. Headless/keyboard-only builds have
 no physical sink. No dependency patch or change to save-device reporting is
 needed.
 
-`wdc_rumble` covers motor identity, errors, no guest-memory mutation, absent
-ports, lease expiry and cancellation. `wdc_rumble_rom` runs the real detection,
-request and effect-engine bodies with a controlled gameplay predicate, and
-writes/reloads a Pak block during a live effect. `wdc_input` checks actual SDL
+WDC deliberately owns this sender instead of calling the pinned frontend's
+`recompinput::set_rumble()` / `update_rumble()`. That path smooths the rising
+and falling edges and uses a 1,000,000 ms dummy duration. WDC retains the ROM's
+own pulse timing and bounds every SDL command to 150 ms. General's rumble
+option supplies persistence/UI only; it does not schedule the frontend sender.
+`update_rumble()` must not run alongside WDC's sender. The runtime motor callback
+is left unset because the three native motor adapters own the guest route.
+
+`wdc_rumble` covers motor identity, bounded field writes, metadata preservation,
+absent ports, lease expiry, cancellation, output transitions and failed stops.
+Its output callback observes calls before SDL/driver duplicate filtering.
+`wdc_rumble_rom` runs the real detection, request and effect engine with a
+controlled gameplay predicate. On the shared primary object it initializes
+the real filesystem, adds the motor fields, allocates/writes a note during an
+effect, and reinitializes/reopens/reads that note. `wdc_input` checks actual SDL
 virtual-gamepad output, strength, zero mute, settings/focus gating, shutdown and
 detach. `wdc_frontend_settings` checks strength persistence and default reset.
 These checks do not establish physical gamepad compatibility or racing feel.
+Physical acceptance should include PS4/PS5 pads over USB and Bluetooth: the
+player enables their direct-device HIDAPI rumble hints before opening them.
+Check initial connection, strength, settings/focus muting, reconnect and
+save/load alongside feedback, including how those hints affect device opening.

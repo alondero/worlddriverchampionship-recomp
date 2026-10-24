@@ -28,7 +28,9 @@ Controller Pak saves are enabled on port 1 and persist in
 `build/user-data/saves/worlddriverchampionship.us.mpk`. See
 [save configuration](docs/configuration.md) for backup and failure behavior.
 
-Known limitations include rendering glitches and no rumble. SDL audio output is experimental. Linux and Android
+The frontend-enabled player supports rumble alongside Controller Pak saves on
+port 1, with strength in General settings. Physical controller compatibility
+and feel remain unverified. Rendering glitches remain, and SDL audio output is experimental. Linux and Android
 are not validated. No ROM, generated game code, or binary is committed.
 
 Graphics: automatic or 1-8x resolution scaling, MSAA, output filtering, saved

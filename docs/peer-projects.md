@@ -54,8 +54,9 @@ through a dependency patch. See [save configuration](configuration.md).
 [Lamborghini's motor bridge](https://github.com/alondero/automobililamborghini-recomp/blob/e398f066e50c4d61b5ab7db95cac861d2fdc66fd/src/libultra_stubs.c)
 keeps its Controller Pak visible and adapts the game's motor wrappers and PWM
 engine. Forcing a Rumble Pak flag would break its save flow. WDC likewise
-keeps save detection truthful, but its separate motor objects allow the original
-effect engine to remain translated.
+keeps save detection truthful. Its worker shares the primary Pak object with
+file operations, so the adapter retains filesystem flags/metadata while
+initializing motor fields and leaves the original effect engine translated.
 
 [AeroGauge's haptics](https://github.com/alondero/aerogauge-recomp/blob/023b13ef0d77adc1753b3e92d9da5d621f075405/src/aero_haptics.cpp)
 observe damage and turbo timers and publish bounded feedback to a main-thread
