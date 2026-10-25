@@ -16,7 +16,7 @@ for path in sorted(source.glob("*.c")):
         functions[match[1]] = match[0]
 pending = ["wdc_pfs_init", "wdc_pfs_allocate_file", "wdc_pfs_find_file",
            "wdc_pfs_read_write_file", "wdc_pfs_free_blocks", "wdc_pfs_num_files",
-           "func_800720B0"]
+           "func_800720B0", "func_800734D0", "func_800742D0"]
 natives = {"wdc_pak_read", "wdc_pak_write", "wdc_pak_status",
            "osCreateMesgQueue_recomp", "osRecvMesg_recomp", "osSendMesg_recomp",
            "osGetCount_recomp"}

@@ -9,9 +9,9 @@ for path in sorted(source.glob("*.c")):
     for match in re.finditer(r"RECOMP_FUNC void (\w+)\(.*?(?=RECOMP_FUNC void |\Z)",
                              path.read_text(encoding="utf-8"), re.S):
         functions[match[1]] = match[0]
-pending = ["func_8004D450", "func_8004D79C", "func_8004D9B0", "func_8004DCA0",
+pending = ["func_8004D450", "func_8004D79C", "func_8004D9B0", "func_8004D854", "func_8004D968",
            "wdc_pfs_init", "wdc_pfs_allocate_file", "wdc_pfs_find_file",
-           "wdc_pfs_read_write_file"]
+           "wdc_pfs_read_write_file", "wdc_pfs_num_files", "func_800742D0"]
 # Control gameplay eligibility and the single-threaded SDK's SI queues/count.
 # File initialization, allocation, note I/O and effect timers remain translated.
 natives = {"wdc_motor_init", "wdc_motor_start", "wdc_motor_stop",
@@ -33,6 +33,8 @@ while pending:
     pending.extend(re.findall(r"\b(\w+)\(rdram, ctx\);", body))
 if "wdc_rumble_tick(rdram, ctx);" not in functions["func_8004D450"]:
     raise SystemExit("Rumble test requires the generated heartbeat hook")
+if "wdc_motor_init(rdram, ctx);" not in functions["func_8004D854"]:
+    raise SystemExit("Rumble test requires the live status-transition initialization path")
 destination.write_text('#include "recomp.h"\n' +
     "\n".join(f"void {name}(uint8_t*, recomp_context*);" for name in sorted(seen)) + "\n" +
     "\n".join(functions[name] for name in sorted(seen - natives)), encoding="utf-8")

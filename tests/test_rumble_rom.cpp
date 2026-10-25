@@ -14,7 +14,8 @@ extern "C" {
 void func_8004D450(uint8_t*, recomp_context*);
 void func_8004D79C(uint8_t*, recomp_context*);
 void func_8004D9B0(uint8_t*, recomp_context*);
-void func_8004DCA0(uint8_t*, recomp_context*);
+void func_8004D854(uint8_t*, recomp_context*);
+void func_8004D968(uint8_t*, recomp_context*);
 void wdc_motor_init(uint8_t*, recomp_context*);
 void wdc_motor_start(uint8_t*, recomp_context*);
 void wdc_original_motor_init(uint8_t*, recomp_context*);
@@ -22,6 +23,8 @@ void wdc_pfs_init(uint8_t*, recomp_context*);
 void wdc_pfs_allocate_file(uint8_t*, recomp_context*);
 void wdc_pfs_find_file(uint8_t*, recomp_context*);
 void wdc_pfs_read_write_file(uint8_t*, recomp_context*);
+void wdc_pfs_num_files(uint8_t*, recomp_context*);
+void func_800742D0(uint8_t*, recomp_context*); // osPfsDeleteFile, reached from the Pak menu
 void func_80001D4C(uint8_t*, recomp_context* ctx) { ctx->r2 = 1; }
 void osCreateMesgQueue_recomp(uint8_t*, recomp_context*) {}
 void osRecvMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
@@ -63,6 +66,7 @@ int main(int argc, char** argv) {
     const gpr stack = ctx.r29;
     const gpr shared_pfs = static_cast<int32_t>(0x800AAC98);
     const gpr queue = static_cast<int32_t>(0x800AAAB0);
+    const gpr status = static_cast<int32_t>(0x800AAAD0);
     const gpr name = static_cast<int32_t>(0x80400000), ext = name + 32, number = name + 64;
     const gpr buffer = name + 0x1000;
     constexpr int note_size = 0x100;
@@ -97,19 +101,27 @@ int main(int argc, char** argv) {
     wdc_pfs_init(rdram, &ctx);
     assert(ctx.r2 == 0 && object_bytes() == filesystem);
     func_8004D79C(rdram, &ctx); // Original effect initializer enables the worker.
-    // Pin the helper's own queue load, rather than depending on leftover a0.
-    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8004DCC8))) == 0x3C12800Bu);
-    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8004DCCC))) == 0x2652AAB0u);
-    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8004DCE4))) == 0x02402025u);
-    ctx.r4 = 0x12345678;
-    func_8004DCA0(rdram, &ctx);
+    // Execute the startup/status-transition sequence used by the live worker.
+    // No native motor init or standalone 4DCA0 helper has run in this process.
+    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8002C9CC))) ==
+        (0x0C000000u | ((0x8004D854u >> 2) & 0x03FFFFFFu)));
+    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8002C9D4))) ==
+        (0x0C000000u | ((0x8004D450u >> 2) & 0x03FFFFFFu)));
+    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8004D904))) ==
+        (0x0C000000u | ((0x80073BECu >> 2) & 0x03FFFFFFu)));
+    // The detector sets a0 internally from its queue base, not from an incoming
+    // motor queue argument. Pin that instruction and explicitly supply status.
+    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8004D8A0))) == 0x26F7AAB0u);
+    ctx.r4 = status;
+    func_8004D968(rdram, &ctx); // Snapshot previous accessory bits (all absent).
+    assert(wdc::pak::device_info(0).connected_pak == Pak::ControllerPak);
+    MEM_H(0, status) = 0x0500; MEM_B(2, status) = 1; MEM_B(3, status) = 0;
+    ctx.r4 = status; // Controlled osContGetQuery result: controller + Controller Pak.
+    func_8004D854(rdram, &ctx); // Live caller reaches wdc_motor_init at 8004D904.
     assert(object_bytes() == filesystem); // Virtual detection does not run destructive physical probing.
     assert(MEM_BU(0, static_cast<int32_t>(0x800DF460)) == 1);
     assert(MEM_BU(0, static_cast<int32_t>(0x800DF461)) == 0);
     assert(wdc::pak::device_info(0).connected_pak == Pak::ControllerPak);
-    ctx.r5 = static_cast<int32_t>(0x800AAAF8); ctx.r6 = 0;
-    wdc_motor_init(rdram, &ctx);
-    assert(ctx.r2 == 11); // The save/menu probe must still see a memory device.
     // Active race predicates, independent of the actual save availability.
     MEM_W(0, static_cast<int32_t>(0x8007D858)) = 0;
     MEM_W(0, static_cast<int32_t>(0x8007D794)) = 0;
@@ -121,7 +133,11 @@ int main(int argc, char** argv) {
     MEM_W(0x10, ctx.r29) = 1; MEM_W(0x14, ctx.r29) = 6;
     func_8004D9B0(rdram, &ctx);
     func_8004D450(rdram, &ctx);
-    assert(wdc::rumble::active());
+    assert(wdc::rumble::active()); // First successful start follows only reachable worker callers.
+    assert((MEM_W(0, shared_pfs) & 8) == 0 && MEM_BU(0x65, shared_pfs) == 0);
+    ctx.r5 = static_cast<int32_t>(0x800AAAF8); ctx.r6 = 0;
+    wdc_motor_init(rdram, &ctx);
+    assert(ctx.r2 == 11); // The auxiliary menu probe must still see a memory device.
     // Allocate and write a real note through the translated filesystem while
     // the effect is running. This exercises its status, channel, bank and ID readers.
     MEM_B(0, name) = 0x1A; MEM_B(0, ext) = 0x1B;
@@ -158,8 +174,7 @@ int main(int argc, char** argv) {
     wdc_pfs_read_write_file(rdram, &ctx);
     assert(ctx.r2 == 0);
     for (int i = 0; i < note_size; ++i) assert(MEM_BU(i, buffer) == ((i + 7) & 255));
-    // Native motor initialization explicitly stopped the host lease. Restore its still-on guest state
-    // so the next original stop edge is tested against an active host lease.
+    // Refresh after disk I/O; the next original stop edge must stop an active lease.
     ctx.r4 = shared_pfs;
     wdc_motor_start(rdram, &ctx);
     func_8004D450(rdram, &ctx); // on countdown
@@ -183,5 +198,14 @@ int main(int argc, char** argv) {
     func_8004D79C(rdram, &ctx); // Resetting an effect must cancel host feedback.
     func_8004D450(rdram, &ctx);
     assert(!wdc::rumble::active());
+    // Exercise the menu's delete/count path with no synthetic motor status bit.
+    ctx.r4 = shared_pfs; ctx.r5 = 0x3544; ctx.r6 = 0x4E574F45; ctx.r7 = name;
+    MEM_W(0x10, stack) = ext;
+    func_800742D0(rdram, &ctx);
+    assert(ctx.r2 == 0);
+    ctx.r4 = shared_pfs; ctx.r5 = number; ctx.r6 = number + 4;
+    wdc_pfs_num_files(rdram, &ctx);
+    assert(ctx.r2 == 0 && MEM_W(4, number) == 0);
+    assert((MEM_W(0, shared_pfs) & 8) == 0 && MEM_BU(0x65, shared_pfs) == 0);
     std::filesystem::remove(path);
 }

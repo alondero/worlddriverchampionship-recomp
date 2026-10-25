@@ -44,7 +44,7 @@ config_path.write_text(
     f'rom_file_path = "{rom.as_posix()}"\n' +
     "[patches]\nstubs = []\nignored = [" +
     ", ".join(f'"{name}"' for name in ignored) + "]\n", encoding="utf-8")
-subprocess.run([str(recompiler), str(config_path)], cwd=root, check=True)
+subprocess.run([str(recompiler), str(config_path)], cwd=work, check=True)
 bodies = [match[0] for path in (work / "functions").glob("*.c")
           for match in re.finditer(r"RECOMP_FUNC void wdc_original_motor_init\(.*?(?=RECOMP_FUNC void |\Z)",
                                    path.read_text(encoding="utf-8"), re.S)]

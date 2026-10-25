@@ -64,6 +64,10 @@ int main() {
     ctx.r4 = pfs;
     wdc_motor_start(rdram, &ctx);
     assert(ctx.r2 == 0 && wdc::rumble::active());
+    wdc_motor_init(nullptr, &ctx);
+    assert(ctx.r2 == 0 && !wdc::rumble::active()); // Successful detection resets the current pulse.
+    wdc_motor_start(rdram, &ctx);
+    assert(ctx.r2 == 0 && wdc::rumble::active());
     ctx.r4 = static_cast<int32_t>(0x800AAAF8);
     wdc_motor_stop(rdram, &ctx);
     assert(ctx.r2 == 5 && wdc::rumble::active());

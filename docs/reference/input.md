@@ -149,6 +149,12 @@ accessory classification truthful. The native adapter accepts only the primary
 port-1 object, returns `CONTRFAIL` for absent channels and never changes the
 Pak image. This bypasses the runtime's exclusive accessory-kind check.
 
+Correction to the earlier object description: `800AAC98` is not motor-only,
+and `800AAAF8` is not the primary save object. The filesystem-init call at
+`8003BA24` and ID copy at `8003BA9C` establish the primary object's role; the
+motor fallback at `8003BB24` uses the auxiliary object. The addresses did not
+change; their earlier interpretation was wrong.
+
 ROM inspection identifies these users of the primary object:
 
 | Reader/caller | Object use |
@@ -156,7 +162,7 @@ ROM inspection identifies these users of the primary object:
 | `func_80038DA4`, `func_80038FEC`, `func_80039318`, `func_8003A5F0`, `func_8003B264` | Pass the primary array to translated file-state, directory, free-space and note I/O routines. Those SDK routines read status, queue/channel, bank and filesystem metadata. |
 | `func_8003B984`, call at `8003BA24` | Initializes the primary filesystem object; `8003BA9C` copies its 32-byte ID from `+0C`. The later call at `8003BB24` probes the auxiliary object for a motor. |
 | `func_80062060`, call at `80062194` | Copies the primary object's ID at `+0C` into the game's Pak state. |
-| `func_8004DCA0`, `func_8004D450` | Pass primary objects to motor initialization/start/stop and consume return codes. `func_8004D9B0` creates timer requests without reading an `OSPfs`. |
+| `func_8004D854`, `func_8004D450` | Live input-worker callers pass the primary address as an identity token to native motor Init/Start/Stop and consume return codes. They do not transfer object ownership. `func_8004D9B0` creates timer requests without reading an `OSPfs`. |
 
 The ROM's `osMotorInit` stores queue/channel at `+4/+8` (`80073C08`,
 `80073C18`), clears status at `+0`, and writes bank `80` at `+65`
@@ -186,16 +192,92 @@ identical across virtual motor detection, then saves/reopens a real note.
 
 Thread/timing evidence: `8002CCDC` supplies entry `func_8002C500` to the
 thread creation at `8002CCEC`. That input worker calls `func_8004D854` and
-`func_8004D450` at `8002C9CC`/`8002C9D4`. The primary array is also passed to
+`func_8004D450` at `8002C9CC`/`8002C9D4`. Both contain reachable motor-init
+calls for primary token `800AAC98`, channel 0:
+
+| Live caller / init call | Gate and argument construction |
+| --- | --- |
+| `func_8004D854` / `8004D904` | On an accessory-present transition, enabled effects (`80092DE4`) permit detection. `8004D900` adds player*104 to primary base `800AAC98`; the delay slot passes player as channel. |
+| `func_8004D450` / `8004D4DC` | The reset flag at `80092DE0` initializes the two primary tokens, beginning with player/channel 0. |
+| `func_8004D450` / `8004D5C8` | The once-per-active-mode gate at `80092DEC` initializes the same primary tokens when gameplay predicates permit it. |
+
+The fixture now runs the live worker sequence: original startup
+`func_8004D79C`, previous-status capture `func_8004D968`, a controlled
+`osContGetQuery` result advertising the real Controller Pak, then
+`func_8004D854` and the original effect request/timer. The first successful
+motor start occurs before any direct native Init call or standalone helper
+call. It pins the worker JALs, the live detector's init call and its internal
+queue construction. This is ROM-backed reachability evidence, not a full race
+playthrough. The SDK initialization gate is retained; it is reached in the
+production path.
+
+The primary array is also passed to
 menu file operations, so the port does not assume global thread exclusivity.
 The standalone `func_8004DCA0` helper has no identified direct JAL caller or
-raw pointer reference in the reviewed USA image; the fixture calls it
-explicitly, without assigning it an unproven runtime thread. Its queue is
-loaded internally by `8004DCC8`/`8004DCCC` and copied to a0 at `8004DCE4`;
-the fixture pins those opcodes and poisons incoming a0. The native adapters
+raw pointer reference in the reviewed USA image; it is not used as fixture
+setup or claimed as the live enable path. The native adapters
 are safe on either guest thread because they do not touch the object. They
 perform no serial-bus operation, so an SDK SI lock is unnecessary. No guest
 pointer is retained. Filesystem reinitialization cannot reset host motor state.
+Successful native motor initialization does clear the current host lease;
+detection during an active pulse ends that pulse until a later Start command.
+The host test covers this reset behavior explicitly.
+
+### Primary-object status and bank reader audit
+
+The audit follows the menu/worker Pak entry points `80071E10`, `800720B0`,
+`800723A0`, `80072560`, `800726B0`, `80072800`, `800730AC`, `800734D0` and
+`800742D0` through their 28 translated bodies, including ID/checker/inode
+helpers. `tests/extract_pfs_test.py` includes these roots and rejects missing
+bodies or indirect calls. Primary-address uses in game/menu code pass the
+token into this closure or copy ID bytes at `+0C`; none directly reads its
+status/bank as a Rumble Pak indicator. Other zero-offset loads in the closure
+belong to inode/name/count/stack buffers, not `OSPfs.status`.
+
+These are all primary status-word reads in that closure:
+
+| Reader / load PC | Use of status; effect of bit 8 |
+| --- | --- |
+| `wdc_pfs_init` / `80072084` | ORs in initialized mask `0x01` after initialization; entry previously clears status. No `0x08` test. |
+| `func_800720B0` / `800720F0` | Requires `status & 1`; bit 8 is ignored. |
+| `wdc_pfs_free_blocks` / `8007257C` | Requires `status & 1`; bit 8 is ignored. |
+| `wdc_pfs_num_files` / `800726CC` | Requires `status & 1`; bit 8 is ignored. |
+| `wdc_pfs_allocate_file` / `80072864` | Requires `status & 1`; bit 8 is ignored. |
+| `wdc_pfs_read_write_file` / `80073130` | Requires `status & 1`; bit 8 is ignored. |
+| `func_800742D0` (menu delete) / `8007430C` | Requires `status & 1`; bit 8 is ignored. |
+| `func_80078CA0` (checker) / `8007932C`, `80079344` | Sets or clears corruption mask `0x02`. It preserves other bits without testing motor mask `0x08`. |
+
+Bank-zero guards read `+65`, skip bank selection when zero, and otherwise
+set the requested bank to zero and call `func_800788CC`. All such reads are:
+
+| Reader | Load PC(s) |
+| --- | --- |
+| `func_800720B0` | `80072128` |
+| `wdc_pfs_num_files` | `80072704` |
+| `wdc_pfs_read_write_file` | `80073168` |
+| `func_800734D0` | `800734E0` |
+| `func_800742D0` | `80074344` |
+| `func_80077CA4` | `80077CC4` |
+| `func_800780BC` | `800780D4` |
+| `func_80078254` | `80078264` |
+| `func_800784B0` | `800784C0` |
+| `func_800785AC` | `800785C8` |
+| `func_80078CA0` | `80078EDC`, `80078F88` |
+
+The two remaining bank reads have different roles: `wdc_pfs_read_write_file`
+at `80073360` compares the selected bank with the note's target bank and
+selects it when different; `func_800788CC` at `800788E8` copies the requested
+bank into the 32-byte bank-select command. Bank 0 means memory-Pak bank 0,
+not accessory presence. The port's one-bank image uses bank 0 for both
+metadata and note data. None of these reads interprets bank or status bit 8
+as Rumble Pak presence. The reviewed WDC SDK's original motor Start/Stop
+instead check their per-channel initialization table at `80099E30`, not an
+OSPfs bit-8 guard from a different SDK version; both bodies are replaced.
+Game motor presence is held separately at `800DF460 + player` and follows
+the detector's return code. The ROM fixture also deletes/counts a note via
+the menu's translated path while bit 8 remains clear and bank remains zero.
+
+### Effect and device output
 
 `func_8004D9B0` still creates the original effects; `func_8004D450` retains
 their pulse timers, enable checks and game-mode gates. The hook before
@@ -232,7 +314,8 @@ absent ports, lease expiry, cancellation, output transitions and failed stops.
 Its output callback observes calls before SDL/driver duplicate filtering.
 `wdc_rumble_rom` runs the real detection, request and effect engine with a
 controlled gameplay predicate. It compares the original ROM initializer's
-104-byte result, restores the real filesystem, proves virtual detection leaves
+104-byte result, restores the real filesystem, reaches virtual detection through
+the live worker's status-transition caller, proves it leaves
 it unchanged, allocates/writes a note during an effect, and reinitializes/reopens/reads
 that note. `wdc_input` checks actual SDL
 virtual-gamepad output, strength, zero mute, settings/focus gating, shutdown and
