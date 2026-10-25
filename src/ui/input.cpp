@@ -25,7 +25,7 @@ std::unordered_map<SDL_JoystickID, RumbleOutput> rumble_outputs;
 void apply_rumble(uint16_t strength) {
     // This is WDC's only SDL rumble sender. Do not call recompinput::update_rumble
     // alongside it: its smoothing and long duration conflict with the ROM pulses
-    // and the bounded lease. General supplies configuration only; see the input reference.
+    // and the bounded lease. General supplies amplitude and persistence; see the input reference.
     // Borrow the frontend's open handles. Single-player input merges these same
     // controllers; do not create a second device manager or open extra handles.
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {

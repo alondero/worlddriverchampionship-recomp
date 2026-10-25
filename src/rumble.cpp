@@ -22,30 +22,27 @@ bool wdc::rumble::active() {
 }
 void wdc::rumble::stop() { set_motor(0, false); }
 
-// USA adapter, synchronous on the input worker. The 104-byte OSPfs at 800AAC98
-// is shared by filesystem and motor calls. Only this fixed object is writable,
-// within the runtime's 8 MiB RDRAM. Init stores big-endian u32 status/queue/channel
-// at +0/+4/+8 and u8 activebank at +0x65 using word-swapped MEM helpers. Queue a0
-// is an SDK-owned guest address token and is never dereferenced; channel a2 is
-// zero-based. No guest pointer is retained. Fields mirror runtime initialization, except
-// motor bit 8 is added to status, preserving filesystem flags and ID/layout
-// metadata. Bank FF invalidates the SDK's bank cache; its next file call selects
-// bank 0. The auxiliary probe object at 800AAAF8 must fail with DEVICE (11),
-// preserving the Controller Pak UI. Invalid pointers return 11 and absent
-// channels return CONTRFAIL (4), without writes; uninitialized Start/Stop return INVALID
-// (5). Start/Stop use host initialization state so filesystem reinitialization
-// cannot disable the virtual motor. Motor calls never change the Pak image.
+// USA virtual-motor boundary, synchronous on any calling guest thread. a1
+// (Init) / a0 (Start/Stop) is a 32-bit identity token for the primary OSPfs at
+// 800AAC98; channel a2 is zero-based. Queue a0 is unused. These three adapters
+// read/write NO guest memory and retain no pointer; only host atomics cross
+// threads. File routines may overlap: no SDK lock or guest-field ordering is
+// needed because the filesystem remains the sole owner of its entire object.
+// The physical ROM initializer clears status and selects bank 80, which is
+// incompatible with simultaneous memory-Pak service. Do not transplant those
+// writes, runtime status bit 8, or a bank sentinel into the shared filesystem.
+// All translated motor field readers (the SDK Start/Stop bodies) are replaced
+// by these host-state adapters. See the original-ROM comparison in the fixture.
+// The auxiliary probe at 800AAAF8 returns DEVICE (11), preserving the save UI.
+// Invalid tokens return 11 and absent channels return CONTRFAIL (4), with no
+// memory access; uninitialized Start/Stop return INVALID (5). File-system
+// reinitialization cannot disable the independent virtual motor.
 // Replace this address identity with a named accessory API when decompiled.
-extern "C" void wdc_motor_init(uint8_t* rdram, recomp_context* ctx) {
+extern "C" void wdc_motor_init(uint8_t*, recomp_context* ctx) {
     ctx->r2 = 4;
     if (ctx->r6 != 0) return;
     ctx->r2 = 11;
     if (static_cast<uint32_t>(ctx->r5) != SharedPfs) return;
-    const gpr pfs = static_cast<int32_t>(SharedPfs);
-    MEM_W(4, pfs) = ctx->r4;
-    MEM_W(8, pfs) = 0;
-    MEM_B(0x65, pfs) = 0xFF;
-    MEM_W(0, pfs) |= 8; // Retain PFS_INITIALIZED and the filesystem's other status bits.
     initialized.store(true, std::memory_order_relaxed);
     wdc::rumble::stop();
     ctx->r2 = 0;

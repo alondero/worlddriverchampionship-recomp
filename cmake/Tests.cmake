@@ -63,8 +63,16 @@ if(BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c"
                 DEPENDS tests/extract_rumble_test.py ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/motor_reference_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_motor_reference.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:N64RecompCLI>"
+                    "${CMAKE_CURRENT_BINARY_DIR}/motor_reference_funcs.c"
+                DEPENDS tests/extract_motor_reference.py rom-analysis.toml
+                    worlddriverchampionship.syms.toml N64RecompCLI
+                VERBATIM)
             add_executable(wdc_rumble_rom_tests tests/test_rumble_rom.cpp src/rumble.cpp src/controller_pak.cpp
-                "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c")
+                "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c"
+                "${CMAKE_CURRENT_BINARY_DIR}/motor_reference_funcs.c")
             target_include_directories(wdc_rumble_rom_tests PRIVATE src "${N64MR}/N64Recomp/include"
                 "${N64MR}/ultramodern/include")
             target_compile_options(wdc_rumble_rom_tests PRIVATE -fno-strict-aliasing)

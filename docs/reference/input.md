@@ -160,19 +160,42 @@ ROM inspection identifies these users of the primary object:
 
 The ROM's `osMotorInit` stores queue/channel at `+4/+8` (`80073C08`,
 `80073C18`), clears status at `+0`, and writes bank `80` at `+65`
-(`80073C20`, `80073C28`). Its Start/Stop routines read queue and channel;
-their Joybus bodies are replaced. The pinned runtime initializes the same
-fields with bank `FF` and successful motor-status bit `8`.
+(`80073C20`, `80073C28`). These are guest offsets measured from the USA ROM,
+also matching the [SDK OSPfs layout](https://github.com/zeldaret/mm/blob/main/include/PR/os_pfs.h).
+They are not offsets inferred from the runtime's word-swapped host structure.
+The original Start/Stop routines read queue and channel for Joybus access.
 
-The port follows that runtime field layout on the input worker: big-endian
-u32 status/queue/channel and u8 bank, accessed through word-swapped helpers.
-All addresses are inside the fixed primary object in 8 MiB RDRAM. It adds
-motor-status bit `8` to existing status, retaining filesystem flags, ID and
-layout metadata. Bank `FF` invalidates the bank cache; the next translated
-file operation selects bank 0. Replacing status wholesale would break the
-shared filesystem. Invalid identities/channels perform no writes. No guest
-pointer is retained. Start/Stop retain a host initialization flag so a later
-filesystem reinitialization cannot disable the virtual motor.
+The ROM reference fixture independently recompiles that initializer with no
+instruction patches. A controlled memory-Pak probe response makes it return
+`DEVICE`; the test compares all 104 bytes against the original stores: status
+zero, supplied queue/channel and bank `80`, with every other byte preserved.
+Thus a physical motor probe really can invalidate the primary filesystem
+object. Calling the real `wdc_pfs_init` restores it. This fixture demonstrates
+the SDK transition; it does not claim a full original-game recovery trace.
+
+The combined virtual accessory deliberately bypasses that physical probe.
+`wdc_motor_init`, `wdc_motor_start` and `wdc_motor_stop` access **no guest
+memory**. The primary address is only an identity token; queue is unused and
+initialization/motor state lives in host atomics. There is no motor status bit
+or bank write. The filesystem owns every byte of the primary object. This
+avoids both invalidating live saves and racing a file routine's status/bank
+updates. The original translated SDK Start/Stop field readers are replaced
+by these adapters; game effect callers use their return codes, not their
+queue/channel fields. The ROM test asserts all 104 filesystem bytes remain
+identical across virtual motor detection, then saves/reopens a real note.
+
+Thread/timing evidence: `8002CCDC` supplies entry `func_8002C500` to the
+thread creation at `8002CCEC`. That input worker calls `func_8004D854` and
+`func_8004D450` at `8002C9CC`/`8002C9D4`. The primary array is also passed to
+menu file operations, so the port does not assume global thread exclusivity.
+The standalone `func_8004DCA0` helper has no identified direct JAL caller or
+raw pointer reference in the reviewed USA image; the fixture calls it
+explicitly, without assigning it an unproven runtime thread. Its queue is
+loaded internally by `8004DCC8`/`8004DCCC` and copied to a0 at `8004DCE4`;
+the fixture pins those opcodes and poisons incoming a0. The native adapters
+are safe on either guest thread because they do not touch the object. They
+perform no serial-bus operation, so an SDK SI lock is unnecessary. No guest
+pointer is retained. Filesystem reinitialization cannot reset host motor state.
 
 `func_8004D9B0` still creates the original effects; `func_8004D450` retains
 their pulse timers, enable checks and game-mode gates. The hook before
@@ -200,17 +223,18 @@ WDC deliberately owns this sender instead of calling the pinned frontend's
 `recompinput::set_rumble()` / `update_rumble()`. That path smooths the rising
 and falling edges and uses a 1,000,000 ms dummy duration. WDC retains the ROM's
 own pulse timing and bounds every SDL command to 150 ms. General's rumble
-option supplies persistence/UI only; it does not schedule the frontend sender.
+option supplies amplitude, persistence and UI; it does not schedule the frontend sender.
 `update_rumble()` must not run alongside WDC's sender. The runtime motor callback
 is left unset because the three native motor adapters own the guest route.
 
-`wdc_rumble` covers motor identity, bounded field writes, metadata preservation,
+`wdc_rumble` covers motor identity, no guest-memory access, filesystem preservation,
 absent ports, lease expiry, cancellation, output transitions and failed stops.
 Its output callback observes calls before SDL/driver duplicate filtering.
 `wdc_rumble_rom` runs the real detection, request and effect engine with a
-controlled gameplay predicate. On the shared primary object it initializes
-the real filesystem, adds the motor fields, allocates/writes a note during an
-effect, and reinitializes/reopens/reads that note. `wdc_input` checks actual SDL
+controlled gameplay predicate. It compares the original ROM initializer's
+104-byte result, restores the real filesystem, proves virtual detection leaves
+it unchanged, allocates/writes a note during an effect, and reinitializes/reopens/reads
+that note. `wdc_input` checks actual SDL
 virtual-gamepad output, strength, zero mute, settings/focus gating, shutdown and
 detach. `wdc_frontend_settings` checks strength persistence and default reset.
 These checks do not establish physical gamepad compatibility or racing feel.

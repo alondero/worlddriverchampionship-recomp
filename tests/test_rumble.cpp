@@ -58,19 +58,16 @@ int main() {
     wdc_motor_init(rdram, &ctx);
     assert(ctx.r2 == 0 && !wdc::rumble::active());
     const gpr pfs = static_cast<int32_t>(0x800AAC98);
-    assert(MEM_W(4, pfs) == static_cast<int32_t>(0x800AAAB0));
-    assert(MEM_W(8, pfs) == 0 && MEM_BU(0x65, pfs) == 0xFF);
-    assert(static_cast<uint32_t>(MEM_W(0, pfs)) == (0xA5A5A5A5u | 8));
+    assert(memory == original); // Virtual motor initialization has no guest-memory side effects.
+    wdc_motor_init(nullptr, &ctx); // There must not even be a hidden guest-memory read.
+    assert(ctx.r2 == 0);
     ctx.r4 = pfs;
     wdc_motor_start(rdram, &ctx);
     assert(ctx.r2 == 0 && wdc::rumble::active());
     ctx.r4 = static_cast<int32_t>(0x800AAAF8);
     wdc_motor_stop(rdram, &ctx);
     assert(ctx.r2 == 5 && wdc::rumble::active());
-    auto expected = original;
-    for (unsigned i : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 0x65u})
-        expected[(0xAAC98 + i) ^ 3u] = memory[(0xAAC98 + i) ^ 3u];
-    assert(memory == expected); // Metadata, adjacent objects and all other RAM are preserved.
+    assert(memory == original); // All filesystem/adjacent objects and guest RAM remain unchanged.
     ctx.r4 = static_cast<int32_t>(0x800AAC98);
     wdc_motor_stop(rdram, &ctx);
     assert(ctx.r2 == 0 && !wdc::rumble::active());

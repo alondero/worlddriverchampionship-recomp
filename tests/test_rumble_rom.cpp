@@ -6,6 +6,7 @@
 #include <fstream>
 #include <thread>
 #include <vector>
+#include <array>
 #include "controller_pak.h"
 #include "rumble.h"
 #include "recomp.h"
@@ -16,6 +17,7 @@ void func_8004D9B0(uint8_t*, recomp_context*);
 void func_8004DCA0(uint8_t*, recomp_context*);
 void wdc_motor_init(uint8_t*, recomp_context*);
 void wdc_motor_start(uint8_t*, recomp_context*);
+void wdc_original_motor_init(uint8_t*, recomp_context*);
 void wdc_pfs_init(uint8_t*, recomp_context*);
 void wdc_pfs_allocate_file(uint8_t*, recomp_context*);
 void wdc_pfs_find_file(uint8_t*, recomp_context*);
@@ -25,6 +27,20 @@ void osCreateMesgQueue_recomp(uint8_t*, recomp_context*) {}
 void osRecvMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
 void osSendMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
 void osGetCount_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 123456; }
+// A Controller Pak echoes the FE bank probe; the original initializer must
+// reject it as a memory accessory after performing its observable OSPfs writes.
+void wdc_reference_probe_write(uint8_t* rdram, recomp_context* ctx) {
+    assert(ctx->r6 == 0x400 && MEM_BU(0, ctx->r7) == 0xFE);
+    ctx->r2 = 0;
+}
+void wdc_reference_probe_read(uint8_t* rdram, recomp_context* ctx) {
+    assert(ctx->r6 == 0x400);
+    for (int i = 0; i < 32; ++i) MEM_B(i, ctx->r7) = 0xFE;
+    ctx->r2 = 0;
+}
+void wdc_reference_pack_motor(uint8_t*, recomp_context*) {
+    assert(false && "Controller Pak rejection must not reach Rumble Pak transport setup");
+}
 }
 int main(int argc, char** argv) {
     assert(argc == 2);
@@ -56,15 +72,38 @@ int main(int argc, char** argv) {
     ctx.r4 = queue; ctx.r5 = shared_pfs; ctx.r6 = 0;
     wdc_pfs_init(rdram, &ctx);
     assert(ctx.r2 == 0 && (MEM_W(0, shared_pfs) & 1) != 0);
-    std::vector<uint8_t> metadata;
-    for (int i = 12; i < 104; ++i) metadata.push_back(MEM_BU(i, shared_pfs));
+    auto object_bytes = [&] {
+        std::array<uint8_t, 104> bytes{};
+        for (int i = 0; i < 104; ++i) bytes[i] = MEM_BU(i, shared_pfs);
+        return bytes;
+    };
+    const auto filesystem = object_bytes();
+    // Differential reference: execute the unpatched ROM initializer. Expected
+    // writes come from ROM stores 80073C08/18/20/28, not the native adapter.
+    ctx.r4 = queue; ctx.r5 = shared_pfs; ctx.r6 = 0;
+    wdc_original_motor_init(rdram, &ctx);
+    assert(ctx.r2 == 11);
+    auto physical_probe = filesystem;
+    for (int i = 0; i < 4; ++i) {
+        physical_probe[i] = 0;
+        physical_probe[4 + i] = (uint32_t(queue) >> (24 - i * 8)) & 255;
+        physical_probe[8 + i] = 0;
+    }
+    physical_probe[0x65] = 0x80;
+    assert(object_bytes() == physical_probe);
+    // The physical probe invalidated memory-Pak state. Restore it through the
+    // actual SDK initializer before exercising the virtual combined accessory.
+    ctx.r4 = queue; ctx.r5 = shared_pfs; ctx.r6 = 0;
+    wdc_pfs_init(rdram, &ctx);
+    assert(ctx.r2 == 0 && object_bytes() == filesystem);
     func_8004D79C(rdram, &ctx); // Original effect initializer enables the worker.
-    func_8004DCA0(rdram, &ctx); // Original detection initializes the shared PFS's motor fields.
-    assert(MEM_W(4, shared_pfs) == queue);
-    assert(MEM_W(8, shared_pfs) == 0 && MEM_BU(0x65, shared_pfs) == 0xFF);
-    assert((MEM_W(0, shared_pfs) & 9) == 9); // Motor and filesystem both initialized.
-    for (int i = 12; i < 104; ++i)
-        if (i != 0x65) assert(MEM_BU(i, shared_pfs) == metadata[i - 12]);
+    // Pin the helper's own queue load, rather than depending on leftover a0.
+    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8004DCC8))) == 0x3C12800Bu);
+    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8004DCCC))) == 0x2652AAB0u);
+    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8004DCE4))) == 0x02402025u);
+    ctx.r4 = 0x12345678;
+    func_8004DCA0(rdram, &ctx);
+    assert(object_bytes() == filesystem); // Virtual detection does not run destructive physical probing.
     assert(MEM_BU(0, static_cast<int32_t>(0x800DF460)) == 1);
     assert(MEM_BU(0, static_cast<int32_t>(0x800DF461)) == 0);
     assert(wdc::pak::device_info(0).connected_pak == Pak::ControllerPak);
@@ -102,14 +141,13 @@ int main(int argc, char** argv) {
     ctx.r4 = queue; ctx.r5 = shared_pfs; ctx.r6 = 0;
     wdc_pfs_init(rdram, &ctx);
     assert(ctx.r2 == 0 && (MEM_W(0, shared_pfs) & 8) == 0);
-    // Reinitializing storage clears the SDK motor bit; host motor state remains
-    // independent. Another motor detection must retain the filesystem's fields.
+    // Filesystem reinitialization does not control the host-only motor state.
     ctx.r4 = shared_pfs;
     wdc_motor_start(rdram, &ctx);
     assert(ctx.r2 == 0 && wdc::rumble::active());
     ctx.r4 = queue; ctx.r5 = shared_pfs; ctx.r6 = 0;
     wdc_motor_init(rdram, &ctx);
-    assert(ctx.r2 == 0 && (MEM_W(0, shared_pfs) & 9) == 9);
+    assert(ctx.r2 == 0 && object_bytes() == filesystem);
     ctx.r4 = shared_pfs; ctx.r5 = 0x3544; ctx.r6 = 0x4E574F45; ctx.r7 = name;
     MEM_W(0x10, stack) = ext; MEM_W(0x14, stack) = number;
     wdc_pfs_find_file(rdram, &ctx);
@@ -120,7 +158,7 @@ int main(int argc, char** argv) {
     wdc_pfs_read_write_file(rdram, &ctx);
     assert(ctx.r2 == 0);
     for (int i = 0; i < note_size; ++i) assert(MEM_BU(i, buffer) == ((i + 7) & 255));
-    // Reinitialization stopped the host motor. Restore its still-on guest state
+    // Native motor initialization explicitly stopped the host lease. Restore its still-on guest state
     // so the next original stop edge is tested against an active host lease.
     ctx.r4 = shared_pfs;
     wdc_motor_start(rdram, &ctx);
