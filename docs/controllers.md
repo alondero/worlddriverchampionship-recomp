@@ -29,11 +29,16 @@ D-pad/left stick and A. B goes back, Y/Start applies staged graphics changes,
 and the shoulders switch tabs. Controller menu actions can also be rebound.
 F11 or Alt+Enter toggles fullscreen.
 
-**General** provides joystick deadzone (5% by default) and background controller
+**General** provides rumble strength (25% by default), joystick deadzone (5%) and background controller
 input. Changes take effect immediately and save when leaving the General tab.
 Analog steering retains partial stick
-deflection; keyboard directions use full deflection. Rumble is not implemented;
-a Controller Pak remains attached to port 1 for game saves.
+deflection; keyboard directions use full deflection. Set **Rumble Strength** to
+zero to disable vibration. The game's original effects drive compatible SDL
+gamepads while a Controller Pak remains attached to port 1 for saves. As with
+single-player input, all connected gamepads receive feedback. Opening settings,
+losing window focus or unplugging a controller clears pending vibration.
+Rumble requires the frontend-enabled player; keyboard-only builds have no
+physical controller output. Physical-controller feel still needs validation.
 
 **Driving** adds optional analog throttle and brake. Set each **input mode** to
 **Analog** to enable it; both default to Digital. Throttle defaults to the right

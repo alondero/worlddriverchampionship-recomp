@@ -26,7 +26,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same eleven C++ host-test targets used by the player build,
+This mode builds the same twelve C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
 headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
@@ -133,6 +133,39 @@ note allocation, write, reload with fresh guest RAM, read, free space and file
 metadata. SI lock queues and the timer count are replaced in this
 single-threaded harness; no Pak filesystem call is mocked. Missing translated
 bodies fail generation.
+
+`wdc_rumble` checks motor identity, errors, no guest-memory access (including a
+null-RDRAM call), filesystem preservation, absent ports and short lease. Its per-device output
+fixture checks idle suppression, active refresh, exactly one stop and recovery
+after a failed stop before driver caching. `wdc_rumble_rom` extracts the real
+USA detection/request/timer and filesystem bodies and verifies pulse start/stop
+while a note is allocated, written and reopened using the same primary Pak
+object. A separate unpatched translation of the original motor initializer
+compares its full 104-byte result against ROM-measured stores, using controlled
+Controller Pak probe responses; virtual detection must leave the filesystem
+object entirely unchanged. Reference code and recompiler inputs are generated
+only in the build tree; production generated files are untouched. The effect
+engine, gameplay predicate, callback setter and filesystem are translated.
+The fixture compiles the pinned runtime's real controller-query source with
+the port's device callback. `osContInit` populates the boot status; the worker
+snapshot, query start/result and detector follow the pinned ROM call order.
+The controller type is checked as guest bytes `00 05`. The first query has
+no accessory transition, so detection must leave the motor uninitialized.
+The timer's independent mode gate initializes before the first successful
+effect, using the real predicate and startup callback. Callback selection,
+later pause coverage and SI completion delivery are controlled.
+The four initial mode/request gate words are asserted from the loaded ROM
+image and again after the selected startup/query sequence, with no fixture
+writes to those words before the first Init/Start. Later pause coverage writes
+1 and then 0 to `8007D858`, asserting 1 before restoring 0. The input reference
+inventories the observed values, ROM offsets, writers and deliberate controls.
+No direct native Init or unused standalone helper enables that first effect.
+The fixture also exercises the Pak menu's delete/count path with motor status
+mask `0x08` clear. The full status/bank reader inventory is in the input reference.
+`wdc_input` observes rumble through SDL's virtual
+gamepad callback, including a transient stop failure, live strength, zero mute, settings/focus capture,
+shutdown and detach. These are deterministic host/ROM checks, not a physical
+controller playthrough. See [input](reference/input.md#rumble-alongside-saves).
 
 `wdc_camera_rom` extracts the real camera/perspective/matrix call closure.
 It loads ROM constants into word-swapped RDRAM and supplies a deterministic

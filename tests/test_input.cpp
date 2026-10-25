@@ -3,6 +3,7 @@
 #include "ui/input.h"
 #include "ui/frontend_settings.h"
 #include "game_driving.h"
+#include "rumble.h"
 #include "graphics_config.h"
 #include "recompinput/input_binding.h"
 #include "recompinput/profiles.h"
@@ -17,6 +18,23 @@
 SDL_Window* window = nullptr;
 std::vector<recomp::GameEntry> supported_games;
 static bool capture{};
+static uint16_t rumble_low{}, rumble_high{};
+static int rumble_calls{};
+static int failed_rumble_calls{};
+static bool fail_next_stop{};
+static int failed_stop_calls{};
+static int SDLCALL rumble_callback(void*, Uint16 low, Uint16 high) {
+    rumble_low = low; rumble_high = high; ++rumble_calls;
+    if (low == 0 && high == 0 && fail_next_stop) {
+        fail_next_stop = false; ++failed_stop_calls;
+        return -1;
+    }
+    return 0;
+}
+static int SDLCALL failed_rumble_callback(void*, Uint16, Uint16) {
+    ++failed_rumble_calls;
+    return -1;
+}
 namespace wdc::ui { bool captures_input() { return capture; } }
 namespace wdc::ui { void request_settings(graphics::Settings) {} }
 static void require(bool condition, const char* message) {
@@ -42,7 +60,7 @@ int main() {
         recomp::register_config_path(dir);
         wdc::input::configure();
         wdc::ui::create_driving_settings();
-        recompui::config::create_general_tab({.has_rumble_strength = false});
+        recompui::config::create_general_tab({.has_rumble_strength = true});
         recompui::config::create_controls_tab();
         recompui::config::finalize();
         const int kb = profiles::get_sp_keyboard_profile_index();
@@ -50,8 +68,13 @@ int main() {
         require(profiles::get_input_binding(kb, G::A, 0) == F::keyboard(SDL_SCANCODE_X) &&
             profiles::get_input_binding(kb, G::X_AXIS_POS, 0) == F::keyboard(SDL_SCANCODE_RIGHT) &&
             profiles::get_input_binding(kb, G::X_AXIS_POS, 1) == F::keyboard(SDL_SCANCODE_D), "keyboard defaults changed");
-        const int device = SDL_JoystickAttachVirtual(SDL_JOYSTICK_TYPE_GAMECONTROLLER,
-            SDL_CONTROLLER_AXIS_MAX, SDL_CONTROLLER_BUTTON_MAX, 0);
+        SDL_VirtualJoystickDesc descriptor{};
+        descriptor.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+        descriptor.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+        descriptor.naxes = SDL_CONTROLLER_AXIS_MAX;
+        descriptor.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+        descriptor.Rumble = rumble_callback;
+        const int device = SDL_JoystickAttachVirtualEx(&descriptor);
         require(device >= 0 && SDL_IsGameController(device), "virtual gamepad unavailable");
         auto* joystick = SDL_JoystickOpen(device);
         const auto id = SDL_JoystickInstanceID(joystick);
@@ -72,6 +95,46 @@ int main() {
         // to game-controller [0,32767]. Start both pedals at rest.
         axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, -32768);
         axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, -32768);
+        drain();
+        auto& rumble_config = recompui::config::get_config(recompui::config::general::id);
+        auto strength = [&](double value) {
+            rumble_config.update_option_value(recompui::config::general::options::rumble_strength, value);
+        };
+        strength(100);
+        wdc::rumble::set_motor(0, true); drain();
+        require(rumble_calls > 0 && rumble_low == 0 && rumble_high == 65535,
+            "motor command did not reach virtual gamepad");
+        strength(25); drain();
+        require(rumble_high == 16383, "live rumble strength not applied");
+        fail_next_stop = true;
+        wdc::rumble::stop(); drain(); drain();
+        require(failed_stop_calls == 1, "transient stop failure was not exercised exactly once");
+        // SDL may cache the previous amplitude after a failed stop. Change the
+        // next effect's strength so this assertion observes a real driver write.
+        strength(50);
+        wdc::rumble::set_motor(0, true); drain();
+        require(rumble_high == 32767, "transient stop failure blacklisted a working controller");
+        strength(25); drain();
+        strength(0); drain();
+        require(rumble_high == 0 && !wdc::rumble::active(), "zero strength did not stop rumble");
+        strength(100); drain();
+        require(rumble_high == 0, "unmuting replayed stale rumble");
+        wdc::rumble::set_motor(0, true); drain();
+        capture = true; drain();
+        require(rumble_high == 0 && !wdc::rumble::active(), "overlay did not stop rumble");
+        capture = false; drain();
+        require(rumble_high == 0, "closing overlay replayed stale rumble");
+        wdc::rumble::set_motor(0, true); drain();
+        SDL_Event focus{};
+        focus.type = SDL_WINDOWEVENT; focus.window.event = SDL_WINDOWEVENT_FOCUS_LOST;
+        wdc::input::handle_event(focus); drain();
+        require(rumble_high == 0 && !wdc::rumble::active(), "focus loss left rumble running");
+        focus.window.event = SDL_WINDOWEVENT_FOCUS_GAINED;
+        wdc::input::handle_event(focus); drain();
+        require(rumble_high == 0, "focus regain replayed stale rumble");
+        wdc::rumble::set_motor(0, true); drain();
+        wdc::input::stop_rumble();
+        require(rumble_high == 0, "shutdown did not stop rumble");
         button(SDL_CONTROLLER_BUTTON_A, true);
         axis(SDL_CONTROLLER_AXIS_LEFTX, 16384);
         axis(SDL_CONTROLLER_AXIS_LEFTY, -32768);
@@ -204,6 +267,8 @@ int main() {
             "simultaneous pedals failed");
         require(wdc::driving::read(1).throttle == 0 && wdc::driving::read(-1).brake == 0,
             "unconnected port received pedals");
+        wdc::rumble::set_motor(0, true); drain();
+        require(rumble_high != 0, "rumble did not resume before detach");
         SDL_JoystickClose(joystick);
         require(SDL_JoystickDetachVirtual(device) == 0, "virtual detach failed");
         drain(); read();
@@ -211,6 +276,21 @@ int main() {
             "unplug left stale gamepad input");
         require(wdc::driving::read(0).throttle == 0 && wdc::driving::read(0).brake == 0,
             "unplug left stale pedal input");
+        require(!wdc::rumble::active(), "unplug left stale rumble request");
+        wdc::rumble::set_motor(0, true);
+        descriptor.Rumble = failed_rumble_callback;
+        const int unsupported = SDL_JoystickAttachVirtualEx(&descriptor);
+        require(unsupported >= 0, "second virtual gamepad unavailable");
+        drain();
+        require(!wdc::rumble::active(), "new controller inherited pending rumble");
+        wdc::rumble::set_motor(0, true); drain();
+        const int failures_before = failed_rumble_calls;
+        drain();
+        require(failed_rumble_calls == failures_before,
+            "unsupported controller was retried after its initial failure");
+        require(failed_rumble_calls == 1, "unsupported controller was never probed");
+        require(SDL_JoystickDetachVirtual(unsupported) == 0, "second virtual detach failed");
+        drain();
         SDL_Quit();
         std::filesystem::remove_all(dir);
         std::cout << "native gamepad input tests passed\n";

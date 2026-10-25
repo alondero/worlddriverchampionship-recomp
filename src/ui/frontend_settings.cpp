@@ -127,7 +127,7 @@ void create_settings() {
     enhancements.set_load_callback(refresh_settings);
     enhancements.set_save_callback(apply_enhancements);
     create_driving_settings();
-    ui::create_general_tab({.has_rumble_strength = false});
+    ui::create_general_tab({.has_rumble_strength = true});
     ui::create_controls_tab();
 }
 }

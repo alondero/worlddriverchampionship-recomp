@@ -1,6 +1,8 @@
 #include "input.h"
 #include "frontend.h"
 #include "game_driving.h"
+#include "rumble.h"
+#include "rumble_output.h"
 #include "recompinput/recompinput.h"
 #include "recompinput/input_events.h"
 #include "recompinput/profiles.h"
@@ -9,6 +11,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <unordered_map>
 
 namespace wdc::input {
 namespace {
@@ -17,6 +20,25 @@ std::recursive_mutex input_mutex;
 // [-32767,32767]; no guest RAM or SDL object crosses the runtime callback.
 std::atomic<uint64_t> snapshot{};
 bool wait_for_release{}; // SDL thread only.
+bool focused = true;
+std::unordered_map<SDL_JoystickID, RumbleOutput> rumble_outputs;
+void apply_rumble(uint16_t strength) {
+    // This is WDC's only SDL rumble sender. Do not call recompinput::update_rumble
+    // alongside it: its smoothing and long duration conflict with the ROM pulses
+    // and the bounded lease. General supplies amplitude and persistence; see the input reference.
+    // Borrow the frontend's open handles. Single-player input merges these same
+    // controllers; do not create a second device manager or open extra handles.
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        const auto id = SDL_JoystickGetDeviceInstanceID(i);
+        auto* controller = recompinput::get_controller_from_joystick_id(id);
+        if (!controller || !SDL_GameControllerGetAttached(controller)) continue;
+        // Match the shared frontend's high-frequency motor routing. Short
+        // leases also stop the device if the host pump stalls or exits abruptly.
+        rumble_outputs[id].apply(strength, [&](uint16_t value) {
+            return SDL_GameControllerRumble(controller, 0, value, value ? 150 : 0);
+        });
+    }
+}
 float pedal_value(const std::string& pedal) {
     using namespace recompinput;
     const auto& config = recompui::config::get_config("driving-controls");
@@ -93,7 +115,23 @@ void configure() {
         "Open or close settings. Pause the race with Start first; settings do not pause the game. Escape or F1 also opens settings.");
 }
 
-void handle_event(SDL_Event& event) { recompinput::process_event(event); }
+void stop_rumble() {
+    std::lock_guard lock(input_mutex);
+    rumble::stop();
+    apply_rumble(0);
+}
+
+void handle_event(SDL_Event& event) {
+    std::lock_guard lock(input_mutex);
+    if (event.type == SDL_WINDOWEVENT) {
+        if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) { focused = false; stop_rumble(); }
+        if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) focused = true;
+    }
+    if (event.type == SDL_CONTROLLERDEVICEADDED || event.type == SDL_CONTROLLERDEVICEREMOVED)
+        stop_rumble(); // Clear pending effects before a handle is closed/reassigned.
+    if (event.type == SDL_CONTROLLERDEVICEREMOVED) rumble_outputs.erase(event.cdevice.which);
+    recompinput::process_event(event);
+}
 
 void sample(bool captured) {
     std::lock_guard lock(input_mutex);
@@ -109,6 +147,12 @@ void sample(bool captured) {
     if (captured) wait_for_release = true;
     else if (wait_for_release && !gameplay_held(pedals)) wait_for_release = false;
     if (captured || wait_for_release) { buttons = 0; x = y = 0; pedals = {}; }
+    const double configured_strength = recompui::config::general::get_rumble_strength();
+    const double strength = std::isfinite(configured_strength) ? std::clamp(configured_strength, 0.0, 100.0) : 0;
+    const bool muted = captured || wait_for_release || !focused || strength == 0;
+    if (muted) rumble::stop();
+    // A concurrent guest Start must not override the SDL thread's capture gate.
+    apply_rumble(!muted && rumble::active() ? uint16_t(strength * 65535.0 / 100.0) : 0);
     driving::publish(0, pedals);
     const auto sx = static_cast<int16_t>(std::lround(x * 32767.0f));
     const auto sy = static_cast<int16_t>(std::lround(y * 32767.0f));

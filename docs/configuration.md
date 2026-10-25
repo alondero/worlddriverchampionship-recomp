@@ -140,9 +140,9 @@ Linux generation currently requires the default filename at the repository root.
   can record raw RDP batches submitted by BOSS.
 
 The player stores runtime data under ignored `build/user-data`. Native
-RecompFrontend profiles persist in `controls.json`; deadzone and background
+RecompFrontend profiles persist in `controls.json`; rumble strength, deadzone and background
 input preferences persist in `general.json`. See [Controllers](controllers.md)
-for defaults and remapping. Rumble and an audio volume control remain future work. The overlay
+for defaults and remapping. An audio volume control remains future work. The overlay
 exposes the configuration options currently supported by the port.
 
 Controller Pak saves are enabled on controller port 1 and stored as a raw
@@ -155,7 +155,9 @@ closed before using the game's Pak manager to delete or repair notes.
 Each successful block write is published through a temporary file and atomic
 replacement before returning to the game, so Escape does not discard pending
 saves. A failed write returns a device error and preserves the previous disk
-and memory image. Additional controller ports and Rumble Paks remain unavailable.
+and memory image. Rumble runs alongside this storage on port 1; its strength
+defaults to 25%, persists in `general.json`, and zero disables it. Additional
+controller ports remain unavailable. See [rumble ownership](reference/input.md#rumble-alongside-saves).
 
 The overlay uses the same RecompFrontend tabbed UI as the Automobili Lamborghini
 peer port. Contexts and staged edits belong to the presentation callback;

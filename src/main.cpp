@@ -76,6 +76,8 @@ public:
 int main(int argc, char** argv) {
 #ifdef WDC_PLAYER
     SDL_SetMainReady();
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
 #ifdef _WIN32
     // Zelda64Recomp and BanjoRecomp avoid DirectSound's queued-audio issues.
     // Respect an explicit SDL_AUDIODRIVER, including test/dummy devices.
@@ -169,6 +171,9 @@ int main(int argc, char** argv) {
                 continue;
             }
             if (event.type == SDL_QUIT) {
+#ifdef WDC_ENABLE_FRONTEND
+                wdc::input::stop_rumble();
+#endif
                 std::fflush(nullptr);
                 std::_Exit(0);
             }
@@ -252,6 +257,9 @@ int main(int argc, char** argv) {
     }).detach();
     recomp::start(cfg);
 #ifdef WDC_PLAYER
+#ifdef WDC_ENABLE_FRONTEND
+    wdc::input::stop_rumble();
+#endif
     wdc::ui::shutdown();
     return 0;
 #else

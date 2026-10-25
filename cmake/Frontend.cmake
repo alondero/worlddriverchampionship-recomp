@@ -58,7 +58,7 @@ elseif(NOT ANDROID)
 endif()
 
 if(BUILD_TESTING)
-    add_executable(wdc_input_tests tests/test_input.cpp src/ui/input.cpp src/game_driving.cpp
+    add_executable(wdc_input_tests tests/test_input.cpp src/ui/input.cpp src/game_driving.cpp src/rumble.cpp
         src/ui/frontend_settings.cpp src/graphics_config.cpp src/game_visibility.cpp)
     add_executable(wdc_frontend_settings_tests tests/test_frontend_settings.cpp
         src/ui/frontend_settings.cpp src/graphics_config.cpp src/game_visibility.cpp)

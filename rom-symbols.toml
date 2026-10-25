@@ -81,6 +81,9 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x8001A280 = 0xA0
 
 [native]
+0x80073BEC = "wdc_motor_init"
+0x80073730 = "wdc_motor_stop"
+0x800738D0 = "wdc_motor_start"
 0x80074C80 = "wdc_ai_set_buffer"
 0x80074D30 = "wdc_ai_set_frequency"
 0x80074E90 = "wdc_ai_get_status"
@@ -100,6 +103,12 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x800779A0 = "wdc_pak_status"
 0x80078940 = "wdc_pak_read"
 0x80079700 = "wdc_pak_write"
+
+# Keep WDC's original effect timers; renew a held motor only on its active path.
+[[hooks]]
+func = "func_8004D450"
+before_vram = 0x8004D760
+text = "{ extern void wdc_rumble_tick(uint8_t*, recomp_context*); wdc_rumble_tick(rdram, ctx); }"
 
 # The input worker can preempt its creator at osStartThread. Defer that call
 # until all eight controller snapshots have been initialized by the ROM loop.
