@@ -71,10 +71,12 @@ if(BUILD_TESTING)
                     worlddriverchampionship.syms.toml N64RecompCLI
                 VERBATIM)
             add_executable(wdc_rumble_rom_tests tests/test_rumble_rom.cpp src/rumble.cpp src/controller_pak.cpp
+                "${N64MR}/ultramodern/src/input.cpp"
                 "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c"
                 "${CMAKE_CURRENT_BINARY_DIR}/motor_reference_funcs.c")
             target_include_directories(wdc_rumble_rom_tests PRIVATE src "${N64MR}/N64Recomp/include"
-                "${N64MR}/ultramodern/include")
+                "${N64MR}/ultramodern/include" "${N64MR}/librecomp/include"
+                "${N64MR}/thirdparty" "${N64MR}/thirdparty/concurrentqueue")
             target_compile_options(wdc_rumble_rom_tests PRIVATE -fno-strict-aliasing)
             target_link_libraries(wdc_rumble_rom_tests PRIVATE Threads::Threads)
             add_test(NAME wdc_rumble_rom COMMAND wdc_rumble_rom_tests

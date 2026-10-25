@@ -9,13 +9,13 @@ for path in sorted(source.glob("*.c")):
     for match in re.finditer(r"RECOMP_FUNC void (\w+)\(.*?(?=RECOMP_FUNC void |\Z)",
                              path.read_text(encoding="utf-8"), re.S):
         functions[match[1]] = match[0]
-pending = ["func_8004D450", "func_8004D79C", "func_8004D9B0", "func_8004D854", "func_8004D968",
+pending = ["func_8004D450", "func_8004D79C", "func_8004D9B0", "func_8004D854", "func_8004D968", "func_80001D70",
            "wdc_pfs_init", "wdc_pfs_allocate_file", "wdc_pfs_find_file",
            "wdc_pfs_read_write_file", "wdc_pfs_num_files", "func_800742D0"]
-# Control gameplay eligibility and the single-threaded SDK's SI queues/count.
+# Control the single-threaded SDK's SI queues/count.
 # File initialization, allocation, note I/O and effect timers remain translated.
 natives = {"wdc_motor_init", "wdc_motor_start", "wdc_motor_stop",
-           "wdc_rumble_tick", "func_80001D4C", "wdc_pak_read", "wdc_pak_write", "wdc_pak_status",
+           "wdc_rumble_tick", "wdc_pak_read", "wdc_pak_write", "wdc_pak_status",
            "osCreateMesgQueue_recomp", "osRecvMesg_recomp", "osSendMesg_recomp", "osGetCount_recomp"}
 seen = set()
 while pending:

@@ -144,11 +144,17 @@ object. A separate unpatched translation of the original motor initializer
 compares its full 104-byte result against ROM-measured stores, using controlled
 Controller Pak probe responses; virtual detection must leave the filesystem
 object entirely unchanged. Reference code and recompiler inputs are generated
-only in the build tree; production generated files are untouched. Its gameplay
-predicate is controlled; the effect engine and filesystem are translated.
-The first successful effect is preceded only by the live input worker's
-startup/status-transition callers (`func_8004D79C`, `func_8004D968`,
-`func_8004D854`), not a direct native Init or unused standalone helper.
+only in the build tree; production generated files are untouched. The effect
+engine, gameplay predicate, callback setter and filesystem are translated.
+The fixture compiles the pinned runtime's real controller-query source with
+the port's device callback. `osContInit` populates the boot status; the worker
+snapshot, query start/result and detector follow the pinned ROM call order.
+The controller type is checked as guest bytes `00 05`. The first query has
+no accessory transition, so detection must leave the motor uninitialized.
+The timer's independent mode gate initializes before the first successful
+effect, using the real predicate and startup callback; game-mode state and
+SI completion delivery are controlled.
+No direct native Init or unused standalone helper enables that first effect.
 The fixture also exercises the Pak menu's delete/count path with motor status
 mask `0x08` clear. The full status/bank reader inventory is in the input reference.
 `wdc_input` observes rumble through SDL's virtual

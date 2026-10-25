@@ -199,17 +199,46 @@ calls for primary token `800AAC98`, channel 0:
 | --- | --- |
 | `func_8004D854` / `8004D904` | On an accessory-present transition, enabled effects (`80092DE4`) permit detection. `8004D900` adds player*104 to primary base `800AAC98`; the delay slot passes player as channel. |
 | `func_8004D450` / `8004D4DC` | The reset flag at `80092DE0` initializes the two primary tokens, beginning with player/channel 0. |
-| `func_8004D450` / `8004D5C8` | The once-per-active-mode gate at `80092DEC` initializes the same primary tokens when gameplay predicates permit it. |
+| `func_8004D450` / `8004D5C8` | With latch `80092DEC` clear and `8007D858` zero, initializes the same primary tokens outside active gameplay: `func_80001D4C(8000C560)` returns zero, or `8007D794`/`8007DF44` is nonzero. It sets the latch; active gameplay clears it at `8004D608`. |
 
-The fixture now runs the live worker sequence: original startup
-`func_8004D79C`, previous-status capture `func_8004D968`, a controlled
-`osContGetQuery` result advertising the real Controller Pak, then
-`func_8004D854` and the original effect request/timer. The first successful
-motor start occurs before any direct native Init call or standalone helper
-call. It pins the worker JALs, the live detector's init call and its internal
-queue construction. This is ROM-backed reachability evidence, not a full race
-playthrough. The SDK initialization gate is retained; it is reached in the
-production path.
+The worker snapshots status via `func_8004D968` at `8002C99C`, before
+`osContStartQuery` at `8002C9A4`, `osRecvMesg` at `8002C9B4`,
+`osContGetQuery` at `8002C9C0`, the detector at `8002C9CC`, and the timer at
+`8002C9D4`. The snapshot consists of two N64-endian 32-bit words at
+`800DF480 + 4*player`, each assigned `(status[4*player+2] & 1)` by
+`8004D97C` through `8004D990`; status starts at `800AAAD0`.
+
+Both arrays initially lie in BSS, cleared over `[800A2BE0, 800E3850)` by
+the entry loop at `80000400` through `80000420`. The first effect initializer
+`func_8004D79C` also clears both snapshot words at `8004D808`, before the
+worker starts (`8002CCB8`). However, a zero snapshot at entry does **not**
+imply a first-query transition: startup `func_80001A9C` calls `osContInit`
+at `80001C58` with status pointer `800AAAD0` constructed at `80001C4C/50`.
+Main startup calls that setup at `80002788`, before installing callback
+`8004E8BC` at `800027A0/A4/A8`; that callback calls `func_8004DE04` at
+`8004E8E8`, which constructs the worker through `8002CB0C` at `8004E128`.
+Thus the first worker snapshot already captures port 0 as present. An
+unchanged first query produces no transition and the detector skips Init.
+
+The fixture compiles the pinned runtime's actual `ultramodern/src/input.cpp`
+and configures its device callback to `wdc::pak::device_info`. Real
+`osContInit`, `osContStartQuery` and `osContGetQuery` produce the status:
+controller type `0005` (guest bytes `00 05`), accessory-present byte 1, error
+byte 0; other ports report error 8. Only SI completion delivery is replaced
+with a synchronous counter. No status bytes are manufactured. After startup,
+snapshot and query, the fixture asserts that the detector did **not** initialize.
+A timer tick with startup callback `8004E8BC` then reaches the separate
+`8004D5C8` Init gate. The real `func_80001D4C` compares the current callback
+at `8007D848` to its argument; it returns false because startup is not gameplay
+callback `8000C560`. The fixture retains that translated predicate and installs
+callbacks through the real setter `func_80001D70`. Installing the gameplay
+callback and requesting an effect
+produces the first successful Start before any direct native Init call or
+standalone helper. The test pins the boot and worker calls, BSS clear, both
+live init calls, and queue construction: `lui s7,800B` at `8004D884`,
+`addiu s7,s7,AAB0` at `8004D8A0`, then `move a0,s7` at `8004D8E0`.
+This is ROM-backed reachability evidence with controlled game-mode state,
+not a full boot/race playthrough. The SDK initialization gate is retained.
 
 The primary array is also passed to
 menu file operations, so the port does not assume global thread exclusivity.
