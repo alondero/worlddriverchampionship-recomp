@@ -221,7 +221,16 @@ Thus the first worker snapshot already captures port 0 as present. An
 unchanged first query produces no transition and the detector skips Init.
 
 The fixture compiles the pinned runtime's actual `ultramodern/src/input.cpp`
-and configures its device callback to `wdc::pak::device_info`. Real
+and configures its device callback to `wdc::pak::device_info`. This is the
+production runtime implementation, not a translated ROM query body:
+generated callers use `osContInit_recomp`, `osContStartQuery_recomp` and
+`osContGetQuery_recomp`; `librecomp/src/cont.cpp` forwards those to the same
+`ultramodern/src/input.cpp` functions compiled into the fixture. `src/main.cpp`
+assigns the production device callback; `recomp::start` forwards it through
+`ultramodern::set_callbacks` to `ultramodern::input::set_callbacks`.
+Likewise, production `osContGetReadData_recomp` forwards pad reads to that
+runtime implementation, whose `get_input` callback is `wdc::input::read` in
+the frontend-enabled player. Real
 `osContInit`, `osContStartQuery` and `osContGetQuery` produce the status:
 controller type `0005` (guest bytes `00 05`), accessory-present byte 1, error
 byte 0; other ports report error 8. Only SI completion delivery is replaced
@@ -239,6 +248,38 @@ live init calls, and queue construction: `lui s7,800B` at `8004D884`,
 `addiu s7,s7,AAB0` at `8004D8A0`, then `move a0,s7` at `8004D8E0`.
 This is ROM-backed reachability evidence with controlled game-mode state,
 not a full boot/race playthrough. The SDK initialization gate is retained.
+
+The fixture's game-mode/effect inputs are inventoried below. Every address
+uses N64 byte order. The four gate words are **observed**, not overwritten:
+the test checks their initialized-image values immediately after loading the
+ROM and again after its controller setup, callback installation, effect
+initializer, snapshot, query and detector, before the first timer tick.
+These are selected startup operations; the fixture does not execute all of
+`func_80001A9C`/`func_8004DE04` or schedule guest threads. The evidence is the
+ROM's initial image plus preservation through those executed operations,
+not a claim that every later game mode leaves the gates open.
+
+| Input (width) | Initial-image evidence / startup writer | Fixture control and observed use |
+| --- | --- | --- |
+| `8007D858` (u32) | Zero at ROM `07E458`. The fixture's startup operations preserve it. | No write before first Start. Timer loads it at `8004D5FC/60C` and skips effects when nonzero (`8004D610`). Later pause coverage deliberately writes 1, then restores the observed zero; the ROM's counter writers increment at `80001CB4` and decrement at `80001CF4`. |
+| `8007D794` (u32) | Zero at ROM `07E394`, preserved through fixture startup. | Never overwritten; mode checks read it at `8004D52C` and `8004D628`. |
+| `8007DF44` (u32) | Zero at ROM `07EB44`, preserved through fixture startup. | Never overwritten; mode checks read it at `8004D53C` and `8004D638`. |
+| `800923E8` (u32) | Zero at ROM `092FE8`, preserved through fixture startup. | Never overwritten. The request API `func_8004D9B0` loads it at `8004D9E4`; `8004D9F0` rejects the request when nonzero. The test pins the load's base, load and branch. Its debug use elsewhere does not remove this request gate. |
+| `8007D848` (u32 callback) | Zero at ROM `07E448`; setter `func_80001D70` writes it at `80001D74`. Startup installs `8004E8BC` via `800027A4`. | Calls the real setter with startup callback, then deliberately selects gameplay callback `8000C560` for pulse coverage. `func_80001D4C` compares this word at `80001D50`. |
+| `80092DE0` (u8 reset) | Zero byte at ROM `0939E0`; asserted before first timer tick. | No direct fixture write; translated code owns reset state. |
+| `80092DE4` (u8 enabled) | Zero byte at ROM `0939E4`; first `func_8004D79C` sets it to 1 at `8004D83C`. | Real initializer called before query; no direct fixture write. |
+| `80092DEC` (u32 mode latch) | Zero at ROM `0939EC`; asserted before first tick. | Timer sets it to 1 at `8004D604` after Init, then clears it during gameplay at `8004D608`; no direct fixture write. |
+| `80092DF0` (u32 initialized) | Zero at ROM `0939F0`; first initializer writes 1 at `8004D848`. | Real initializer controls first-time enable/snapshot reset; no direct fixture write. |
+
+After loading the ROM image, all remaining explicit guest writes in this
+fixture are ABI/test storage:
+the stack at `807FF000`, note name/extension/number at `80400000/+20/+40`,
+and note payload at `80401000`. Request arguments select player 0, delay,
+initial motor state, on/off ticks and total ticks through `func_8004D9B0`.
+The translated engine writes its own presence/snapshot/timing fields; the
+fixture never synthesizes them. The differential physical-probe stubs supply
+`FE` transport responses only; the real filesystem initializer restores the
+primary object before virtual-motor coverage.
 
 The primary array is also passed to
 menu file operations, so the port does not assume global thread exclusivity.

@@ -1,4 +1,4 @@
-// Real translated detection and pulse timing, with controlled game-mode gates.
+// Real translated detection and pulse timing, with observed initial gate words.
 #undef NDEBUG
 #include <cassert>
 #include <chrono>
@@ -80,6 +80,18 @@ int main(int argc, char** argv) {
     const gpr name = static_cast<int32_t>(0x80400000), ext = name + 32, number = name + 64;
     const gpr buffer = name + 0x1000;
     constexpr int note_size = 0x100;
+    // Initialized ROM data, not BSS or fixture-selected mode values. Observe
+    // again after controller/effect startup to catch any intervening writer.
+    auto check_boot_gate_words = [&] {
+        for (uint32_t address : {0x8007D858u, 0x8007D794u, 0x8007DF44u, 0x800923E8u})
+            assert(MEM_W(0, static_cast<int32_t>(address)) == 0);
+    };
+    check_boot_gate_words();
+    assert(MEM_W(0, static_cast<int32_t>(0x8007D848)) == 0);
+    assert(MEM_BU(0, static_cast<int32_t>(0x80092DE0)) == 0);
+    assert(MEM_BU(0, static_cast<int32_t>(0x80092DE4)) == 0);
+    assert(MEM_W(0, static_cast<int32_t>(0x80092DEC)) == 0);
+    assert(MEM_W(0, static_cast<int32_t>(0x80092DF0)) == 0);
     wdc::pak::configure(path);
     using namespace ultramodern::input;
     callbacks_t callbacks{};
@@ -146,6 +158,9 @@ int main(int argc, char** argv) {
     wdc_pfs_init(rdram, &ctx);
     assert(ctx.r2 == 0 && object_bytes() == filesystem);
     func_8004D79C(rdram, &ctx); // Original effect initializer enables the worker.
+    assert(MEM_BU(0, static_cast<int32_t>(0x80092DE4)) == 1);
+    assert(MEM_W(0, static_cast<int32_t>(0x80092DF0)) == 1);
+    assert(uint32_t(MEM_W(0, static_cast<int32_t>(0x8007D848))) == 0x8004E8BCu);
     // Execute the boot/query sequence used by the live worker.
     // No native motor init or standalone 4DCA0 helper has run in this process.
     jal(0x8002CCB8, 0x8004D79C);
@@ -154,6 +169,10 @@ int main(int argc, char** argv) {
     jal(0x8002C9C0, 0x80073F54); jal(0x8002C9CC, 0x8004D854);
     jal(0x8002C9D4, 0x8004D450); jal(0x8004D904, 0x80073BEC);
     jal(0x8004D5C8, 0x80073BEC);
+    // 800923E8 is also the request API's inhibit flag, even though other game
+    // subsystems use it for debug behavior. A nonzero value skips the request.
+    instruction(0x8004D9E0, 0x3C0C8009); instruction(0x8004D9E4, 0x8D8C23E8);
+    instruction(0x8004D9F0, 0x15800017);
     // Detector queue construction: lui/addiu write s7, then move a0,s7.
     instruction(0x8004D884, 0x3C17800B);
     instruction(0x8004D8A0, 0x26F7AAB0); instruction(0x8004D8E0, 0x02E02025);
@@ -174,10 +193,7 @@ int main(int argc, char** argv) {
     // Before active gameplay, the timer's separate mode gate reaches Init at
     // 8004D5C8 even without a status transition. The real predicate compares
     // the current callback (8004E8BC at startup) with gameplay callback 8000C560.
-    MEM_W(0, static_cast<int32_t>(0x8007D858)) = 0;
-    MEM_W(0, static_cast<int32_t>(0x8007D794)) = 0;
-    MEM_W(0, static_cast<int32_t>(0x8007DF44)) = 0;
-    MEM_W(0, static_cast<int32_t>(0x800923E8)) = 0;
+    check_boot_gate_words(); // After startup/query; no fixture write to these words.
     assert(MEM_BU(0, static_cast<int32_t>(0x80092DE0)) == 0);
     assert(MEM_W(0, static_cast<int32_t>(0x80092DEC)) == 0);
     func_8004D450(rdram, &ctx);
@@ -252,7 +268,7 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_for(std::chrono::milliseconds(180));
     func_8004D450(rdram, &ctx);
     assert(!wdc::rumble::active()); // Gated workers cannot renew a held motor.
-    MEM_W(0, static_cast<int32_t>(0x8007D858)) = 0;
+    MEM_W(0, static_cast<int32_t>(0x8007D858)) = 0; // Restore the observed initial value.
     func_8004D450(rdram, &ctx);
     assert(wdc::rumble::active());
     func_8004D79C(rdram, &ctx); // Resetting an effect must cancel host feedback.
