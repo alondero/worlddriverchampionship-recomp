@@ -246,14 +246,18 @@ produces the first successful Start before any direct native Init call or
 standalone helper. The test pins the boot and worker calls, BSS clear, both
 live init calls, and queue construction: `lui s7,800B` at `8004D884`,
 `addiu s7,s7,AAB0` at `8004D8A0`, then `move a0,s7` at `8004D8E0`.
-This is ROM-backed reachability evidence with controlled game-mode state,
-not a full boot/race playthrough. The SDK initialization gate is retained.
+This is ROM-backed reachability evidence with observed boot-time gate words.
+Callback selection and the later pause coverage are controlled, as inventoried
+below. It is not a full boot/race playthrough. The SDK initialization gate is retained.
 
 The fixture's game-mode/effect inputs are inventoried below. Every address
-uses N64 byte order. The four gate words are **observed**, not overwritten:
+uses N64 byte order. Before the first Init/Start, the four gate words are
+observed without fixture writes:
 the test checks their initialized-image values immediately after loading the
 ROM and again after its controller setup, callback installation, effect
 initializer, snapshot, query and detector, before the first timer tick.
+After the first Start, pause coverage deliberately writes 1 and then 0 to
+`8007D858`, asserting that it is still 1 before restoring 0.
 These are selected startup operations; the fixture does not execute all of
 `func_80001A9C`/`func_8004DE04` or schedule guest threads. The evidence is the
 ROM's initial image plus preservation through those executed operations,
@@ -271,8 +275,8 @@ not a claim that every later game mode leaves the gates open.
 | `80092DEC` (u32 mode latch) | Zero at ROM `0939EC`; asserted before first tick. | Timer sets it to 1 at `8004D604` after Init, then clears it during gameplay at `8004D608`; no direct fixture write. |
 | `80092DF0` (u32 initialized) | Zero at ROM `0939F0`; first initializer writes 1 at `8004D848`. | Real initializer controls first-time enable/snapshot reset; no direct fixture write. |
 
-After loading the ROM image, all remaining explicit guest writes in this
-fixture are ABI/test storage:
+Besides the later pause-gate writes to `8007D858` inventoried above, explicit
+guest writes after loading the ROM image are ABI/test storage:
 the stack at `807FF000`, note name/extension/number at `80400000/+20/+40`,
 and note payload at `80401000`. Request arguments select player 0, delay,
 initial motor state, on/off ticks and total ticks through `func_8004D9B0`.

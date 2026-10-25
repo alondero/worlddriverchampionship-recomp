@@ -152,12 +152,13 @@ snapshot, query start/result and detector follow the pinned ROM call order.
 The controller type is checked as guest bytes `00 05`. The first query has
 no accessory transition, so detection must leave the motor uninitialized.
 The timer's independent mode gate initializes before the first successful
-effect, using the real predicate and startup callback; game-mode state and
-SI completion delivery are controlled.
+effect, using the real predicate and startup callback. Callback selection,
+later pause coverage and SI completion delivery are controlled.
 The four initial mode/request gate words are asserted from the loaded ROM
-image and again after the selected startup/query sequence, without clearing
-them in the fixture. The input reference inventories these inputs, their ROM
-offsets, writers and later deliberate pause/gameplay controls.
+image and again after the selected startup/query sequence, with no fixture
+writes to those words before the first Init/Start. Later pause coverage writes
+1 and then 0 to `8007D858`, asserting 1 before restoring 0. The input reference
+inventories the observed values, ROM offsets, writers and deliberate controls.
 No direct native Init or unused standalone helper enables that first effect.
 The fixture also exercises the Pak menu's delete/count path with motor status
 mask `0x08` clear. The full status/bank reader inventory is in the input reference.

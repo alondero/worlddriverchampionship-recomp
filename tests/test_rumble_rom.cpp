@@ -268,6 +268,7 @@ int main(int argc, char** argv) {
     std::this_thread::sleep_for(std::chrono::milliseconds(180));
     func_8004D450(rdram, &ctx);
     assert(!wdc::rumble::active()); // Gated workers cannot renew a held motor.
+    assert(MEM_W(0, static_cast<int32_t>(0x8007D858)) == 1);
     MEM_W(0, static_cast<int32_t>(0x8007D858)) = 0; // Restore the observed initial value.
     func_8004D450(rdram, &ctx);
     assert(wdc::rumble::active());
