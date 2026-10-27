@@ -189,9 +189,11 @@ fields give 80 presentation cases. Reference dimensions are independent ROM/VI
 measurements rather than fields read by the camera hook. All nine descriptors'
 logical/buffer dimensions are checked before layout, and the boot camera runs.
 A 96-case layout/variant/player sweep selects only modes 1, 3, 6 and 8. Seven
-malformed size pairs at four output widths exercise 28 fallback cases: ROM aspect
-still receives the output width scale, preserving projection and culling relative
-to a valid camera at that size. The first malformed state warns once per process.
+malformed size pairs at four output widths and pixel corrections 1/2 exercise
+56 fallback cases. Relative to the valid correction-1 camera at that size,
+the expected cull extent doubles and horizontal matrix term halves for correction
+2; vertical/depth terms stay fixed. This rejects substituting plain 4:3 for the
+ROM aspect. The first malformed state warns once per process.
 The renderer reference records the decoded VI sizes, distinct render/presentation
 aspects and mode 3's existing four-row sampling estimate.
 Missing/indirect calls fail extraction.

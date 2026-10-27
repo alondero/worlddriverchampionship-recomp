@@ -96,15 +96,21 @@ domain; this is not a global unreachability claim about other entrypoints.
 The game thread reads eight aligned bytes before task submission, retaining no
 pointer. Invalid guest ranges still fail before access. Dimensions outside
 1..4096 instead use the ROM-computed aspect **times the output width scale**,
-preserving the pre-PR widening behavior. The renderer applies the width scale
-independently, so leaving the ROM aspect unscaled would stretch a narrow camera.
+preserving the pre-PR widening behavior. Omitting the scale would leave the ROM's
+original horizontal field of view while the renderer expands the output width,
+making cars too wide.
 Tests cover seven zero, negative, oversized and non-size pairs at four output
-widths (28 fallback cases), checking projection and culling against the valid
-ROM camera at the same output size. One warning per process avoids frame-by-frame
-log flooding; later malformed states are intentionally silent.
+widths with pixel corrections 1 and 2 (56 fallback cases). The reference camera
+uses correction 1 at the same output size; the expected cull extent is multiplied
+by the tested pixel correction and the horizontal matrix term divided by it.
+Vertical and depth terms must stay unchanged. This checks the ROM's pixel
+correction as well as output scaling and rejects a plain 4:3 fallback.
+One warning per process avoids frame-by-frame log flooding; later malformed
+states are intentionally silent.
 
-The camera can reuse an already computed ROM register value. The HUD packet
-adapter retains its existing fail-fast policy before guest-memory writes: an
+Before this hook, the ROM computes `f0` as viewport width/height times its pixel
+correction. The fallback multiplies that aspect by the output width scale.
+The HUD packet adapter retains its existing fail-fast policy before guest-memory writes: an
 invalid buffer width breaks the packet's coordinate/centre invariant, so it
 stops before modifying the packet. Both hooks retain pointer-range validation.
 Buffer dimensions at `+8/+12` are deliberately excluded: modes 6 and 8 use
@@ -188,7 +194,7 @@ normal/Hi-Rez racing, menus and cinematics at 4:3, 16:9, ultrawide and narrow
 output. Projected width/height after VI sampling and the CPU cull extent must
 match the actual presenter viewport and scene fraction in each mode, including
 both split directions. The two VI fields give 80 presentation cases. The nine
-initialized descriptors, selector sweep and 28 malformed-size/output combinations
+initialized descriptors, selector sweep and 56 malformed-size/output/pixel-correction combinations
 check initialization, mode selection and fallback.
 Only framebuffer allocation is replaced in display initialization; descriptor
 construction and copies run translated code. This is deterministic projection

@@ -98,8 +98,8 @@ int main(int argc, char** argv) {
     recomp_context init{}; init.f_odd = &init.f0.u32h;
     init.r29 = int32_t(0x807FF000);
     func_800006E0(rdram, &init);
-    // Verify initialization before any scene-layout call. These stores belong
-    // to 800006E0 (80000748/80000768), not to the later layout builder.
+    // Verify the entire table immediately after 800006E0, before scene layout.
+    // The stores at 80000748/80000768 are examples for boot-default mode 0.
     constexpr int32_t boot_descriptor = int32_t(0x800AAE38);
     constexpr std::array initialized_displays{
         std::array{320, 240, 320, 240}, std::array{320, 240, 320, 240},
@@ -132,25 +132,33 @@ int main(int argc, char** argv) {
                 selected[offset / 0x74] = true;
             }
     assert((selected == std::array{false, true, false, true, false, false, true, false, true}));
-    // Malformed dimensions must preserve the pre-PR behavior: ROM aspect times
-    // the output scale. Otherwise the renderer stretches an unwidened camera.
-    for (int window_width : {720, 960, 1280, 2560})
-    for (const auto size : {std::array{0, 240}, std::array{320, 0},
-                            std::array{-1, 240}, std::array{320, -1},
-                            std::array{4097, 240}, std::array{320, 4097},
-                            std::array{0x3F800000, 300}}) {
-        MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
-        const float expected_extent = project(window_width, 720, 240, 1);
-        const auto expected_matrix = matrix;
-        MEM_W(0, descriptor) = size[0]; MEM_W(4, descriptor) = size[1];
-        const float extent = run_camera(320, 240);
-        if (std::abs(extent - expected_extent) >= 1e-5f) {
-            std::cerr << "fallback size " << size[0] << 'x' << size[1]
-                      << ", window " << window_width << ": cull extent " << extent
-                      << ", expected " << expected_extent << '\n';
-            return 1;
+    // Preserve ROM aspect times output scale. Pixel correction 2 distinguishes
+    // this contract from substituting a fixed 4:3 aspect (modes 3/6 use 2).
+    for (int window_width : {720, 960, 1280, 2560}) {
+        for (float pixel_aspect : {1.0f, 2.0f}) {
+            for (const auto size : {std::array{0, 240}, std::array{320, 0},
+                                    std::array{-1, 240}, std::array{320, -1},
+                                    std::array{4097, 240}, std::array{320, 4097},
+                                    std::array{0x3F800000, 300}}) {
+                MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
+                const float expected_extent = project(window_width, 720, 240, 1) * pixel_aspect;
+                auto expected_matrix = matrix;
+                expected_matrix[0] /= pixel_aspect;
+                // Let the ROM compute f0 with this pixel correction before the
+                // hook sees malformed dimensions. Scale only horizontal terms
+                // in the valid 4:3-camera reference; vertical/depth stay fixed.
+                put(descriptor, 0x14, pixel_aspect);
+                MEM_W(0, descriptor) = size[0]; MEM_W(4, descriptor) = size[1];
+                const float extent = run_camera(320, 240);
+                if (!std::isfinite(extent) || std::abs(extent - expected_extent) >= 1e-5f) {
+                    std::cerr << "fallback size " << size[0] << 'x' << size[1]
+                              << ", window " << window_width << ", pixel correction " << pixel_aspect
+                              << ": cull extent " << extent << ", expected " << expected_extent << '\n';
+                    return 1;
+                }
+                for (int i = 0; i < 16; ++i) assert(std::abs(matrix[i] - expected_matrix[i]) < 1e-5f);
+            }
         }
-        for (int i = 0; i < 16; ++i) assert(std::abs(matrix[i] - expected_matrix[i]) < 1e-5f);
     }
     // Independent ROM/VI measurements: expected values must not be derived
     // from the same logical-dimension fields the production hook consumes.
