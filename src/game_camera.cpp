@@ -6,26 +6,43 @@
 #include <atomic>
 #include <cmath>
 
+namespace {
+constexpr float original_aspect = 4.0f / 3.0f;
+constexpr int32_t max_display_dimension = 4096;
+}
+
 namespace wdc::camera {
 namespace { std::atomic<float> scale{1.0f}; }
 void set_output_size(int width, int height) {
     if (width > 0 && height > 0)
-        scale = std::max(1.0f, float(width) / float(height) / (4.0f / 3.0f));
+        scale = std::max(1.0f, float(width) / float(height) / original_aspect);
     else
         scale = 1.0f;
 }
 float width_scale() { return scale.load(); }
 }
 
-// USA func_80011D54, before 0x80011DC4: f0 is the float32 viewport
-// width/height times the display descriptor's pixel-aspect correction.
-// This game-thread register hook runs before the ROM stores camera+0x7C's
-// horizontal culling extent and passes the aspect to guPerspectiveF. It
-// retains the vertical FOV, viewport and guest VI/simulation timing. No guest
-// pointer is read here. RDRAM remains word-swapped and owned by the runtime.
-// Remove when the guest builds a widescreen camera itself; see renderer docs.
-extern "C" void wdc_widen_camera(uint8_t*, recomp_context* ctx) {
-    ctx->f0.fl *= wdc::camera::width_scale();
+// USA func_80011D54, before 0x80011DC4: f8 is float32 viewport width/height;
+// t6 points at the active ROM-owned display descriptor (loaded from 8007D75C).
+// Its s32 +0/+4 are logical width/height in pixels. Read 8 aligned bytes of
+// runtime-owned, word-swapped RDRAM on the game thread before submission;
+// retain no pointer. Invalid pointers fail before access; invalid dimensions
+// retain ROM aspect times output scale and warn once. The ROM initializes before
+// layout -> publication -> camera; see renderer docs for that ordering and the
+// RT64 presentation calculation. Remove with a guest-owned output-aspect camera.
+extern "C" void wdc_widen_camera(uint8_t* rdram, recomp_context* ctx) {
+    const gpr descriptor = ctx->r14;
+    wdc_require_guest_range(descriptor, 8, 4);
+    const int32_t width = MEM_W(0, descriptor), height = MEM_W(4, descriptor);
+    if (width <= 0 || width > max_display_dimension || height <= 0 || height > max_display_dimension) {
+        static std::atomic_flag warned;
+        if (!warned.test_and_set())
+            std::fprintf(stderr, "[wdc] invalid camera display size: %d x %d; scaling ROM aspect\n", width, height);
+        ctx->f0.fl *= wdc::camera::width_scale();
+        return;
+    }
+    ctx->f0.fl = ctx->f8.fl * (float(height) / float(width)) *
+        original_aspect * wdc::camera::width_scale();
 }
 
 // USA func_8000FC18, before 0x8000FEF0: s4/s5 hold the 8- or 16-pixel
@@ -57,7 +74,7 @@ extern "C" void wdc_align_hud_triangle(uint8_t* rdram, recomp_context* ctx) {
     wdc_require_guest_range(descriptor, 12, 4);
     wdc_require_guest_range(ctx->r2, 0x40, 4);
     const uint32_t width = uint32_t(MEM_W(8, descriptor));
-    if (width == 0 || width > 4096) {
+    if (width == 0 || width > max_display_dimension) {
         std::fprintf(stderr, "[wdc] invalid HUD framebuffer width: %u\n", width);
         std::abort();
     }

@@ -66,16 +66,98 @@ emulator comparison was performed.
 The USA ROM camera builder `func_80011D54` computes viewport width/height
 times the active display descriptor's pixel-aspect correction (`+0x14`).
 At `0x80011DC4`, `f0` supplies both camera `+0x7C`'s horizontal visibility
-extent and `guPerspectiveF`'s aspect argument. The register-only hook in
-`src/game_camera.cpp` multiplies this by output aspect / (4/3), preserving
-vertical FOV, depth, viewport partitions and CPU/RSP projection agreement.
+extent and `guPerspectiveF`'s aspect argument. The hook in `src/game_camera.cpp`
+maps the viewport's fraction of the full logical picture to the output aspect,
+preserving vertical FOV, depth, viewport partitions and CPU/RSP projection
+agreement. It computes `viewport_aspect / logical_picture_aspect * output_aspect`.
+The ROM's pixel correction alone is insufficient: cinematic modes assume a
+letterboxed VI, while the pinned RT64 presenter fills the output with the sampled
+picture. Keeping that assumption squeezed cars to half their intended width,
+including at Original 4:3.
+
+At this hook, `f8` holds viewport width/height and `t6` already holds the active
+descriptor loaded from `0x8007D75C`. The hook reads its signed 32-bit logical
+width/height at `+0/+4`, in pixels, through word-swapped RDRAM helpers. These are
+ROM-owned values initialized by `func_800006E0`, which populates the entire
+nine-descriptor table (modes 0..8) before any scene layout. For example,
+instructions `0x80000748` and `0x80000768` store 320 and 240 in the boot-default
+mode 0 at `0x800AAE38`.
+The layout builder `func_8000FC18` selects a descriptor and reads its sizes at
+`0x8000FE48`/`0x8000FE54`; it does not initialize them. Both frame paths,
+`func_8000C560` and `func_8004E950`, call layout, publish the selected descriptor
+through `func_800010A0`, then build the scene camera. Display initialization must
+precede those frame paths. The ROM regression checks all nine descriptors'
+logical and buffer dimensions immediately after initialization, before layout,
+and executes the boot-default camera successfully. A 96-case sweep of layouts
+0..7, variants 0..3 and player values 0..2 selects only modes 1, 3, 6 and 8.
+Descriptors 2, 4, 5 and 7 are initialized but not selected by that builder in this
+domain; this is not a global unreachability claim about other entrypoints.
+
+The game thread reads eight aligned bytes before task submission, retaining no
+pointer. Invalid guest ranges still fail before access. Dimensions outside
+1..4096 instead use the ROM-computed aspect **times the output width scale**,
+preserving the pre-PR widening behavior. Omitting the scale would leave the ROM's
+original horizontal field of view while the renderer expands the output width,
+making cars too wide.
+Tests cover seven zero, negative, oversized and non-size pairs at four output
+widths with pixel corrections 1 and 2 (56 fallback cases). The reference camera
+uses correction 1 at the same output size; the expected cull extent is multiplied
+by the tested pixel correction and the horizontal matrix term divided by it.
+Vertical and depth terms must stay unchanged. This checks the ROM's pixel
+correction as well as output scaling and rejects a plain 4:3 fallback.
+One warning per process avoids frame-by-frame log flooding; later malformed
+states are intentionally silent.
+
+Before this hook, the ROM computes `f0` as viewport width/height times its pixel
+correction. The fallback multiplies that aspect by the output width scale.
+The HUD packet adapter retains its existing fail-fast policy before guest-memory writes: an
+invalid buffer width breaks the packet's coordinate/centre invariant, so it
+stops before modifying the packet. Both hooks retain pointer-range validation.
+Buffer dimensions at `+8/+12` are deliberately excluded: modes 6 and 8 use
+320x240/640x240 logical pictures with 320x480/640x480 buffers. The in-race pause
+menu's NORM / H-RES toggle switches the layout request/current words at
+`0x8007E57C`/`0x8007E578` from 0 to 1: normal mode 1 becomes mode 6. The
+independent descriptor-variant word `0x8007E5B8` remains 0 in that live check.
+Mode 3, used by menus, has a 320x480 logical picture and pixel correction 2.
+Modes 6 and 8 now use the same physical output proportions as normal racing;
+inset cinematic viewports and split-screen partitions retain their relative bounds.
 The CPU visibility code at `0x80021A18` consumes the same camera extent; the
 matrix at `0x800B2A40` also drives point clipping and screen projection.
 
 SDL's main thread publishes the window width/height ratio atomically. The renderer
-uses the same factor with RT64 Manual aspect, multiplying its VI-derived
-framebuffer aspect rather than treating 320x480 menu pixels as square. RT64's
-rectangle path preserves HUD/menu proportions, while raw world
+uses the same width factor `S` with RT64 Manual aspect, setting its render target
+to `source * S`, where `source = decodeVI().fbSize().x / fbSize().y`.
+This target describes framebuffer scaling, not the final physical picture.
+RT64's workload divides target by source, yielding horizontal/vertical resolution
+scales `(M * S, M)` for resolution multiplier `M`. WDC disables
+`presentation.removeBlackBorders`, so the pinned `VIRenderer::getViewportAndScissor`
+uses a fixed **320x240** TV canvas, not `fbSize()`, and VI view/crop rectangles
+are the unit rectangle. The final physical aspect is therefore `(4/3) * S` in
+every mode. This is the camera hook's output aspect even when the VI source is
+not 4:3. The presenter still samples `fbSize() * resolutionScale` from the texture.
+
+The ROM-backed test compiles the pinned RT64 VI decoder and extracts the real
+presenter coordinate transforms, replacing only GPU value/size interfaces.
+For field 0, the ROM-initialized registers produce these decoded values (all
+have `VI_H_START = 0x006C02EC`; both fields are tested):
+
+| Mode | VI width | VI X/Y scale | VI V start | RT64 `fbSize()` | Source aspect |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 320 | `0x200` / `0x400` | `0x002501FF` | 320x240 | 1.333333 |
+| 3 | 320 | `0x200` / `0x02000800` | `0x002301FD` | 320x476 | 0.672269 |
+| 6 | 320 | `0x08000200` / `0x02000800` | `0x009A0188` | 320x240 | 1.333333 |
+| 8 | 640 | `0x400` / `0x02000800` | `0x009A0188` | 640x240 | 2.666667 |
+
+At 16:9 the render targets are approximately 1.777778, 0.896358, 1.777778 and
+3.555556; the production presenter returns a physical 16:9 viewport for all four.
+These are repeatable decoder/presenter measurements from ROM-initialized VI
+state, not a new live capture. Mode 3 retains RT64's existing four-row sampling
+estimate (476 of 480 logical lines); the test separately checks its 476/480
+displayed width/height ratio rather than claiming exact square proportions.
+Expected logical and sampled dimensions are independently specified in the test,
+so reading buffer dimensions in place of logical dimensions fails it.
+
+RT64's rectangle path preserves normal HUD/menu proportions, while raw world
 triangles have already been widened by the ROM. Narrow windows retain 4:3.
 Non-positive output dimensions reset the published scale to the original TV
 aspect, including when the previous output was wide.
@@ -84,9 +166,9 @@ The scene-layout builder `func_8000FC18` assigns 8- or 16-pixel TV overscan
 insets to `s4/s5`. The hook before `0x8000FEF0` clears those registers before
 the ROM builds scene rectangles through `func_8000E148`, so projection,
 viewport and scissor expand together. Internal split-screen gaps and cinematic
-layouts remain. Neither hook reads guest pointers or changes allocation sizes,
-guest VI state or timing. Both run on the game thread, before display-list
-submission; generator input in `rom-symbols.toml` owns their exact locations.
+layouts remain. The layout hook reads no guest pointers; neither hook changes
+allocation sizes, guest VI state or timing. Both run on the game thread, before
+display-list submission; generator input in `rom-symbols.toml` owns their exact locations.
 Remove them when a guest camera/layout implementation replaces these ROM paths.
 
 Patch 0015 fixes a general raw-RDP mismatch in the pinned RT64 renderer:
@@ -104,9 +186,25 @@ ROM constants, checking horizontal visibility, preserved vertical/depth terms,
 16:9 and ultrawide, non-square-pixel modes, narrow-window fallback and invalid
 output resetting a previously wide projection/cull extent. Only the
 display-list allocator is replaced in the projection closure. A layout fixture
-also runs the real scene-rectangle arithmetic with unrelated mode/orientation
+also runs the real scene-rectangle arithmetic with unrelated heap/orientation
 effects stubbed, checking border removal and both split directions. CTest
-limits the translated camera/layout execution to 30 seconds.
+limits the translated camera/layout execution to 30 seconds. The test also runs
+the ROM's real display initializer, descriptor lookup and mode selector, covering
+normal/Hi-Rez racing, menus and cinematics at 4:3, 16:9, ultrawide and narrow
+output. Projected width/height after VI sampling and the CPU cull extent must
+match the actual presenter viewport and scene fraction in each mode, including
+both split directions. The two VI fields give 80 presentation cases. The nine
+initialized descriptors, selector sweep and 56 malformed-size/output/pixel-correction combinations
+check initialization, mode selection and fallback.
+Only framebuffer allocation is replaced in display initialization; descriptor
+construction and copies run translated code. This is deterministic projection
+coverage, not visual acceptance of every scene or display transition.
+Windows/D3D12 Hawaii practice was checked live through the pause menu's NORM /
+H-RES toggle. Both descriptors now produce the same physical 3D proportions;
+the unchanged view direction and narrow H-RES FOV can still change car size.
+H-RES HUD/pause text retains a separate [2D scaling defect](https://github.com/alondero/worlddriverchampionship-recomp/issues/33);
+the camera hook does not correct those sprites. Replays, other tracks and split-screen have not
+been visually accepted for this change.
 Live captures verify GPU edge coverage;
 the scissor correction has no standalone GPU regression seam yet.
 

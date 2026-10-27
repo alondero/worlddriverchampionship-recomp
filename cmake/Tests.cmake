@@ -102,9 +102,20 @@ if(BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c"
                 DEPENDS tests/extract_camera_test.py ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
-            add_executable(wdc_camera_rom_tests tests/test_camera_rom.cpp src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp
-                "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c")
-            target_include_directories(wdc_camera_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            set(WDC_VI_PRESENTER "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/render/rt64_vi_renderer.cpp")
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/vi_presentation_funcs.inc"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_vi_presentation_test.py"
+                    "${WDC_VI_PRESENTER}" "${CMAKE_CURRENT_BINARY_DIR}/vi_presentation_funcs.inc"
+                DEPENDS tests/extract_vi_presentation_test.py "${WDC_VI_PRESENTER}"
+                VERBATIM)
+            add_executable(wdc_camera_rom_tests tests/test_camera_rom.cpp tests/vi_presentation.cpp
+                src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp lib/rt64/src/hle/rt64_vi.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c"
+                "${CMAKE_CURRENT_BINARY_DIR}/vi_presentation_funcs.inc")
+            target_include_directories(wdc_camera_rom_tests PRIVATE src "${N64MR}/N64Recomp/include"
+                "${CMAKE_CURRENT_BINARY_DIR}")
+            target_include_directories(wdc_camera_rom_tests SYSTEM PRIVATE
+                lib/rt64/src lib/rt64/src/contrib/hlslpp/include)
             target_compile_options(wdc_camera_rom_tests PRIVATE -fno-strict-aliasing)
             add_test(NAME wdc_camera_rom COMMAND wdc_camera_rom_tests
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
