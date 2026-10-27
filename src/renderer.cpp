@@ -11,6 +11,7 @@
 #include "game_hud.h"
 #include "rdp_capture.h"
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 
@@ -36,6 +37,12 @@ class Renderer final : public ultramodern::renderer::RendererContext {
     bool fill_active = false, fill_pending = false;
     uint32_t fill_w0 = 0, fill_w1 = 0;
     float rect_scale = 1.0f;
+    // Active picture size for this task. H-RES texrects are corrected from a
+    // stack copy; a split command keeps its first word until the coefficient
+    // arrives in a later BOSS chunk. Guest memory is not modified.
+    int32_t picture_logical_h = 0, picture_buffer_h = 0;
+    bool hres_hold = false;
+    uint32_t hres_w0 = 0, hres_w1 = 0;
     void end_hud() {
         if (!hud_active) return;
         app->state->rdp->setRectAlign(saved_rect);
@@ -96,10 +103,67 @@ class Renderer final : public ultramodern::renderer::RendererContext {
         // BOSS supplies aligned, word-swapped RDRAM or DMEM synchronously on
         // the graphics worker (range checked by boss_rsp.cpp). Read native u32
         // words, never retain pointers or mutate the guest command stream.
+        // The picture size was read from RDRAM, not from this buffer: a BOSS
+        // chunk may be DMEM. H-RES corrections are a 16-byte stack copy.
+        const bool tall = picture_logical_h > 0 &&
+            int64_t(picture_buffer_h) == int64_t(picture_logical_h) * 2;
+        auto align_rect = [&](uint32_t w0, uint32_t w1) {
+            const float midpoint = float(hud_left + hud_right) * 2.0f;
+            const float rect_center = float(((w0 >> 12) & 4095) + ((w1 >> 12) & 4095)) / 2.0f;
+            const unsigned anchor = rect_center < midpoint ? hud_left : hud_right;
+            RT64::ExtendedAlignment align;
+            align.leftOrigin = align.rightOrigin = anchor * G_EX_ORIGIN_RIGHT / app->state->rdp->colorImage.width;
+            align.leftOffset = align.rightOffset = -int(anchor * 4);
+            app->state->rdp->setRectAlign(align);
+        };
         for (uint32_t pos = start; pos < end; pos += 8) {
             const auto* words = reinterpret_cast<const uint32_t*>(memory + pos);
             const bool boundary = hud_stream.remaining == 0;
             const unsigned op = (words[0] >> 24) & 63;
+            if (hres_hold && !boundary) {
+                const wdc::hud::Texrect fixed = wdc::hud::correct_hres_texrect(
+                    {hres_w0, hres_w1, words[0], words[1]}, picture_logical_h, picture_buffer_h);
+                alignas(8) uint32_t local[4] = {fixed.w0, fixed.w1, fixed.w2, fixed.w3};
+                app->processDisplayLists(reinterpret_cast<uint8_t*>(local), 0, 16, false);
+                hud_stream.consume(words[0]);
+                hres_hold = false;
+                run = pos + 8;
+                continue;
+            }
+            // Pause text is outside the HUD marker, so every texrect is
+            // eligible. Menu edge fills keep the earlier branch: their art
+            // coordinates also drive the stretch fills.
+            const bool texrect = op == 36 || op == 37;
+            const bool whole = pos + 16 <= end;
+            const bool split = pos + 8 == end;
+            if (boundary && tall && !fill_active && texrect && (whole || split)) {
+                wdc::hud::Texrect in{words[0], words[1], 0, 0};
+                wdc::hud::Texrect fixed = in;
+                if (whole) {
+                    const auto* coeff = reinterpret_cast<const uint32_t*>(memory + pos + 8);
+                    in.w2 = coeff[0];
+                    in.w3 = coeff[1];
+                    fixed = wdc::hud::correct_hres_texrect(in, picture_logical_h, picture_buffer_h);
+                }
+                if (split || fixed != in) {
+                    hud_stream.consume(words[0]);
+                    submit(pos);
+                    if (hud_active) align_rect(words[0], words[1]);
+                    if (split) {
+                        hres_w0 = words[0];
+                        hres_w1 = words[1];
+                        hres_hold = true;
+                        run = pos + 8;
+                    } else {
+                        alignas(8) uint32_t local[4] = {fixed.w0, fixed.w1, fixed.w2, fixed.w3};
+                        app->processDisplayLists(reinterpret_cast<uint8_t*>(local), 0, 16, false);
+                        hud_stream.consume(reinterpret_cast<const uint32_t*>(memory + pos + 8)[0]);
+                        pos += 8;
+                        run = pos + 8;
+                    }
+                    continue;
+                }
+            }
             if (hud_stream.consume(words[0])) {
                 submit(pos);
                 hud_marker(words[1]);
@@ -114,13 +178,7 @@ class Renderer final : public ultramodern::renderer::RendererContext {
             } else if (boundary && hud_active &&
                        (op == 36 || op == 37)) {
                 submit(pos);
-                const float midpoint = float(hud_left + hud_right) * 2.0f;
-                const float rect_center = float(((words[0] >> 12) & 4095) + ((words[1] >> 12) & 4095)) / 2.0f;
-                const unsigned anchor = rect_center < midpoint ? hud_left : hud_right;
-                RT64::ExtendedAlignment align;
-                align.leftOrigin = align.rightOrigin = anchor * G_EX_ORIGIN_RIGHT / app->state->rdp->colorImage.width;
-                align.leftOffset = align.rightOffset = -int(anchor * 4);
-                app->state->rdp->setRectAlign(align);
+                align_rect(words[0], words[1]);
             }
         }
         submit(end);
@@ -210,10 +268,18 @@ public:
     void enable_instant_present() override {}
     void send_dl(const OSTask* task) override {
         sync_settings();
+        wdc::hud::active_picture_size(rdram, picture_logical_h, picture_buffer_h);
         wdc::rdp_capture::begin_task();
         wdc::rsp::run(rdram, task, [](void* context, uint8_t* memory, uint32_t start, uint32_t end) {
             static_cast<Renderer*>(context)->send_rdp(memory, start, end);
         }, this);
+        if (hres_hold) {
+            // The coefficient never arrived. Hand RT64 the original first
+            // word so its pending-command path matches an uncorrected stream.
+            alignas(8) uint32_t pending[2] = {hres_w0, hres_w1};
+            app->processDisplayLists(reinterpret_cast<uint8_t*>(pending), 0, 8, false);
+            hres_hold = false;
+        }
         end_hud(); // Fail closed if a task ever omits its closing marker.
         fill_active = fill_pending = false;
         wdc::rdp_capture::end_task();

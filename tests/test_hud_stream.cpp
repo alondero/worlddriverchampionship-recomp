@@ -45,4 +45,46 @@ int main() {
     assert(edge_fills(8 * 4, 312 * 4, 0, 512, 320, 0.75f).count == 0);
     assert(edge_fills(8 * 4, 8 * 4, 0, 512, 320, 2.0f).count == 0);
     assert(edge_fills(8 * 4, 312 * 4, 0, 512, 0, 2.0f).count == 0);
+
+    // func_8006CCD4, sprite x=40 y=50 w=16 h=12. These words were captured
+    // from the translated blitter plus the BOSS E4/E1/F1 rewrite, with the
+    // H-RES flag clear and with it set. Mode 6's buffer is 480 lines and its
+    // sampled picture is 240, so the doubled packet must become the clear one.
+    const Texrect native{0xE40E00F8u, 0x000A00C8u, 0x00000740u, 0x02000200u};
+    const Texrect height_doubled{0xE40E01F0u, 0x000A0190u, 0x00000740u, 0x02000100u};
+    assert(correct_hres_texrect(height_doubled, 240, 480) == native);
+    // Same sprite with byte +0x1C set: only the top moved, and dtdy stayed
+    // 0x200. Halving both edges would squash the 12-pixel height.
+    const Texrect position_doubled{0xE40E01C0u, 0x000A0190u, 0x00000740u, 0x02000200u};
+    assert(correct_hres_texrect(position_doubled, 240, 480) == native);
+    // func_8002DAD0's step word was not captured from a live packet. With
+    // ra = 9, only-Y doubled stores 0x0200FF00 and both-axes doubled stores
+    // 0x0100FF00. The rectangle here is the captured 2x sprite, so halving
+    // both edges has a known result. Mode 8 keeps the 0x0100 X step.
+    const Texrect digit_doubled{0xE40E01F0u, 0x000A0190u, 0x00000740u, 0x0200FF00u};
+    const Texrect digit_native{0xE40E00F8u, 0x000A00C8u, 0x00000740u, 0x0200FE00u};
+    assert(correct_hres_texrect(digit_doubled, 240, 480) == digit_native);
+    const Texrect digit_wide{0xE40E01F0u, 0x000A0190u, 0x00000740u, 0x0100FF00u};
+    const Texrect digit_wide_native{0xE40E00F8u, 0x000A00C8u, 0x00000740u, 0x0100FE00u};
+    assert(correct_hres_texrect(digit_wide, 240, 480) == digit_wide_native);
+    // A flipped texrect uses opcode 37 and the same step words.
+    const Texrect flipped{0xE50E01F0u, 0x000A0190u, 0x00000740u, 0x02000100u};
+    const Texrect flipped_native{0xE50E00F8u, 0x000A00C8u, 0x00000740u, 0x02000200u};
+    assert(correct_hres_texrect(flipped, 240, 480) == flipped_native);
+    // Menus (logical 480, buffer 480) and normal racing (240, 240) already
+    // match the sampled picture. The background divider's 0x04000400 step,
+    // a non-rect opcode, and an inverted position-only rect stay put.
+    for (const Texrect& packet : {height_doubled, position_doubled, digit_doubled}) {
+        assert(correct_hres_texrect(packet, 480, 480) == packet);
+        assert(correct_hres_texrect(packet, 240, 240) == packet);
+    }
+    const Texrect divider{0xE40E01F0u, 0x000A0190u, 0x00000740u, 0x04000400u};
+    assert(correct_hres_texrect(divider, 240, 480) == divider);
+    const Texrect triangle{0xC80001F0u, 0x000A0190u, 0x00000740u, 0x02000100u};
+    assert(correct_hres_texrect(triangle, 240, 480) == triangle);
+    const Texrect inverted{0xE40E0010u, 0x000A0190u, 0x00000740u, 0x02000200u};
+    assert(correct_hres_texrect(inverted, 240, 480) == inverted);
+    assert(correct_hres_texrect(height_doubled, 0, 0) == height_doubled);
+    assert(correct_hres_texrect(height_doubled, -240, -480) == height_doubled);
+    assert(correct_hres_texrect(height_doubled, 240, 479) == height_doubled);
 }

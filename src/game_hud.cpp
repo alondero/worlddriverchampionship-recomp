@@ -51,6 +51,16 @@ float needle_shift(float x, float width, float scale) {
     const float anchor = x < (left + right) / 2.0f ? float(left) : float(right);
     return edge_shift(anchor, width, scale, placement.load());
 }
+void active_picture_size(uint8_t* rdram, int32_t& logical_h, int32_t& buffer_h) {
+    logical_h = 0;
+    buffer_h = 0;
+    if (!rdram) return;
+    const uint32_t pointer = uint32_t(MEM_W(0, int32_t(0x8007D75C)));
+    if (pointer < 0x80000000u || pointer - 0x80000000u > 0x800000u - 16 || (pointer & 3))
+        return;
+    logical_h = MEM_W(4, int32_t(pointer));
+    buffer_h = MEM_W(12, int32_t(pointer));
+}
 }
 
 // The active scene pointer at 0x8007E570 is a ROM-owned u32. Its first four

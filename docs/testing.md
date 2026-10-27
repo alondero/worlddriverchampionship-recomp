@@ -199,6 +199,12 @@ the expected cull extent doubles and horizontal matrix term halves for correctio
 ROM aspect. The first malformed state warns once per process.
 The renderer reference records the decoded VI sizes, distinct render/presentation
 aspects and mode 3's existing four-row sampling estimate.
+The needle fixture also checks H-RES Y at 4:3 and 16:9. Mode 6 with the vertical
+flag set must match the captured Y. Mode 3 keeps the builder's doubled Y. A
+clear flag leaves Y unchanged. `wdc_hud_triangle` covers that hook without the
+ROM, including a bad pointer at 4:3. `wdc_hud_stream` checks the H-RES texrect
+rewrite against packets captured from `func_8006CCD4`, plus the digit-step
+words taken from `func_8002DAD0`'s recompiled shift.
 Missing/indirect calls fail extraction.
 
 `wdc_visibility_rom` exercises the translated car-detail selector, car
