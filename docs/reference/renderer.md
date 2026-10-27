@@ -78,19 +78,35 @@ including at Original 4:3.
 At this hook, `f8` holds viewport width/height and `t6` already holds the active
 descriptor loaded from `0x8007D75C`. The hook reads its signed 32-bit logical
 width/height at `+0/+4`, in pixels, through word-swapped RDRAM helpers. These are
-ROM-owned values initialized by `func_800006E0`: instructions `0x80000748` and
-`0x80000768` store 320 and 240 in mode 0 at `0x800AAE38`, before any scene layout.
+ROM-owned values initialized by `func_800006E0`, which populates the entire
+nine-descriptor table (modes 0..8) before any scene layout. For example,
+instructions `0x80000748` and `0x80000768` store 320 and 240 in the boot-default
+mode 0 at `0x800AAE38`.
 The layout builder `func_8000FC18` selects a descriptor and reads its sizes at
 `0x8000FE48`/`0x8000FE54`; it does not initialize them. Both frame paths,
 `func_8000C560` and `func_8004E950`, call layout, publish the selected descriptor
 through `func_800010A0`, then build the scene camera. Display initialization must
-precede those frame paths. The ROM regression checks mode 0 immediately after
-initialization, before layout, and executes its camera successfully.
+precede those frame paths. The ROM regression checks all nine descriptors'
+logical and buffer dimensions immediately after initialization, before layout,
+and executes the boot-default camera successfully. A 96-case sweep of layouts
+0..7, variants 0..3 and player values 0..2 selects only modes 1, 3, 6 and 8.
+Descriptors 2, 4, 5 and 7 are initialized but not selected by that builder in this
+domain; this is not a global unreachability claim about other entrypoints.
 
 The game thread reads eight aligned bytes before task submission, retaining no
 pointer. Invalid guest ranges still fail before access. Dimensions outside
-1..4096 instead retain the ROM-computed aspect and emit one warning; tests cover
-zero, negative, oversized and non-size data, including after a wide camera.
+1..4096 instead use the ROM-computed aspect **times the output width scale**,
+preserving the pre-PR widening behavior. The renderer applies the width scale
+independently, so leaving the ROM aspect unscaled would stretch a narrow camera.
+Tests cover seven zero, negative, oversized and non-size pairs at four output
+widths (28 fallback cases), checking projection and culling against the valid
+ROM camera at the same output size. One warning per process avoids frame-by-frame
+log flooding; later malformed states are intentionally silent.
+
+The camera can reuse an already computed ROM register value. The HUD packet
+adapter retains its existing fail-fast policy before guest-memory writes: an
+invalid buffer width breaks the packet's coordinate/centre invariant, so it
+stops before modifying the packet. Both hooks retain pointer-range validation.
 Buffer dimensions at `+8/+12` are deliberately excluded: modes 6 and 8 use
 320x240/640x240 logical pictures with 320x480/640x480 buffers. The in-race pause
 menu's NORM / H-RES toggle switches the layout request/current words at
@@ -171,8 +187,9 @@ the ROM's real display initializer, descriptor lookup and mode selector, coverin
 normal/Hi-Rez racing, menus and cinematics at 4:3, 16:9, ultrawide and narrow
 output. Projected width/height after VI sampling and the CPU cull extent must
 match the actual presenter viewport and scene fraction in each mode, including
-both split directions. The two VI fields give 80 presentation cases. The boot
-descriptor and seven invalid-dimension cases check initialization/fallback.
+both split directions. The two VI fields give 80 presentation cases. The nine
+initialized descriptors, selector sweep and 28 malformed-size/output combinations
+check initialization, mode selection and fallback.
 Only framebuffer allocation is replaced in display initialization; descriptor
 construction and copies run translated code. This is deterministic projection
 coverage, not visual acceptance of every scene or display transition.

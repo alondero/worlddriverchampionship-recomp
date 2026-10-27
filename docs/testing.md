@@ -186,9 +186,12 @@ picture dimensions are used independently of allocated buffer dimensions.
 The test compiles the pinned RT64 VI decoder and extracts the production
 presenter's coordinate transforms, substituting only GPU interfaces. Both VI
 fields give 80 presentation cases. Reference dimensions are independent ROM/VI
-measurements rather than fields read by the camera hook. The post-initializer
-boot descriptor and seven malformed size pairs also exercise the real camera;
-malformed dimensions preserve ROM aspect after a wide output and warn once.
+measurements rather than fields read by the camera hook. All nine descriptors'
+logical/buffer dimensions are checked before layout, and the boot camera runs.
+A 96-case layout/variant/player sweep selects only modes 1, 3, 6 and 8. Seven
+malformed size pairs at four output widths exercise 28 fallback cases: ROM aspect
+still receives the output width scale, preserving projection and culling relative
+to a valid camera at that size. The first malformed state warns once per process.
 The renderer reference records the decoded VI sizes, distinct render/presentation
 aspects and mode 3's existing four-row sampling estimate.
 Missing/indirect calls fail extraction.

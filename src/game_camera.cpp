@@ -27,7 +27,7 @@ float width_scale() { return scale.load(); }
 // Its s32 +0/+4 are logical width/height in pixels. Read 8 aligned bytes of
 // runtime-owned, word-swapped RDRAM on the game thread before submission;
 // retain no pointer. Invalid pointers fail before access; invalid dimensions
-// preserve the ROM aspect and warn once. The ROM initializes descriptors before
+// retain ROM aspect times output scale and warn once. The ROM initializes before
 // layout -> publication -> camera; see renderer docs for that ordering and the
 // RT64 presentation calculation. Remove with a guest-owned output-aspect camera.
 extern "C" void wdc_widen_camera(uint8_t* rdram, recomp_context* ctx) {
@@ -35,9 +35,10 @@ extern "C" void wdc_widen_camera(uint8_t* rdram, recomp_context* ctx) {
     wdc_require_guest_range(descriptor, 8, 4);
     const int32_t width = MEM_W(0, descriptor), height = MEM_W(4, descriptor);
     if (width <= 0 || width > max_display_dimension || height <= 0 || height > max_display_dimension) {
-        static std::atomic_flag warned = ATOMIC_FLAG_INIT;
+        static std::atomic_flag warned;
         if (!warned.test_and_set())
-            std::fprintf(stderr, "[wdc] invalid camera display size: %d x %d; retaining ROM aspect\n", width, height);
+            std::fprintf(stderr, "[wdc] invalid camera display size: %d x %d; scaling ROM aspect\n", width, height);
+        ctx->f0.fl *= wdc::camera::width_scale();
         return;
     }
     ctx->f0.fl = ctx->f8.fl * (float(height) / float(width)) *
