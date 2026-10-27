@@ -1,5 +1,6 @@
 #include "frontend.h"
 #include "frontend_settings.h"
+#include "game_cheats.h"
 #include "recompui/config.h"
 
 namespace wdc::ui {
@@ -8,12 +9,15 @@ using recomp::config::ConfigValueVariant;
 constexpr const char* graphics_id = "graphics";
 constexpr const char* enhancements_id = "enhancements";
 constexpr const char* driving_id = "driving-controls";
+constexpr const char* cheats_id = "cheats";
 void sync(recomp::config::Config& page, const char* id, ConfigValueVariant value) {
     const auto index = page.get_config_schema().options_by_id.at(id);
     // A host shortcut can update a clean field while another field is staged.
     if (page.modified_options.contains(index) || page.get_option_value(id) == value) return;
     page.update_option_value(id, value);
-    page.apply_option_value(id);
+    // Immediate tabs publish inside update_option_value. Applying them would
+    // copy an empty staged value back over the live one.
+    if (page.requires_confirmation) page.apply_option_value(id);
 }
 void apply_graphics() {
     auto& page = recompui::config::get_config(graphics_id);
@@ -38,6 +42,11 @@ void apply_enhancements() {
     settings.draw_distance = int(std::get<uint32_t>(page.get_option_value("draw_distance")));
     request_settings(settings);
 }
+void seed_cheats() {
+    auto& page = recompui::config::get_config(cheats_id);
+    for (const auto& entry : wdc::cheats::catalog)
+        sync(page, entry.id, wdc::cheats::enabled(entry.cheat));
+}
 }
 void refresh_settings() {
     auto& page = recompui::config::get_config(graphics_id);
@@ -55,13 +64,15 @@ void refresh_settings() {
     sync(enhancements, "full_car_detail", s.full_car_detail);
     sync(enhancements, "full_track_detail", s.full_track_detail);
     sync(enhancements, "draw_distance", uint32_t(s.draw_distance));
+    seed_cheats();
 }
 void stage_defaults(int tab_index) {
-    // The port creates Graphics, Enhancements, Driving, then General. The pinned
-    // frontend exposes the selected index, but not the selected config ID.
-    if (tab_index < 0 || tab_index > 3) return;
+    // Graphics, Enhancements, Driving, General, Controls, Cheats. Controls keeps
+    // its own reset. The pinned frontend exposes the index, not the config ID.
+    if (tab_index < 0 || tab_index == 4 || tab_index > 5) return;
     auto& page = recompui::config::get_config(tab_index == 0 ? graphics_id :
-        tab_index == 1 ? enhancements_id : tab_index == 2 ? driving_id : recompui::config::general::id.c_str());
+        tab_index == 1 ? enhancements_id : tab_index == 2 ? driving_id :
+        tab_index == 3 ? recompui::config::general::id.c_str() : cheats_id);
     for (const auto& option : page.get_config_schema().options) {
         const auto value = std::visit([](const auto& choice) -> ConfigValueVariant {
             return choice.default_value;
@@ -129,5 +140,17 @@ void create_settings() {
     create_driving_settings();
     ui::create_general_tab({.has_rumble_strength = true});
     ui::create_controls_tab();
+    // After Controls, so Restore defaults stays hidden only on that tab.
+    auto& cheats = ui::create_config_tab("Cheats", cheats_id, false);
+    cheats.external_storage = true; // Session-only: never load or write cheats.json.
+    cheats.set_load_callback(seed_cheats);
+    for (const auto& entry : wdc::cheats::catalog) {
+        cheats.add_bool_option(entry.id, entry.name, entry.description, false);
+        cheats.add_option_change_callback(entry.id,
+            [cheat = entry.cheat](ConfigValueVariant value, ConfigValueVariant, recomp::config::OptionChangeContext context) {
+                if (context == recomp::config::OptionChangeContext::Permanent)
+                    wdc::cheats::set_enabled(cheat, std::get<bool>(value));
+            });
+    }
 }
 }

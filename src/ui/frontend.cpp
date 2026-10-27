@@ -74,7 +74,8 @@ void render(plume::RenderCommandList* commands, plume::RenderFramebuffer* frameb
         if (recompui::is_prompt_open()) recompui::close_prompt();
         else if (recompui::config::close()) recompui::hide_all_contexts();
     }
-    // Controls has its own device-specific Reset to defaults button.
+    // Controls (tab 4) has its own device-specific Reset. Cheats is tab 5 and
+    // keeps this button; its defaults clear the session unlocks immediately.
     auto context = recompui::config::get_config_context_id();
     context.open();
     auto* active = recompui::config::get_config_modal()->get_active_tab();
