@@ -66,9 +66,29 @@ emulator comparison was performed.
 The USA ROM camera builder `func_80011D54` computes viewport width/height
 times the active display descriptor's pixel-aspect correction (`+0x14`).
 At `0x80011DC4`, `f0` supplies both camera `+0x7C`'s horizontal visibility
-extent and `guPerspectiveF`'s aspect argument. The register-only hook in
-`src/game_camera.cpp` multiplies this by output aspect / (4/3), preserving
-vertical FOV, depth, viewport partitions and CPU/RSP projection agreement.
+extent and `guPerspectiveF`'s aspect argument. The hook in `src/game_camera.cpp`
+maps the viewport's fraction of the full logical picture to the output aspect,
+preserving vertical FOV, depth, viewport partitions and CPU/RSP projection
+agreement. It computes `viewport_aspect / logical_picture_aspect * output_aspect`.
+The ROM's pixel correction alone is insufficient: cinematic modes assume a
+letterboxed VI, while the pinned RT64 presenter fills the output with the sampled
+picture. Keeping that assumption squeezed cars to half their intended width,
+including at Original 4:3.
+
+At this hook, `f8` holds viewport width/height and `t6` already holds the active
+descriptor loaded from `0x8007D75C`. The hook reads its signed 32-bit logical
+width/height at `+0/+4`, in pixels, through word-swapped RDRAM helpers. These are
+ROM-owned values initialized by `func_800006E0` and selected at display changes.
+The game thread reads eight aligned bytes before task submission, retaining no
+pointer; invalid guest ranges or dimensions outside 1..4096 fail before a write.
+Buffer dimensions at `+8/+12` are deliberately excluded: modes 6 and 8 use
+320x240/640x240 logical pictures with 320x480/640x480 buffers. The in-race pause
+menu's NORM / H-RES toggle switches the layout request/current words at
+`0x8007E57C`/`0x8007E578` from 0 to 1: normal mode 1 becomes mode 6. The
+independent descriptor-variant word `0x8007E5B8` remains 0 in that live check.
+Mode 3, used by menus, has a 320x480 logical picture and pixel correction 2.
+All now use the same physical output proportions; inset cinematic viewports
+and split-screen partitions retain their relative bounds.
 The CPU visibility code at `0x80021A18` consumes the same camera extent; the
 matrix at `0x800B2A40` also drives point clipping and screen projection.
 
@@ -84,9 +104,9 @@ The scene-layout builder `func_8000FC18` assigns 8- or 16-pixel TV overscan
 insets to `s4/s5`. The hook before `0x8000FEF0` clears those registers before
 the ROM builds scene rectangles through `func_8000E148`, so projection,
 viewport and scissor expand together. Internal split-screen gaps and cinematic
-layouts remain. Neither hook reads guest pointers or changes allocation sizes,
-guest VI state or timing. Both run on the game thread, before display-list
-submission; generator input in `rom-symbols.toml` owns their exact locations.
+layouts remain. The layout hook reads no guest pointers; neither hook changes
+allocation sizes, guest VI state or timing. Both run on the game thread, before
+display-list submission; generator input in `rom-symbols.toml` owns their exact locations.
 Remove them when a guest camera/layout implementation replaces these ROM paths.
 
 Patch 0015 fixes a general raw-RDP mismatch in the pinned RT64 renderer:
@@ -104,9 +124,22 @@ ROM constants, checking horizontal visibility, preserved vertical/depth terms,
 16:9 and ultrawide, non-square-pixel modes, narrow-window fallback and invalid
 output resetting a previously wide projection/cull extent. Only the
 display-list allocator is replaced in the projection closure. A layout fixture
-also runs the real scene-rectangle arithmetic with unrelated mode/orientation
+also runs the real scene-rectangle arithmetic with unrelated heap/orientation
 effects stubbed, checking border removal and both split directions. CTest
-limits the translated camera/layout execution to 30 seconds.
+limits the translated camera/layout execution to 30 seconds. The test also runs
+the ROM's real display initializer, descriptor lookup and mode selector, covering
+normal/Hi-Rez racing, menus and cinematics at 4:3, 16:9, ultrawide and narrow
+output. Projected width/height and the CPU cull extent must match the physical
+output and viewport fraction in each mode, including both split directions.
+Only framebuffer allocation is replaced in display initialization; descriptor
+construction and copies run translated code. This is deterministic projection
+coverage, not visual acceptance of every scene or display transition.
+Windows/D3D12 Hawaii practice was checked live through the pause menu's NORM /
+H-RES toggle. Both descriptors now produce the same physical 3D proportions;
+the unchanged view direction and narrow H-RES FOV can still change car size.
+H-RES HUD/pause text retains a separate [2D scaling defect](https://github.com/alondero/worlddriverchampionship-recomp/issues/33);
+the camera hook does not correct those sprites. Replays, other tracks and split-screen have not
+been visually accepted for this change.
 Live captures verify GPU edge coverage;
 the scissor correction has no standalone GPU regression seam yet.
 

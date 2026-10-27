@@ -14,16 +14,15 @@
 extern "C" void func_80011D54(uint8_t*, recomp_context*);
 extern "C" void func_8000FC18(uint8_t*, recomp_context*);
 extern "C" void func_8002D99C(uint8_t*, recomp_context*);
+extern "C" void func_800006E0(uint8_t*, recomp_context*);
 extern "C" void wdc_hud_begin(uint8_t*, recomp_context*);
 extern "C" void wdc_hud_end(uint8_t*, recomp_context*);
 extern "C" void func_8002D558(uint8_t*, recomp_context* ctx) {
     ctx->r2 = int32_t(0x80403000);
 }
-constexpr int32_t test_descriptor = int32_t(0x80400100);
-extern "C" void func_800006AC(uint8_t*, recomp_context* ctx) { ctx->r2 = test_descriptor; }
-extern "C" void func_8000125C(uint8_t* rdram, recomp_context*) {
-    MEM_W(0, int32_t(0x8007D758)) = test_descriptor;
-}
+// Framebuffer allocation is outside display-mode initialization's math seam.
+extern "C" void func_8003C9A4(uint8_t*, recomp_context*) {}
+extern "C" void func_8003C95C(uint8_t*, recomp_context* ctx) { ctx->r2 = int32_t(0x80500000); }
 // Non-layout effects of scene reconfiguration are outside the rectangle seam.
 extern "C" {
 void func_8000E020(uint8_t*, recomp_context*) {}
@@ -33,7 +32,6 @@ void func_8000F988(uint8_t*, recomp_context*) {}
 void func_80012024(uint8_t*, recomp_context*) {}
 void func_80012218(uint8_t*, recomp_context*) {}
 void func_800122F4(uint8_t*, recomp_context*) {}
-void func_80019EC4(uint8_t*, recomp_context*) {}
 void func_8002A334(uint8_t*, recomp_context*) {}
 }
 // The allocator does not affect camera math; capture its real float matrix.
@@ -54,6 +52,7 @@ int main(int argc, char** argv) {
     assert(rom);
     for (size_t i = 0; i < data.size(); ++i) MEM_B(i, int32_t(0x80000400)) = data[i];
     constexpr gpr camera = int32_t(0x80400000), descriptor = camera + 0x100;
+    constexpr int32_t scene = int32_t(0x800ABE40);
     auto put = [&](gpr address, int offset, float value) { MEM_W(offset, address) = std::bit_cast<uint32_t>(value); };
     // Identity view, a 60-degree vertical FOV and its tangent for CPU culling.
     put(camera, 0x10, -1); put(camera, 0x24, 1); put(camera, 8, -1);
@@ -61,6 +60,7 @@ int main(int argc, char** argv) {
     MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
     auto project = [&](int window_width, int window_height, float viewport_height, float pixel_aspect) {
         wdc::camera::set_output_size(window_width, window_height);
+        MEM_W(0, descriptor) = 320; MEM_W(4, descriptor) = int(viewport_height);
         put(descriptor, 0x14, pixel_aspect);
         recomp_context ctx{};
         ctx.f_odd = &ctx.f0.u32h;
@@ -84,6 +84,61 @@ int main(int argc, char** argv) {
         if (i != 10 && i != 14) assert(matrix[i] == original[i]);
     }
     wdc::visibility::configure(false, false, 1);
+    // Initialize the actual USA display descriptors, then use the real mode
+    // selector and scene layout. The old fixture replaced those with one fake
+    // descriptor and missed cinematic modes' different logical/buffer heights.
+    // Live pause-menu NORM -> H-RES selects layout 1 (descriptor 6), also used
+    // by intros/replays. E5B8 chooses an alternate descriptor within a layout;
+    // it is not the pause menu's resolution choice.
+    MEM_W(0, int32_t(0x80000300)) = 1; // NTSC
+    recomp_context init{}; init.f_odd = &init.f0.u32h;
+    init.r29 = int32_t(0x807FF000);
+    func_800006E0(rdram, &init);
+    bool proportions_match = true;
+    for (int window_width : {720, 960, 1280, 2560}) {
+        wdc::camera::set_output_size(window_width, 720);
+        for (int layout : {0, 1, 3}) for (int variant : {0, 1}) for (int players : {0, 2}) {
+            if (layout == 3 && players == 2) continue;
+            MEM_W(0, int32_t(0x8007D758)) = 0;
+            MEM_W(0, int32_t(0x8007E57C)) = layout;
+            MEM_W(0, int32_t(0x8007E584)) = players;
+            MEM_W(0, int32_t(0x8007E5B8)) = variant;
+            recomp_context ctx{}; ctx.f_odd = &ctx.f0.u32h;
+            ctx.r29 = int32_t(0x807FF000);
+            func_8000FC18(rdram, &ctx);
+            const gpr active = MEM_W(0, int32_t(0x8007D758));
+            const int mode = layout == 1 ? (variant ? 8 : 6) : (variant ? 3 : 1);
+            assert(active == int32_t(0x800AAE38) + mode * 0x74);
+            // Model the frame boundary publishing the selected descriptor.
+            MEM_W(0, int32_t(0x8007D75C)) = active;
+            const float width = float(MEM_W(8, scene));
+            const float height = float(MEM_W(12, scene));
+            ctx.r4 = camera;
+            ctx.r5 = std::bit_cast<uint32_t>(width);
+            ctx.r6 = std::bit_cast<uint32_t>(height);
+            ctx.r7 = std::bit_cast<uint32_t>(100.0f);
+            func_80011D54(rdram, &ctx);
+            // RT64 presents the sampled VI picture into the whole output.
+            // Include the scene's fraction of that picture: layout 3 retains
+            // an inset cinematic viewport even with TV overscan removed.
+            const float output_aspect = (4.0f / 3.0f) * wdc::camera::width_scale();
+            const float viewport_fraction = (width / float(MEM_W(0, active))) /
+                (height / float(MEM_W(4, active)));
+            const float displayed_ratio = matrix[0] / matrix[5] * output_aspect * viewport_fraction;
+            if (std::abs(displayed_ratio - 1) >= 1e-5f) {
+                std::cerr << "mode " << mode << ", window " << window_width
+                          << ": displayed width/height " << displayed_ratio << '\n';
+                proportions_match = false;
+            }
+            const float aspect = output_aspect * viewport_fraction;
+            const float tangent = std::bit_cast<float>(uint32_t(MEM_W(0x74, camera)));
+            const float extent = std::bit_cast<float>(uint32_t(MEM_W(0x7C, camera)));
+            if (std::abs(extent / (tangent * aspect) - 1) >= 1e-5f) proportions_match = false;
+            for (int i = 1; i < 16; ++i) assert(std::abs(matrix[i] - original[i]) < 1e-5f);
+        }
+    }
+    if (!proportions_match) return 1;
+    MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
     const float wide_extent = project(1920, 1080, 240, 1);
     // The horizontal FOV grows while vertical projection/depth stay identical.
     assert(std::abs(wide_extent / original_extent - 4.0f / 3.0f) < 1e-5f);
@@ -112,11 +167,11 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 16; ++i) assert(std::abs(matrix[i] - original[i]) < 1e-5f);
     }
     // Exercise the ROM's scene layout, including half-screen partitions.
-    constexpr int32_t scene = int32_t(0x800ABE40);
     for (int players : {0, 1, 2}) {
         MEM_W(0, descriptor) = 320; MEM_W(4, descriptor) = 240;
         MEM_W(8, descriptor) = 320; MEM_W(12, descriptor) = 240;
-        MEM_W(0, int32_t(0x8007D758)) = int32_t(descriptor);
+        MEM_W(0, int32_t(0x8007D758)) = 0;
+        MEM_W(0, int32_t(0x8007E5B8)) = 0;
         MEM_W(0, int32_t(0x8007E57C)) = players == 1 ? 0 : 1;
         MEM_W(0, int32_t(0x8007E578)) = -1; // force reconfiguration
         MEM_W(0, int32_t(0x8007E584)) = players == 0 ? 0 : 2;
