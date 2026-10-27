@@ -65,11 +65,27 @@ extern "C" void wdc_remove_overscan(uint8_t*, recomp_context* ctx) {
 // Game-thread only, before linking the packet; runtime-owned word-swapped
 // RDRAM, no retained pointers. The u32 descriptor pointer at 0x8007D75C and its
 // u32 framebuffer width (+8, pixels) are ROM-owned, updated on display changes.
-// Invalid pointers/widths abort before any write. Source vertices, y and UVs
-// stay untouched. Remove when the guest HUD or renderer carries aspect policy.
+// Invalid pointers/widths abort before any write on the horizontal path.
+// Source vertices and UVs stay untouched. When the buffer is twice the logical
+// height and the ROM's vertical flag at 0x8007FE84 is set, also halve the
+// three signed Y coordinates at +0x12/+0x22/+0x32. That read fails open at
+// 4:3: a bad pointer skips the Y undo and does not abort the frame.
+// Remove when the guest HUD or renderer carries aspect policy.
 extern "C" void wdc_align_hud_triangle(uint8_t* rdram, recomp_context* ctx) {
     const float scale = wdc::camera::width_scale();
-    if (scale == 1.0f) return;
+    int32_t logical_h = 0, buffer_h = 0;
+    wdc::hud::active_picture_size(rdram, logical_h, buffer_h);
+    const bool tall = logical_h > 0 && int64_t(buffer_h) == int64_t(logical_h) * 2;
+    const bool doubled_y = tall && MEM_W(0, int32_t(0x8007FE84)) != 0;
+    if (scale == 1.0f) {
+        if (!doubled_y) return;
+        const uint32_t triangle = uint32_t(ctx->r2);
+        if (triangle < 0x80000000u || triangle - 0x80000000u > 0x800000u - 0x40 || (triangle & 3))
+            return;
+        for (int offset : {0x12, 0x22, 0x32})
+            MEM_H(offset, ctx->r2) = int16_t(MEM_H(offset, ctx->r2) >> 1);
+        return;
+    }
     const gpr descriptor = MEM_W(0, int32_t(0x8007D75C));
     wdc_require_guest_range(descriptor, 12, 4);
     wdc_require_guest_range(ctx->r2, 0x40, 4);
@@ -83,5 +99,9 @@ extern "C" void wdc_align_hud_triangle(uint8_t* rdram, recomp_context* ctx) {
         const float x = float(MEM_H(offset, ctx->r2));
         const float shift = 4.0f * wdc::hud::needle_shift(x / 4.0f, float(width), scale);
         MEM_H(offset, ctx->r2) = int16_t(std::lround(center + (x - center + shift) / scale));
+    }
+    if (doubled_y) {
+        for (int offset : {0x12, 0x22, 0x32})
+            MEM_H(offset, ctx->r2) = int16_t(MEM_H(offset, ctx->r2) >> 1);
     }
 }

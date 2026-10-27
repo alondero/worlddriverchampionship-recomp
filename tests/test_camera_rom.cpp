@@ -350,5 +350,50 @@ int main(int argc, char** argv) {
             }
         }
     }
+    // H-RES samples a 480-line buffer as 240 lines. The builder shifts Y by
+    // 0x8007FE84 before the hook. Mode 6 must undo that at 4:3 and 16:9.
+    // Mode 3 uses the same flag for a buffer as tall as its logical picture,
+    // so the doubled coordinate stays. A clear flag never doubled Y.
+    struct NeedleY { int logical_h, buffer_h, flag, kept_shift; };
+    for (const NeedleY& ycase : {NeedleY{240, 480, 1, 0}, NeedleY{480, 480, 1, 1}, NeedleY{240, 480, 0, 0}}) {
+        MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
+        MEM_W(0, descriptor) = 320;
+        MEM_W(4, descriptor) = ycase.logical_h;
+        MEM_W(8, descriptor) = 320;
+        MEM_W(12, descriptor) = ycase.buffer_h;
+        MEM_W(0, int32_t(0x8007FE80)) = 0;
+        MEM_W(0, int32_t(0x8007FE84)) = ycase.flag;
+        for (int i = 0; i < 3; ++i) {
+            MEM_W(i * 16, points) = needle_x[i];
+            MEM_W(i * 16 + 4, points) = needle_y[i];
+            MEM_W(i * 16 + 8, points) = 192 + i * 256;
+            MEM_W(i * 16 + 12, points) = -128;
+        }
+        for (int width : {960, 1280}) {
+            wdc::hud::set_placement(1);
+            wdc::camera::set_output_size(width, 720);
+            const float scale = wdc::camera::width_scale();
+            MEM_W(0, int32_t(0x8007ED84)) = int32_t(0x80405000);
+            MEM_W(0, int32_t(0x8007FE74)) = int32_t(0x80408000);
+            MEM_W(0, int32_t(0x8007E570)) = scene;
+            MEM_W(0, scene) = 0; MEM_W(8, scene) = 320;
+            recomp_context ctx{}; ctx.f_odd = &ctx.f0.u32h;
+            ctx.r29 = int32_t(0x807FF000); ctx.r4 = int32_t(0x80080578);
+            ctx.r5 = points; ctx.r6 = points + 16; ctx.r7 = points + 32;
+            wdc_hud_begin(rdram, &ctx);
+            func_8002D99C(rdram, &ctx);
+            wdc_hud_end(rdram, &ctx);
+            for (int i = 0; i < 3; ++i) {
+                const int x = MEM_H(0x10 + i * 16, triangle);
+                const float center = 640.0f;
+                const float travel = std::min(scale, 4.0f / 3.0f) - 1.0f;
+                const float rectangle_x = center * scale + needle_x[i] - center + center * travel;
+                assert(std::abs(x * scale - rectangle_x) <= 0.51f * scale);
+                assert(MEM_H(0x12 + i * 16, triangle) == int16_t(needle_y[i] << ycase.kept_shift));
+                assert(MEM_H(0x18 + i * 16, triangle) == 192 + i * 256);
+                assert(MEM_H(0x1A + i * 16, triangle) == -128);
+            }
+        }
+    }
     std::cout << "PASS: ROM camera, layout and gauge triangle preserve proportions\n";
 }
