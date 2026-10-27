@@ -226,3 +226,25 @@ text = "{ extern void wdc_analog_throttle(uint8_t*, recomp_context*); wdc_analog
 func = "func_80016DF8"
 before_vram = 0x80017078
 text = "{ extern void wdc_analog_brake(uint8_t*, recomp_context*); wdc_analog_brake(rdram, ctx); }"
+
+# Session cheats override a locked accessor result. v0 already holds the byte.
+# The hooks do not write the save. Evidence: docs/cheats.md.
+[[hooks]]
+func = "func_800565E0"
+before_vram = 0x800565E4
+text = "{ extern void wdc_cheat_car_available(uint8_t*, recomp_context*); wdc_cheat_car_available(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800565EC"
+before_vram = 0x800565F0
+text = "{ extern void wdc_cheat_car_seen(uint8_t*, recomp_context*); wdc_cheat_car_seen(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80056974"
+before_vram = 0x80056978
+text = "{ extern void wdc_cheat_team_available(uint8_t*, recomp_context*); wdc_cheat_team_available(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80057000"
+before_vram = 0x80057004
+text = "{ extern void wdc_cheat_track_available(uint8_t*, recomp_context*); wdc_cheat_track_available(rdram, ctx); }"

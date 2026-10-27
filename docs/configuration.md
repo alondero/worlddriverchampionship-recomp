@@ -28,6 +28,15 @@ leaving the tab, and follow the same live **Restore defaults** policy as General
 Digital A/B overrides remain available. See [Controllers](controllers.md) for
 trigger binding conflicts and reverse controls.
 
+**Cheats** unlocks all tracks, all GT1 cars and teams, or all GT2 cars and
+teams for the current session. Changes apply immediately and are forgotten when
+the application closes. These toggles do not write the Controller Pak note.
+The measured save routine still sees the real locks. Championship event locks
+and the Falcon Interceptor stay as saved. Turn a toggle off, then open the
+list again, to see the saved locks. **Restore defaults** on that tab turns the
+toggles off. A few menu screens also keep a copy of what they displayed;
+[Cheats](cheats.md) describes that copy.
+
 Navigate with the mouse, arrows or Tab and Enter. Escape/F1 closes the overlay;
 the header also has close and quit buttons. Pause a race with Enter before
 opening settings: the game continues running while the overlay is open, but
@@ -164,7 +173,8 @@ peer port. Contexts and staged edits belong to the presentation callback;
 Apply queues a whole settings snapshot for the SDL main thread to publish,
 save and use for window operations. RecompFrontend does not write `graphics.json`.
 The Driving, General and Controls tabs use RecompFrontend's native storage and input
-library. Profile edits and SDL sampling serialize with presentation; guest
+library. Cheats stay in memory for the session and are not written to a settings
+file. Profile edits and SDL sampling serialize with presentation; guest
 controller callbacks read only a coherent host snapshot.
 The host also queues the frontend's cursor, clipboard, mouse capture and dialog
 operations to SDL's main thread. Font/icon assets are loaded beside the executable.

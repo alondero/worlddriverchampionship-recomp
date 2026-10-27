@@ -26,7 +26,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same twelve C++ host-test targets used by the player build,
+This mode builds the same thirteen C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
 headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
@@ -70,7 +70,8 @@ restart. See [startup ordering](reference/runtime.md#input-worker-startup-orderi
 With the frontend enabled, `wdc_input` exercises SDL virtual-gamepad hotplug,
 native profile evaluation/remapping/persistence, analog axes and overlay input
 gating without a ROM or GPU. `wdc_frontend_settings` checks staged host-owned
-graphics/enhancement settings and the pending-open gate. Build these targets
+graphics/enhancement settings, the session Cheats tab, and the pending-open
+gate. Build these targets
 explicitly if only frontend checks are needed:
 
 ```bash
@@ -81,7 +82,9 @@ ctest --test-dir build -R "wdc_(input|frontend_settings)$" --output-on-failure
 See the [input reference](reference/input.md) for ownership and test limits.
 
 `wdc_driving` checks pedal publication and guest-hook bounds with synthetic
-RDRAM. `wdc_driving_rom` runs the translated input, gearbox and drivetrain
+RDRAM. `wdc_cheats` checks the session unlock hooks against synthetic car, team
+and track records and checks that guest bytes stay unchanged. `wdc_driving_rom`
+runs the translated input, gearbox and drivetrain
 closure against USA ROM constants and controlled car parameters. It verifies
 progressive throttle/brake torque, reverse and full-power digital overrides,
 and rejects missing generated hooks. The frontend tests also cover Driving

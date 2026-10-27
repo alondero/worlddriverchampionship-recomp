@@ -1,3 +1,4 @@
+#include "game_cheats.h"
 #include "graphics_config.h"
 #include "ui/frontend_settings.h"
 #include "ui/overlay_state.h"
@@ -35,8 +36,46 @@ int main() {
         initial.filtering = 2; initial.precision = 2;
         require(wdc::graphics::apply(initial), "cannot seed settings");
         const auto original_file = read(path);
+        // A hand-written cheats file must not enable anything at startup.
+        { std::ofstream file(dir / "cheats.json");
+          file << R"({"unlock_tracks":true,"unlock_gt1_cars":true,"unlock_gt2_cars":true})"; }
+        const auto stale_cheats = read(dir / "cheats.json");
         wdc::ui::create_settings();
         recompui::config::finalize();
+        auto& cheats = recompui::config::get_config("cheats");
+        require(cheats.external_storage && !cheats.requires_confirmation,
+            "cheats must be immediate and session-only");
+        require(read(dir / "cheats.json") == stale_cheats, "opening rewrote cheats.json");
+        for (const auto& entry : wdc::cheats::catalog) {
+            require(!wdc::cheats::enabled(entry.cheat) &&
+                    !std::get<bool>(cheats.get_option_value(entry.id)),
+                    "stale cheat file was applied");
+            cheats.set_option_value(entry.id, true);
+            require(wdc::cheats::enabled(entry.cheat), "cheat did not enable immediately");
+            require(!cheats.is_dirty(), "cheat requires Apply");
+            cheats.set_option_value(entry.id, false);
+            require(!wdc::cheats::enabled(entry.cheat), "cheat did not disable immediately");
+            wdc::cheats::set_enabled(entry.cheat, true);
+            wdc::ui::refresh_settings();
+            require(std::get<bool>(cheats.get_option_value(entry.id)), "cheat refresh lost live flag");
+            cheats.set_option_value(entry.id, false);
+        }
+        wdc::cheats::set_enabled(wdc::cheats::Cheat::Tracks, true);
+        cheats.set_option_value("unlock_tracks", true);
+        wdc::ui::stage_defaults(4);
+        require(wdc::cheats::enabled(wdc::cheats::Cheat::Tracks) &&
+                std::get<bool>(cheats.get_option_value("unlock_tracks")),
+                "Controls reset cleared a cheat");
+        wdc::ui::stage_defaults(5);
+        require(!wdc::cheats::enabled(wdc::cheats::Cheat::Tracks) &&
+                !std::get<bool>(cheats.get_option_value("unlock_tracks")) &&
+                !cheats.is_dirty(),
+                "Cheats reset did not clear the session flag");
+        require(cheats.save_config() && read(dir / "cheats.json") == stale_cheats,
+            "cheat save rewrote the stale file");
+        std::filesystem::remove(dir / "cheats.json");
+        require(cheats.save_config() && !std::filesystem::exists(dir / "cheats.json"),
+            "cheats unexpectedly persisted");
         auto& general = recompui::config::get_config(recompui::config::general::id);
         const auto& rumble_id = recompui::config::general::options::rumble_strength;
         require(recompui::config::general::has_rumble_strength_option() &&

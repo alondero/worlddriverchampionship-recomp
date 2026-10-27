@@ -7,6 +7,7 @@ Start with:
 - [Publishing](publishing.md) — source hygiene and public-release checks.
 - [Debugging](debugging.md) — reproduce, minimise, instrument, verify.
 - [Configuration](configuration.md) — host settings and environment knobs.
+- [Cheats](cheats.md) — session track and car unlocks.
 - [Graphics capabilities](graphics-capabilities.md) — peer comparison and WDC limits.
 - [Peer projects](peer-projects.md) — conventions distilled from AeroGauge and
   Automobili Lamborghini.
