@@ -204,7 +204,11 @@ flag set must match the captured Y. Mode 3 keeps the builder's doubled Y. A
 clear flag leaves Y unchanged. `wdc_hud_triangle` covers that hook without the
 ROM, including a bad pointer at 4:3. `wdc_hud_stream` checks the H-RES texrect
 rewrite against packets captured from `func_8006CCD4`, plus the digit-step
-words taken from `func_8002DAD0`'s recompiled shift.
+words taken from `func_8002DAD0`'s recompiled shift. The same test walks the
+worker submission path used by `send_rdp`: height-doubled and digit rectangles
+are rewritten, `0x02000200` and flipped rectangles are not, and a coefficient
+split across two chunks is corrected only once the step word arrives. It does
+not call RT64.
 Missing/indirect calls fail extraction.
 
 `wdc_visibility_rom` exercises the translated car-detail selector, car

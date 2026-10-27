@@ -221,22 +221,29 @@ in that space.
 With sprite byte `+0x1C` clear, the RDP rectangle is 16x24 at y=100 and the
 step word is `0x02000100`. With that byte set, the rectangle is 16x12 at y=100
 and the step stays `0x02000200`. The flag-clear packet is 16x12 at y=50 with
-step `0x02000200`. `func_8002DAD0` doubles both Y edges for gauge digits. Its
-recompiled step (`ra` = 9) changes from `0x0200FE00` to `0x0200FF00`, or to
-`0x0100FF00` when mode 8 also doubles X. That X step matches the 640-wide
-buffer and is left alone. The background divider `func_80024944` emits
-`0x04000400` and is not an H-RES double.
+the same step, `0x02000200`. That coefficient therefore does not prove the top
+moved, and the worker leaves it unchanged. Sprites that took the `+0x1C` path
+stay at the doubled Y. Their height was not doubled, so they are not the
+tall rectangle the captured height path produces. `func_8002DAD0` doubles both
+Y edges for gauge digits. Its recompiled step (`ra` = 9) changes from
+`0x0200FE00` to `0x0200FF00`, or to `0x0100FF00` when mode 8 also doubles X.
+That X step matches the 640-wide buffer and is left alone. The background
+divider `func_80024944` emits `0x04000400` and is not an H-RES double.
+`func_8006CA7C` is the only flipped texrect (opcode 37). RT64 applies `dsdx`
+to screen Y and `dtdy` to screen X for that opcode. The flip blitter was not
+executed, so opcode 37 is not rewritten.
 
 On hardware the half-scale VI picture would compress the tall buffer back to
 about 240 lines. This port's sampled picture is already 240 lines, so the
-graphics worker rewrites the three step patterns above on a 16-byte stack copy
-before RT64 sees the texrect. X and the S/T word are unchanged. The copy is
-submitted with `processDisplayLists` and the guest command stream is not
-written. Pause text is outside the HUD marker, so the rewrite applies to every
-texrect, not only bracketed HUD rects. Menu edge-fill brackets still see the
-original art coordinates. A texrect whose coefficient sits in the next BOSS
-chunk keeps its first word until that coefficient arrives. If the task ends
-without it, the original first word is handed to RT64's pending-command path.
+graphics worker rewrites an ordinary texrect whose step proves the extra Y
+shift: `0x02000100`, or a digit low half of `0xFF00`. The rewrite is a 16-byte
+stack copy. X and the S/T word are unchanged. The copy is submitted with
+`processDisplayLists` and the guest command stream is not written. Pause text
+is outside the HUD marker, so the same rule applies there, not only inside
+bracketed HUD rects. Menu edge-fill brackets still see the original art
+coordinates. A texrect whose coefficient sits in the next BOSS chunk keeps
+its first word until that coefficient arrives. If the task ends without it,
+the original first word is handed to RT64's pending-command path.
 
 The picture size comes from the ROM-owned descriptor pointer at `0x8007D75C`
 (`+4` logical height, `+12` buffer height, word-swapped signed 32-bit pixels).
@@ -251,12 +258,18 @@ including at 4:3, where the horizontal correction does not run. A bad pointer
 on that 4:3 path skips the undo. The wide-window path still aborts on a bad
 descriptor before it writes X. Mode 3 keeps the doubled Y.
 
-`wdc_hud_stream` checks the captured sprite packets, both digit steps, a flipped
-texrect, and the menu, normal, divider, non-rect and inverted cases.
-`wdc_hud_triangle` checks the needle undo at 4:3 and 16:9, mode 3, a clear
-flag, and the fail-open pointer path. The ROM camera test runs the real needle
-builder for those three Y cases. This 2D correction has not been checked in a
-live Hawaii session.
+`wdc_hud_stream` checks the captured sprite packets, both digit steps, and the
+menu, normal, divider, non-rect and inverted cases. It also walks the worker's
+submission decisions: the captured height-doubled sprite (pause text sits
+outside the HUD marker), both roles of `0x02000200`, the divider, a flipped
+rect, a coefficient split across two chunks, a task that ends on the held
+word, a menu edge-fill bracket, and HUD alignment against the original X.
+That walk does not call RT64. `wdc_hud_triangle` checks the needle undo at
+4:3 and 16:9, mode 3, a clear flag, and the fail-open pointer path. The ROM
+camera test runs the real needle builder for those three Y cases. This 2D
+correction has not been checked in a live Hawaii session, and `renderer.cpp`
+was not compiled here because the worktree RT64 checkout is empty. The digit
+step words come from the recompiled shift, not from a captured packet.
 
 ## Race HUD placement
 

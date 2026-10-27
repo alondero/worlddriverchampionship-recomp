@@ -46,13 +46,17 @@ struct Texrect {
 // Modes 6 and 8 allocate a buffer twice as tall as the logical picture, and
 // RT64 samples that buffer back to the logical height. The H-RES blitters
 // still emit the doubled screen rectangle. This undoes that extra Y shift
-// for the sprite steps 0x02000100 and 0x02000200 and the digit step 0xFF00.
+// for an ordinary texrect (opcode 36) whose step proves the blitter doubled
+// Y: sprite 0x02000100, or a digit low half of 0xFF00. Step 0x02000200 is
+// also the flag-clear sprite, so it is not proof that Y moved. Opcode 37 is
+// a flipped rect: RT64 applies dsdx to screen Y and dtdy to screen X, and
+// the flip blitter was not executed, so those packets stay unchanged.
 // Other pictures, including the 480-line menu, are unchanged. It does not
 // read or write guest memory.
 inline Texrect correct_hres_texrect(Texrect in, int32_t logical_h, int32_t buffer_h) {
     if (logical_h <= 0 || int64_t(buffer_h) != int64_t(logical_h) * 2) return in;
     const unsigned op = (in.w0 >> 24) & 63;
-    if (op != 36 && op != 37) return in;
+    if (op != 36) return in;
     auto y_of = [](uint32_t word) { return word & 0xFFFu; };
     auto with_y = [](uint32_t word, uint32_t y) { return (word & ~0xFFFu) | (y & 0xFFFu); };
     // func_8006CCD4 with sprite byte +0x1C clear: height doubled, dtdy halved.
@@ -60,14 +64,6 @@ inline Texrect correct_hres_texrect(Texrect in, int32_t logical_h, int32_t buffe
         in.w0 = with_y(in.w0, y_of(in.w0) >> 1);
         in.w1 = with_y(in.w1, y_of(in.w1) >> 1);
         in.w3 = 0x02000200u;
-    } else if (in.w3 == 0x02000200u) {
-        // Same blitter with byte +0x1C set: the top moved and the height did not.
-        const uint32_t top = y_of(in.w1), bottom = y_of(in.w0);
-        if (bottom < top) return in;
-        const uint32_t height = bottom - top, new_top = top >> 1;
-        if (new_top + height > 0xFFFu) return in;
-        in.w1 = with_y(in.w1, new_top);
-        in.w0 = with_y(in.w0, new_top + height);
     } else if ((in.w3 & 0xFFFFu) == 0xFF00u &&
                ((in.w3 >> 16) == 0x200u || (in.w3 >> 16) == 0x100u)) {
         // func_8002DAD0: one extra Y shift turns the step from 0xFE00 into 0xFF00.
@@ -94,6 +90,115 @@ struct Stream {
         return w0 == marker;
     }
 };
+// Display-list framing for one task. The graphics worker owns this. Guest
+// memory is not modified. `hold` is the first 8 bytes of a texrect whose
+// coefficient is in a later BOSS chunk.
+struct RdpTask {
+    Stream stream{};
+    bool fill_active = false;
+    bool fill_pending = false;
+    uint32_t fill_w0 = 0, fill_w1 = 0;
+    bool hold = false;
+    uint32_t hold_w0 = 0, hold_w1 = 0;
+};
+// Walk one BOSS chunk of word-swapped RDP bytes. `memory` may be RDRAM or
+// DMEM; the picture size is supplied by the caller, which read it from
+// RDRAM. The sink observes what RT64 would be given:
+//   guest(begin, end)           unchanged bytes in this chunk
+//   corrected(texrect)          16-byte stack copy, omitted from guest
+//   align(w0, w1)               original rectangle, before RT64 reads it
+//   marker(payload)             E0574443 consumed; not submitted
+//   fill(rect_w0, rect_w1, c0, c1)  menu-art coefficient, after its guest rect
+//   held is not used here
+// `hud_active` is the renderer's bracket flag. A marker callback may change
+// it before the next command. The callback must clear it the way end-of-HUD
+// does, including for an edge-fill marker, or later rectangles align against
+// a bracket that already closed.
+template <class Sink>
+inline void walk_rdp(const uint8_t* memory, uint32_t start, uint32_t end,
+                     int32_t logical_h, int32_t buffer_h, bool& hud_active,
+                     RdpTask& task, Sink&& sink) {
+    uint32_t run = start;
+    auto guest_until = [&](uint32_t until) {
+        if (run < until) sink.guest(run, until);
+        run = until;
+    };
+    const bool tall = logical_h > 0 && int64_t(buffer_h) == int64_t(logical_h) * 2;
+    for (uint32_t pos = start; pos < end; pos += 8) {
+        const auto* words = reinterpret_cast<const uint32_t*>(memory + pos);
+        const bool boundary = task.stream.remaining == 0;
+        const unsigned op = (words[0] >> 24) & 63;
+        if (task.hold && !boundary) {
+            const Texrect fixed = correct_hres_texrect(
+                {task.hold_w0, task.hold_w1, words[0], words[1]}, logical_h, buffer_h);
+            sink.corrected(fixed);
+            task.stream.consume(words[0]);
+            task.hold = false;
+            run = pos + 8;
+            continue;
+        }
+        // Pause text is outside the HUD marker, so every ordinary texrect is
+        // eligible. Menu edge fills are skipped here so their art coordinates
+        // still drive the stretch fills.
+        const bool texrect = op == 36 || op == 37;
+        const bool whole = pos + 16 <= end;
+        const bool split = pos + 8 == end;
+        if (boundary && tall && !task.fill_active && texrect && (whole || split)) {
+            Texrect in{words[0], words[1], 0, 0};
+            Texrect fixed = in;
+            if (whole) {
+                const auto* coeff = reinterpret_cast<const uint32_t*>(memory + pos + 8);
+                in.w2 = coeff[0];
+                in.w3 = coeff[1];
+                fixed = correct_hres_texrect(in, logical_h, buffer_h);
+            }
+            if (split || fixed != in) {
+                task.stream.consume(words[0]);
+                guest_until(pos);
+                if (hud_active) sink.align(words[0], words[1]);
+                if (split) {
+                    task.hold_w0 = words[0];
+                    task.hold_w1 = words[1];
+                    task.hold = true;
+                    run = pos + 8;
+                } else {
+                    sink.corrected(fixed);
+                    task.stream.consume(reinterpret_cast<const uint32_t*>(memory + pos + 8)[0]);
+                    pos += 8;
+                    run = pos + 8;
+                }
+                continue;
+            }
+        }
+        if (task.stream.consume(words[0])) {
+            guest_until(pos);
+            const uint32_t payload = words[1];
+            sink.marker(payload);
+            task.fill_active = payload == edge_fill;
+            run = pos + 8;
+        } else if (boundary && task.fill_active && op == 36) {
+            task.fill_w0 = words[0];
+            task.fill_w1 = words[1];
+            task.fill_pending = true;
+        } else if (!boundary && task.fill_pending && task.stream.remaining == 0) {
+            guest_until(pos + 8);
+            sink.fill(task.fill_w0, task.fill_w1, words[0], words[1]);
+            task.fill_pending = false;
+        } else if (boundary && hud_active && (op == 36 || op == 37)) {
+            guest_until(pos);
+            sink.align(words[0], words[1]);
+        }
+    }
+    guest_until(end);
+}
+// The coefficient never arrived. The sink hands RT64 the original first word
+// so its pending-command path matches an uncorrected stream.
+template <class Sink>
+inline void release_held_texrect(RdpTask& task, Sink&& sink) {
+    if (!task.hold) return;
+    sink.held(task.hold_w0, task.hold_w1);
+    task.hold = false;
+}
 void set_placement(int placement);
 float needle_shift(float x, float width, float scale);
 // 0x8007D75C is a ROM-owned u32 KSEG0 pointer to the active display
