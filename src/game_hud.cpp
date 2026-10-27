@@ -63,6 +63,49 @@ void active_picture_size(uint8_t* rdram, int32_t& logical_h, int32_t& buffer_h) 
 }
 }
 
+// USA func_8002E13C has a second race-HUD layout for a 240-line picture in a
+// buffer twice that tall (modes 6 and 8). Three inputs select it:
+// - the s32 stack flag at sp+0x1F0 (stored at 0x8002E1A4: buffer height >
+//   256), which moves layout edges and, through 0x80080640, picks the narrow
+//   timing font;
+// - the scene's 0x18-byte HUD configuration at scene+0x2C4, held in a1.
+//   func_8000FC18 copies it from a ROM table chosen by layout, s32 variant
+//   0x8007E5B4 and s32 player count 0x8007E580. One-player mode 6 (variant 0)
+//   gets 0x8007E61C: the small dial, placed for the doubled picture;
+// - the s32 Y shift at 0x8007FE84, copied from that configuration at
+//   0x8002E52C, which makes the blitters double sprite heights.
+// A console shows that picture as a half-height letterbox; this port fills the
+// window with it, which is the normal layout's shape. Before 0x8002E1A8, clear
+// the flag and any Y shift a previous drawer left (func_8004D120 sets it).
+// Before 0x8002E530, clear the copied Y shift and, in mode 6, point a1 at the
+// entry a normal race with the same player count copies (0x8007E5BC, or
+// 0x8007E5D4 for two players) for the rest of this frame. The builder only
+// reads through a1 after that point (via sp+0x1C4), so neither the scene nor
+// the table is written. Mode 8 (variant 1) keeps its entry, which already has
+// no Y shift. Game thread only. The descriptor read fails open: a bad pointer
+// keeps the ROM's own layout. The stack word is the builder's own; an invalid
+// stack pointer aborts. Remove when this port presents H-RES as the console
+// does.
+namespace {
+bool tall_picture(uint8_t* rdram) {
+    int32_t logical_h = 0, buffer_h = 0;
+    wdc::hud::active_picture_size(rdram, logical_h, buffer_h);
+    return logical_h > 0 && int64_t(buffer_h) == int64_t(logical_h) * 2;
+}
+}
+extern "C" void wdc_hud_normal_layout(uint8_t* rdram, recomp_context* ctx) {
+    if (!tall_picture(rdram)) return;
+    wdc_require_guest_range(ctx->r29 + 0x1F0, 4, 4);
+    MEM_W(0x1F0, ctx->r29) = 0;
+    MEM_W(0, int32_t(0x8007FE84)) = 0;
+}
+extern "C" void wdc_hud_normal_shift(uint8_t* rdram, recomp_context* ctx) {
+    if (!tall_picture(rdram)) return;
+    MEM_W(0, int32_t(0x8007FE84)) = 0;
+    if (MEM_W(0, int32_t(0x8007E5B4)) != 0) return;
+    ctx->r5 = int32_t(MEM_W(0, int32_t(0x8007E580)) == 2 ? 0x8007E5D4 : 0x8007E5BC);
+}
+
 // The active scene pointer at 0x8007E570 is a ROM-owned u32. Its first four
 // s32 fields are viewport x/y/width/height in framebuffer pixels. Read only on
 // the game-thread HUD boundary; validate before use, retain values not pointers.

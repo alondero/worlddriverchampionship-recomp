@@ -10,7 +10,7 @@ for path in sorted(source.glob("*.c")):
                              path.read_text(encoding="utf-8"), re.S):
         functions[match[1]] = match[0]
 pending = ["func_80011D54", "func_8000FC18", "func_8000E148", "func_8002D99C",
-           "func_800006E0", "func_800006AC", "func_8000125C"]
+           "func_800006E0", "func_800006AC", "func_8000125C", "func_8004D120"]
 # The layout harness retains real viewport partition arithmetic and the scene
 # rectangle writer, display initialization, descriptor lookup and mode selection.
 # Framebuffer allocation, camera orientation and heap clearing are outside that

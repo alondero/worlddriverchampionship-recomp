@@ -92,69 +92,72 @@ int main() {
     assert(edge_fills(8 * 4, 8 * 4, 0, 512, 320, 2.0f).count == 0);
     assert(edge_fills(8 * 4, 312 * 4, 0, 512, 0, 2.0f).count == 0);
 
-    // Executed blitters. Words are the RDP texrect after the BOSS E4/E1/F1
-    // rewrite. Each doubled packet must become the native packet from the
-    // same call with the scale or flag clear. Mode 6 samples 240 lines from
-    // a 480-line buffer.
-    // func_8002DAD0 at X=40 Y=50, a3=0, 5th=0, 6th=16, 7th=12, 8th=64.
-    // Scale pairs are (X, Y). The HUD builder was not run; these are the
-    // blitter's packets, including the mode-6 gauge pair (0, 1).
-    const Texrect digit_native{0xE40B00D4u, 0x000A00C8u, 0x000000BFu, 0x0200FE00u};
-    const Texrect digit_y{0xE40B01A8u, 0x000A0190u, 0x000000BFu, 0x0200FF00u};
-    const Texrect digit_both{0xE41601A8u, 0x00140190u, 0x000000BFu, 0x0100FF00u};
-    const Texrect digit_x{0xE41600D4u, 0x001400C8u, 0x000000BFu, 0x0100FE00u};
+    // Words are the RDP texrect after the BOSS E4/E1/F1 rewrite. Mode 6
+    // draws a 240-line picture in a 480-line buffer; the doubled sprites grow
+    // about its centre line (row 120), which is where the correction halves.
+    // func_8004D120, the race-start countdown, executed from the ROM by
+    // wdc_camera_rom in mode 1 and mode 6 at 0.5 s. It reaches func_8002DAD0
+    // with Y scale 1 in mode 6: rows 102..138 instead of 111..129.
+    const Texrect digit_native{0xE4300204u, 0x002001BCu, 0x02E0014Fu, 0x0200FE00u};
+    const Texrect digit_y{0xE4300228u, 0x00200198u, 0x02E0014Fu, 0x0200FF00u};
     assert(correct_hres_texrect(digit_y, 240, 480) == digit_native);
-    assert(correct_hres_texrect(digit_both, 240, 480) == digit_x);
     assert(correct_hres_texrect(digit_native, 240, 480) == digit_native);
+    // Mode 8 also doubles X (high half 0x0100). Not executed: this pair only
+    // checks that the X step and X edges are left alone.
+    const Texrect digit_both{0xE4300228u, 0x00200198u, 0x02E0014Fu, 0x0100FF00u};
+    const Texrect digit_x{0xE4300204u, 0x002001BCu, 0x02E0014Fu, 0x0100FE00u};
+    assert(correct_hres_texrect(digit_both, 240, 480) == digit_x);
     assert(correct_hres_texrect(digit_x, 240, 480) == digit_x);
-    // func_8006DA18, the in-race pause-text blitter. Sprite 16x12, type 0,
-    // X=40 Y=50, a3=1, 5th=16, 6th=10. Type 5 emitted the same words.
-    // func_80050E24 stores sprite byte +0x1C as 0, so the tall packet is the
-    // one that drawer produces. The +0x1C packet only moves the origin.
-    const Texrect text_native{0xE40E00F0u, 0x000A00C8u, 0x00000760u, 0x02000200u};
-    const Texrect text_tall{0xE40E01E0u, 0x000A0190u, 0x00000760u, 0x02000100u};
-    const Texrect text_shifted{0xE40E01B8u, 0x000A0190u, 0x00000760u, 0x02000200u};
+    // Live Hawaii practice capture (WDC_RDP_CAPTURE), in-race pause menu,
+    // H-RES then NORM. The game's own H-RES layout sits 2 pixels further
+    // right, so X stays as captured and Y must equal the NORM capture.
+    auto same_y = [](const Texrect& a, const Texrect& b) {
+        return (a.w0 & 0xFFFu) == (b.w0 & 0xFFFu) && (a.w1 & 0xFFFu) == (b.w1 & 0xFFFu);
+    };
+    // "RESUME", func_8006DA18 through func_80051028: rows 70..90 -> 95..105.
+    const Texrect text_tall{0xE4244168u, 0x00198118u, 0x00000760u, 0x02000100u};
+    const Texrect text_native{0xE42441A4u, 0x0019817Cu, 0x00000760u, 0x02000200u};
+    const Texrect text_norm{0xE423C1A4u, 0x0019017Cu, 0x00000760u, 0x02000200u};
     assert(correct_hres_texrect(text_tall, 240, 480) == text_native);
+    assert(same_y(text_native, text_norm));
     assert(correct_hres_texrect(text_native, 240, 480) == text_native);
+    // func_8006DA18 with sprite byte +0x1C set only moves the origin and
+    // keeps 0x02000200 (blitter executed with X=40 Y=50; not a pause packet).
+    const Texrect text_shifted{0xE40E01B8u, 0x000A0190u, 0x00000760u, 0x02000200u};
     assert(correct_hres_texrect(text_shifted, 240, 480) == text_shifted);
-    // func_8006D22C pause chrome. Type 1, width 0xC0, height 0x16, a1=0x61,
-    // a2=0x1E, a3=0, 5th=0x82. func_8006C910 does not write byte +0x1C.
-    const Texrect chrome_native{0xE438C0D0u, 0x00184078u, 0x000006A0u, 0x02000200u};
+    // Pause panel, func_8006D22C: rows 60..104 -> 90..112.
     const Texrect chrome_tall{0xE438C1A0u, 0x001840F0u, 0x000006A0u, 0x02000100u};
-    const Texrect chrome_shifted{0xE438C148u, 0x001840F0u, 0x000006A0u, 0x02000200u};
+    const Texrect chrome_native{0xE438C1C0u, 0x00184168u, 0x000006A0u, 0x02000200u};
+    const Texrect chrome_norm{0xE43841C0u, 0x0017C168u, 0x000006A0u, 0x02000200u};
     assert(correct_hres_texrect(chrome_tall, 240, 480) == chrome_native);
+    assert(same_y(chrome_native, chrome_norm));
     assert(correct_hres_texrect(chrome_native, 240, 480) == chrome_native);
+    const Texrect chrome_shifted{0xE438C148u, 0x001840F0u, 0x000006A0u, 0x02000200u};
     assert(correct_hres_texrect(chrome_shifted, 240, 480) == chrome_shifted);
-    // func_8006CCD4, re-executed. Not the pause or HUD producer. 16x12 at
-    // (40, 50), type 5. The +0x1C packet shares 0x02000200 with the native one.
-    const Texrect generic_native{0xE40E00F8u, 0x000A00C8u, 0x00000740u, 0x02000200u};
-    const Texrect generic_tall{0xE40E01F0u, 0x000A0190u, 0x00000740u, 0x02000100u};
-    const Texrect generic_shifted{0xE40E01C0u, 0x000A0190u, 0x00000740u, 0x02000200u};
-    assert(correct_hres_texrect(generic_tall, 240, 480) == generic_native);
-    assert(correct_hres_texrect(generic_shifted, 240, 480) == generic_shifted);
-    // func_8006CA7C, opcode 37. The in-race pause drawer calls it at
-    // 0x80045244 and 0x80045274. Flag set doubles both screen Y edges and
-    // stores dtdy 0x100. RT64 runs dsdx along screen Y and dtdy along screen
-    // X, so the corrected packet must match the flag-clear packet on both
-    // texture axes, not only the rectangle.
-    const Texrect flip_native{0xE5188184u, 0x00184078u, 0x000007F0u, 0x02000200u};
-    const Texrect flip_tall{0xE5188308u, 0x001840F0u, 0x000007F0u, 0x02000100u};
+    // func_8006CA7C, opcode 37, the pause panel's left edge: rows 58..192 ->
+    // 89..156. Flag set doubles both screen Y edges and stores dtdy 0x100.
+    // RT64 runs dsdx along screen Y and dtdy along screen X, so the corrected
+    // packet must match the flag-clear packet on both texture axes.
+    const Texrect flip_tall{0xE5188300u, 0x001840E8u, 0x000007F0u, 0x02000100u};
+    const Texrect flip_native{0xE5188270u, 0x00184164u, 0x000007F0u, 0x02000200u};
+    const Texrect flip_norm{0xE5180270u, 0x0017C164u, 0x000007F0u, 0x02000200u};
     assert(correct_hres_texrect(flip_tall, 240, 480) == flip_native);
+    assert(same_y(flip_native, flip_norm));
     assert(correct_hres_texrect(flip_native, 240, 480) == flip_native);
-    assert(rdp_axis_span(correct_hres_texrect(flip_tall, 240, 480), false) == rdp_axis_span(flip_native, false));
-    assert(rdp_axis_span(correct_hres_texrect(flip_tall, 240, 480), true) == rdp_axis_span(flip_native, true));
+    assert(rdp_axis_span(correct_hres_texrect(flip_tall, 240, 480), false) == rdp_axis_span(flip_norm, false));
+    assert(rdp_axis_span(correct_hres_texrect(flip_tall, 240, 480), true) == rdp_axis_span(flip_norm, true));
     // The digit low half is an X-axis step when the rect is flipped.
     // func_8006CA7C does not emit it, so a flipped 0xFF00 packet stays put.
     const Texrect flip_digit{0xE5188308u, 0x001840F0u, 0x000007F0u, 0x0200FF00u};
     assert(correct_hres_texrect(flip_digit, 240, 480) == flip_digit);
-    assert(rdp_axis_span(correct_hres_texrect(text_tall, 240, 480), true) == rdp_axis_span(text_native, true));
-    assert(rdp_axis_span(correct_hres_texrect(text_tall, 240, 480), false) == rdp_axis_span(text_native, false));
+    assert(rdp_axis_span(correct_hres_texrect(text_tall, 240, 480), true) == rdp_axis_span(text_norm, true));
+    assert(rdp_axis_span(correct_hres_texrect(text_tall, 240, 480), false) == rdp_axis_span(text_norm, false));
     assert(rdp_axis_span(correct_hres_texrect(digit_y, 240, 480), true) == rdp_axis_span(digit_native, true));
     assert(rdp_axis_span(correct_hres_texrect(digit_y, 240, 480), false) == rdp_axis_span(digit_native, false));
     assert(rdp_axis_span(correct_hres_texrect(digit_both, 240, 480), true) == rdp_axis_span(digit_x, true));
     assert(rdp_axis_span(correct_hres_texrect(digit_both, 240, 480), false) == rdp_axis_span(digit_x, false));
-    assert(rdp_axis_span(correct_hres_texrect(chrome_tall, 240, 480), true) == rdp_axis_span(chrome_native, true));
-    assert(rdp_axis_span(correct_hres_texrect(chrome_tall, 240, 480), false) == rdp_axis_span(chrome_native, false));
+    assert(rdp_axis_span(correct_hres_texrect(chrome_tall, 240, 480), true) == rdp_axis_span(chrome_norm, true));
+    assert(rdp_axis_span(correct_hres_texrect(chrome_tall, 240, 480), false) == rdp_axis_span(chrome_norm, false));
     // Menus (logical 480, buffer 480) and normal racing (240, 240) already
     // match the sampled picture. The background divider's 0x04000400 step,
     // a non-rect opcode, and an inverted position-only rect stay put.

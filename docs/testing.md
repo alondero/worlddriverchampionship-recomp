@@ -199,16 +199,25 @@ the expected cull extent doubles and horizontal matrix term halves for correctio
 ROM aspect. The first malformed state warns once per process.
 The renderer reference records the decoded VI sizes, distinct render/presentation
 aspects and mode 3's existing four-row sampling estimate.
-The needle fixture also checks H-RES Y at 4:3 and 16:9. Mode 6 with the vertical
-flag set must match the captured Y. Mode 3 keeps the builder's doubled Y. A
-clear flag leaves Y unchanged. `wdc_hud_triangle` covers that hook without the
-ROM, including a bad pointer at 4:3. `wdc_hud_stream` checks the H-RES texrect
-rewrite against packets captured by executing `func_8002DAD0`, `func_8006DA18`
-and `func_8006D22C`. Height-doubled pause text and chrome (`0x02000100`) and
-Y-scaled digits (`0xFF00`) are rewritten to the flag-clear or unscaled packet
-from the same run. The flipped pause edge from `func_8006CA7C` (`0x02000100`,
-opcode 37) is rewritten to that call's flag-clear packet, including both
-texture axes. Step `0x02000200`, including the executed sprite `+0x1C`
+The layout sweep also checks the race-HUD configuration the selector copies:
+in every mode-6 case `wdc_hud_normal_shift` must leave the builder's `a1` on
+the same bytes a normal race with that player count copies, and mode 8 keeps
+its own entry. The needle fixture also checks H-RES Y at 4:3 and 16:9. In
+mode 6 the `wdc_hud_normal_shift` hook clears the vertical flag before the
+needle builder runs, so Y stays at the normal layout's value. Mode 3 keeps the
+builder's doubled Y. A clear flag leaves Y unchanged. The same test runs the
+race-start countdown `func_8004D120` in mode 1 and mode 6 at four times and
+requires the renderer's H-RES correction of each mode-6 packet to equal the
+mode-1 packet. `wdc_hud_triangle` checks both HUD layout hooks without the
+ROM: modes 6 and 8 clear the stack flag and Y shift, and mode 6 switches to
+the one- or two-player normal configuration. Mode 3, mode 1 and a bad
+descriptor pointer keep the ROM's values. It also checks that the needle hook
+leaves Y alone. `wdc_hud_stream` checks the H-RES texrect rewrite against the
+countdown packets and against in-race pause packets captured live in H-RES
+and NORM. Height-doubled pause text, panel and the flipped panel edge
+(`0x02000100`) and Y-scaled digits (`0xFF00`) are halved about the picture's
+centre line; their Y must equal the NORM capture, including both texture axes
+of the flipped edge. Step `0x02000200`, including the executed sprite `+0x1C`
 packet, is not rewritten. A coefficient split across two chunks is corrected
 only once the step word arrives. It does not call RT64.
 Missing/indirect calls fail extraction.
