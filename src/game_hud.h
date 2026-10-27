@@ -48,9 +48,10 @@ struct Texrect {
 // still emit the doubled screen rectangle. This undoes that extra Y shift
 // for an ordinary texrect (opcode 36) whose step proves the blitter doubled
 // Y: sprite 0x02000100, or a digit low half of 0xFF00. Step 0x02000200 is
-// also the flag-clear sprite, so it is not proof that Y moved. Opcode 37 is
-// a flipped rect: RT64 applies dsdx to screen Y and dtdy to screen X, and
-// the flip blitter was not executed, so those packets stay unchanged.
+// both the flag-clear rectangle and the sprite byte +0x1C packet, so it
+// does not prove that the height doubled. Opcode 37 is flipped: RT64 applies
+// dsdx to screen Y and dtdy to screen X. Executed func_8006CA7C packets stay
+// unchanged.
 // Other pictures, including the 480-line menu, are unchanged. It does not
 // read or write guest memory.
 inline Texrect correct_hres_texrect(Texrect in, int32_t logical_h, int32_t buffer_h) {
@@ -59,7 +60,8 @@ inline Texrect correct_hres_texrect(Texrect in, int32_t logical_h, int32_t buffe
     if (op != 36) return in;
     auto y_of = [](uint32_t word) { return word & 0xFFFu; };
     auto with_y = [](uint32_t word, uint32_t y) { return (word & ~0xFFFu) | (y & 0xFFFu); };
-    // func_8006CCD4 with sprite byte +0x1C clear: height doubled, dtdy halved.
+    // Height-doubled sprite: func_8006DA18, func_8006D22C and func_8006CCD4
+    // with the H-RES flag set and sprite byte +0x1C clear. dtdy is halved.
     if (in.w3 == 0x02000100u) {
         in.w0 = with_y(in.w0, y_of(in.w0) >> 1);
         in.w1 = with_y(in.w1, y_of(in.w1) >> 1);

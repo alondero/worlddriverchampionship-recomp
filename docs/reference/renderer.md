@@ -216,22 +216,44 @@ height. Among modes the layout selector publishes, that is 6 and 8. Mode 3 is a
 real 480-line menu: logical height equals the buffer, and its rectangles stay
 in that space.
 
-`func_8006CCD4` and `func_8006DA18` double screen Y while the layout word
-`0x8007E578` is 1. A captured 16x12 sprite at (40, 50) shows the two results.
-With sprite byte `+0x1C` clear, the RDP rectangle is 16x24 at y=100 and the
-step word is `0x02000100`. With that byte set, the rectangle is 16x12 at y=100
-and the step stays `0x02000200`. The flag-clear packet is 16x12 at y=50 with
-the same step, `0x02000200`. That coefficient therefore does not prove the top
-moved, and the worker leaves it unchanged. Sprites that took the `+0x1C` path
-stay at the doubled Y. Their height was not doubled, so they are not the
-tall rectangle the captured height path produces. `func_8002DAD0` doubles both
-Y edges for gauge digits. Its recompiled step (`ra` = 9) changes from
-`0x0200FE00` to `0x0200FF00`, or to `0x0100FF00` when mode 8 also doubles X.
-That X step matches the 640-wide buffer and is left alone. The background
+Race HUD texrects come from `func_8002DAD0`. After the needle, the mode 6
+gauge section stores X scale 0 and Y scale 1. Draws between the HUD-begin
+hook and that store copy player fields this capture did not identify.
+Executing that
+blitter at X=40, Y=50 for scale pairs (0,0), (0,1), (1,1) and (1,0) produced
+steps `0x0200FE00`, `0x0200FF00`, `0x0100FF00` and `0x0100FE00`. Y scale 1
+doubles both Y edges. X scale 1 doubles both X edges and is left alone, so
+mode 8 keeps the `0x0100` high half. `func_8002DAD0` does not read sprite byte
+`+0x1C` and does not emit `0x02000200`. The size arguments in that run (16, 12,
+and a 64 multiplier) were chosen so the rectangle stayed non-zero. The step
+and the edge doubling belong to the blitter at those scale words. The HUD
+builder `func_8002E13C` itself was not executed.
+
+In-race pause text reaches `func_8006DA18` through `func_80051028`.
+`func_80050E24` initializes those objects and calls `func_8006CA58` with a
+zero argument on the nested sprite, which stores 0 at byte `+0x1C`. Pause
+chrome is `func_8006D22C` on the type-1 sprites `func_8006C910` sets up
+(192x22 at `0x800DE968`, 304x1 at `0x800DE948`). That setup writes width,
+height and type, and does not write `+0x1C`. `funcs_16.c` calls
+`func_80050E24` for these objects and does not call `func_80050EC4`.
+Executing `func_8006DA18` and `func_8006D22C` with the H-RES flag set and
+`+0x1C` clear produced a height-doubled rectangle and step `0x02000100`.
+The same calls with the flag clear produced the native rectangle and step
+`0x02000200`. Setting `+0x1C` while the flag is set moves the Y origin and
+leaves both the height and the `0x02000200` step. That packet was executed
+for both blitters. It is not the packet those initializers produce. Halving
+both of its Y edges would squash a height that was not doubled, and the
+flag-clear rectangle uses the same step, so the worker does not rewrite
+`0x02000200`. Reading flag `0x80099C60` at submit time is not used: the
+issue's producers do not emit the shifted packet, and that flag's stability
+between the game thread and the graphics worker was not measured.
+
+`func_8006CA7C` is the only flipped texrect (opcode 37). Executing it with
+the flag set doubled both Y edges and stored `0x02000100`. RT64 applies
+`dsdx` to screen Y and `dtdy` to screen X for opcode 37, so that packet is
+not rewritten. `func_8006CCD4` was executed again and matched its earlier
+16x12 capture. It is not the pause-text or race-HUD producer. The background
 divider `func_80024944` emits `0x04000400` and is not an H-RES double.
-`func_8006CA7C` is the only flipped texrect (opcode 37). RT64 applies `dsdx`
-to screen Y and `dtdy` to screen X for that opcode. The flip blitter was not
-executed, so opcode 37 is not rewritten.
 
 On hardware the half-scale VI picture would compress the tall buffer back to
 about 240 lines. This port's sampled picture is already 240 lines, so the
@@ -258,18 +280,21 @@ including at 4:3, where the horizontal correction does not run. A bad pointer
 on that 4:3 path skips the undo. The wide-window path still aborts on a bad
 descriptor before it writes X. Mode 3 keeps the doubled Y.
 
-`wdc_hud_stream` checks the captured sprite packets, both digit steps, and the
-menu, normal, divider, non-rect and inverted cases. It also walks the worker's
-submission decisions: the captured height-doubled sprite (pause text sits
-outside the HUD marker), both roles of `0x02000200`, the divider, a flipped
-rect, a coefficient split across two chunks, a task that ends on the held
-word, a menu edge-fill bracket, and HUD alignment against the original X.
-That walk does not call RT64. `wdc_hud_triangle` checks the needle undo at
-4:3 and 16:9, mode 3, a clear flag, and the fail-open pointer path. The ROM
-camera test runs the real needle builder for those three Y cases. This 2D
-correction has not been checked in a live Hawaii session, and `renderer.cpp`
-was not compiled here because the worktree RT64 checkout is empty. The digit
-step words come from the recompiled shift, not from a captured packet.
+`wdc_hud_stream` checks the captured digit, pause-text and pause-chrome
+packets, the executed `+0x1C` packets, opcode 37, and the menu, normal,
+divider, non-rect and inverted cases. It also walks the worker's submission
+decisions on those captured rectangles. Pause text sits outside the HUD
+marker. The shifted `+0x1C` packet, the flag-clear `0x02000200` packet, the
+divider and the flipped rect stay unchanged. A coefficient split across two
+chunks, a task that ends on the held word, a menu edge-fill bracket, and HUD
+alignment against the original X are covered. That walk does not call RT64.
+`wdc_hud_triangle` checks the needle undo at 4:3 and 16:9, mode 3, a clear
+flag, and the fail-open pointer path. The ROM camera test runs the real
+needle builder for those three Y cases. This 2D correction has not been
+checked in a live Hawaii session, and `renderer.cpp` was not compiled here
+because the worktree RT64 checkout is empty. The digit and sprite words
+above were captured by executing the blitters. The HUD builder and the pause
+drawer were not run, and no Hawaii frame was captured.
 
 ## Race HUD placement
 
