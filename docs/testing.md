@@ -183,6 +183,14 @@ It checks full-screen bounds and horizontal/vertical split boundaries, plus
 displayed projection proportions and horizontal culling in normal/Hi-Rez racing,
 menu and cinematic modes at 4:3, 16:9, ultrawide and narrow output. Logical
 picture dimensions are used independently of allocated buffer dimensions.
+The test compiles the pinned RT64 VI decoder and extracts the production
+presenter's coordinate transforms, substituting only GPU interfaces. Both VI
+fields give 80 presentation cases. Reference dimensions are independent ROM/VI
+measurements rather than fields read by the camera hook. The post-initializer
+boot descriptor and seven malformed size pairs also exercise the real camera;
+malformed dimensions preserve ROM aspect after a wide output and warn once.
+The renderer reference records the decoded VI sizes, distinct render/presentation
+aspects and mode 3's existing four-row sampling estimate.
 Missing/indirect calls fail extraction.
 
 `wdc_visibility_rom` exercises the translated car-detail selector, car

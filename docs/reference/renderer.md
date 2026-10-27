@@ -78,24 +78,64 @@ including at Original 4:3.
 At this hook, `f8` holds viewport width/height and `t6` already holds the active
 descriptor loaded from `0x8007D75C`. The hook reads its signed 32-bit logical
 width/height at `+0/+4`, in pixels, through word-swapped RDRAM helpers. These are
-ROM-owned values initialized by `func_800006E0` and selected at display changes.
+ROM-owned values initialized by `func_800006E0`: instructions `0x80000748` and
+`0x80000768` store 320 and 240 in mode 0 at `0x800AAE38`, before any scene layout.
+The layout builder `func_8000FC18` selects a descriptor and reads its sizes at
+`0x8000FE48`/`0x8000FE54`; it does not initialize them. Both frame paths,
+`func_8000C560` and `func_8004E950`, call layout, publish the selected descriptor
+through `func_800010A0`, then build the scene camera. Display initialization must
+precede those frame paths. The ROM regression checks mode 0 immediately after
+initialization, before layout, and executes its camera successfully.
+
 The game thread reads eight aligned bytes before task submission, retaining no
-pointer; invalid guest ranges or dimensions outside 1..4096 fail before a write.
+pointer. Invalid guest ranges still fail before access. Dimensions outside
+1..4096 instead retain the ROM-computed aspect and emit one warning; tests cover
+zero, negative, oversized and non-size data, including after a wide camera.
 Buffer dimensions at `+8/+12` are deliberately excluded: modes 6 and 8 use
 320x240/640x240 logical pictures with 320x480/640x480 buffers. The in-race pause
 menu's NORM / H-RES toggle switches the layout request/current words at
 `0x8007E57C`/`0x8007E578` from 0 to 1: normal mode 1 becomes mode 6. The
 independent descriptor-variant word `0x8007E5B8` remains 0 in that live check.
 Mode 3, used by menus, has a 320x480 logical picture and pixel correction 2.
-All now use the same physical output proportions; inset cinematic viewports
-and split-screen partitions retain their relative bounds.
+Modes 6 and 8 now use the same physical output proportions as normal racing;
+inset cinematic viewports and split-screen partitions retain their relative bounds.
 The CPU visibility code at `0x80021A18` consumes the same camera extent; the
 matrix at `0x800B2A40` also drives point clipping and screen projection.
 
 SDL's main thread publishes the window width/height ratio atomically. The renderer
-uses the same factor with RT64 Manual aspect, multiplying its VI-derived
-framebuffer aspect rather than treating 320x480 menu pixels as square. RT64's
-rectangle path preserves HUD/menu proportions, while raw world
+uses the same width factor `S` with RT64 Manual aspect, setting its render target
+to `source * S`, where `source = decodeVI().fbSize().x / fbSize().y`.
+This target describes framebuffer scaling, not the final physical picture.
+RT64's workload divides target by source, yielding horizontal/vertical resolution
+scales `(M * S, M)` for resolution multiplier `M`. WDC disables
+`presentation.removeBlackBorders`, so the pinned `VIRenderer::getViewportAndScissor`
+uses a fixed **320x240** TV canvas, not `fbSize()`, and VI view/crop rectangles
+are the unit rectangle. The final physical aspect is therefore `(4/3) * S` in
+every mode. This is the camera hook's output aspect even when the VI source is
+not 4:3. The presenter still samples `fbSize() * resolutionScale` from the texture.
+
+The ROM-backed test compiles the pinned RT64 VI decoder and extracts the real
+presenter coordinate transforms, replacing only GPU value/size interfaces.
+For field 0, the ROM-initialized registers produce these decoded values (all
+have `VI_H_START = 0x006C02EC`; both fields are tested):
+
+| Mode | VI width | VI X/Y scale | VI V start | RT64 `fbSize()` | Source aspect |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 320 | `0x200` / `0x400` | `0x002501FF` | 320x240 | 1.333333 |
+| 3 | 320 | `0x200` / `0x02000800` | `0x002301FD` | 320x476 | 0.672269 |
+| 6 | 320 | `0x08000200` / `0x02000800` | `0x009A0188` | 320x240 | 1.333333 |
+| 8 | 640 | `0x400` / `0x02000800` | `0x009A0188` | 640x240 | 2.666667 |
+
+At 16:9 the render targets are approximately 1.777778, 0.896358, 1.777778 and
+3.555556; the production presenter returns a physical 16:9 viewport for all four.
+These are repeatable decoder/presenter measurements from ROM-initialized VI
+state, not a new live capture. Mode 3 retains RT64's existing four-row sampling
+estimate (476 of 480 logical lines); the test separately checks its 476/480
+displayed width/height ratio rather than claiming exact square proportions.
+Expected logical and sampled dimensions are independently specified in the test,
+so reading buffer dimensions in place of logical dimensions fails it.
+
+RT64's rectangle path preserves normal HUD/menu proportions, while raw world
 triangles have already been widened by the ROM. Narrow windows retain 4:3.
 Non-positive output dimensions reset the published scale to the original TV
 aspect, including when the previous output was wide.
@@ -129,8 +169,10 @@ effects stubbed, checking border removal and both split directions. CTest
 limits the translated camera/layout execution to 30 seconds. The test also runs
 the ROM's real display initializer, descriptor lookup and mode selector, covering
 normal/Hi-Rez racing, menus and cinematics at 4:3, 16:9, ultrawide and narrow
-output. Projected width/height and the CPU cull extent must match the physical
-output and viewport fraction in each mode, including both split directions.
+output. Projected width/height after VI sampling and the CPU cull extent must
+match the actual presenter viewport and scene fraction in each mode, including
+both split directions. The two VI fields give 80 presentation cases. The boot
+descriptor and seven invalid-dimension cases check initialization/fallback.
 Only framebuffer allocation is replaced in display initialization; descriptor
 construction and copies run translated code. This is deterministic projection
 coverage, not visual acceptance of every scene or display transition.

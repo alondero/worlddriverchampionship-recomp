@@ -2,6 +2,7 @@
 #include "game_camera.h"
 #include "game_hud.h"
 #include "game_visibility.h"
+#include "vi_presentation.h"
 #include "recomp.h"
 #include <array>
 #include <bit>
@@ -58,19 +59,22 @@ int main(int argc, char** argv) {
     put(camera, 0x10, -1); put(camera, 0x24, 1); put(camera, 8, -1);
     put(camera, 0x68, 1.04719755f); put(camera, 0x74, std::tan(1.04719755f));
     MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
-    auto project = [&](int window_width, int window_height, float viewport_height, float pixel_aspect) {
-        wdc::camera::set_output_size(window_width, window_height);
-        MEM_W(0, descriptor) = 320; MEM_W(4, descriptor) = int(viewport_height);
-        put(descriptor, 0x14, pixel_aspect);
+    auto run_camera = [&](float width, float height) {
         recomp_context ctx{};
         ctx.f_odd = &ctx.f0.u32h;
         ctx.r29 = int32_t(0x807FF000); ctx.r4 = camera;
-        ctx.r5 = std::bit_cast<uint32_t>(320.0f);
-        ctx.r6 = std::bit_cast<uint32_t>(viewport_height);
+        ctx.r5 = std::bit_cast<uint32_t>(width);
+        ctx.r6 = std::bit_cast<uint32_t>(height);
         ctx.r7 = std::bit_cast<uint32_t>(100.0f);
         func_80011D54(rdram, &ctx);
         assert(MEM_W(0, int32_t(0x8007ED68)) == int32_t(0x80402000));
         return std::bit_cast<float>(uint32_t(MEM_W(0x7C, camera)));
+    };
+    auto project = [&](int window_width, int window_height, float viewport_height, float pixel_aspect) {
+        wdc::camera::set_output_size(window_width, window_height);
+        MEM_W(0, descriptor) = 320; MEM_W(4, descriptor) = int(viewport_height);
+        put(descriptor, 0x14, pixel_aspect);
+        return run_camera(320, viewport_height);
     };
     const float original_extent = project(960, 720, 240, 1);
     const auto original = matrix;
@@ -94,6 +98,32 @@ int main(int argc, char** argv) {
     recomp_context init{}; init.f_odd = &init.f0.u32h;
     init.r29 = int32_t(0x807FF000);
     func_800006E0(rdram, &init);
+    // Verify initialization before any scene-layout call. These stores belong
+    // to 800006E0 (80000748/80000768), not to the later layout builder.
+    constexpr int32_t boot_descriptor = int32_t(0x800AAE38);
+    assert(MEM_W(0, boot_descriptor) == 320 && MEM_W(4, boot_descriptor) == 240);
+    assert(MEM_W(0, int32_t(0x8007D75C)) == boot_descriptor);
+    wdc::camera::set_output_size(960, 720);
+    assert(std::abs(run_camera(320, 240) - original_extent) < 1e-5f);
+    for (int i = 0; i < 16; ++i) assert(std::abs(matrix[i] - original[i]) < 1e-5f);
+    // A valid pointer with uninitialized/malformed dimensions must retain the
+    // ROM's original aspect, including after a previously wide camera.
+    for (const auto size : {std::array{0, 240}, std::array{320, 0},
+                            std::array{-1, 240}, std::array{320, -1},
+                            std::array{4097, 240}, std::array{320, 4097},
+                            std::array{0x3F800000, 300}}) {
+        MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
+        project(2560, 720, 240, 1);
+        MEM_W(0, descriptor) = size[0]; MEM_W(4, descriptor) = size[1];
+        assert(std::abs(run_camera(320, 240) - original_extent) < 1e-5f);
+        for (int i = 0; i < 16; ++i) assert(std::abs(matrix[i] - original[i]) < 1e-5f);
+    }
+    // Independent ROM/VI measurements: expected values must not be derived
+    // from the same logical-dimension fields the production hook consumes.
+    struct Display { int mode, width, height, buffer_width, buffer_height, sampled_height; };
+    constexpr std::array displays{
+        Display{1, 320, 240, 320, 240, 240}, Display{3, 320, 480, 320, 480, 476},
+        Display{6, 320, 240, 320, 480, 240}, Display{8, 640, 240, 640, 480, 240}};
     bool proportions_match = true;
     for (int window_width : {720, 960, 1280, 2560}) {
         wdc::camera::set_output_size(window_width, 720);
@@ -109,6 +139,10 @@ int main(int argc, char** argv) {
             const gpr active = MEM_W(0, int32_t(0x8007D758));
             const int mode = layout == 1 ? (variant ? 8 : 6) : (variant ? 3 : 1);
             assert(active == int32_t(0x800AAE38) + mode * 0x74);
+            const auto& expected = displays[layout == 1 ? 2 + variant : variant];
+            assert(expected.mode == mode);
+            assert(MEM_W(0, active) == expected.width && MEM_W(4, active) == expected.height);
+            assert(MEM_W(8, active) == expected.buffer_width && MEM_W(12, active) == expected.buffer_height);
             // Model the frame boundary publishing the selected descriptor.
             MEM_W(0, int32_t(0x8007D75C)) = active;
             const float width = float(MEM_W(8, scene));
@@ -118,22 +152,54 @@ int main(int argc, char** argv) {
             ctx.r6 = std::bit_cast<uint32_t>(height);
             ctx.r7 = std::bit_cast<uint32_t>(100.0f);
             func_80011D54(rdram, &ctx);
-            // RT64 presents the sampled VI picture into the whole output.
-            // Include the scene's fraction of that picture: layout 3 retains
-            // an inset cinematic viewport even with TV overscan removed.
-            const float output_aspect = (4.0f / 3.0f) * wdc::camera::width_scale();
-            const float viewport_fraction = (width / float(MEM_W(0, active))) /
-                (height / float(MEM_W(4, active)));
-            const float displayed_ratio = matrix[0] / matrix[5] * output_aspect * viewport_fraction;
-            if (std::abs(displayed_ratio - 1) >= 1e-5f) {
-                std::cerr << "mode " << mode << ", window " << window_width
-                          << ": displayed width/height " << displayed_ratio << '\n';
-                proportions_match = false;
+            // Decode the actual ROM-initialized OSViMode, as the runtime does
+            // when publishing a VI. Exercise both fields of interlaced modes.
+            for (int field : {0, 1}) {
+                RT64::VI vi{};
+                vi.status.word = uint32_t(MEM_W(0x28, active));
+                vi.width = uint32_t(MEM_W(0x2C, active));
+                vi.hRegion.word = uint32_t(MEM_W(0x40, active));
+                vi.xTransform.word = uint32_t(MEM_W(0x44, active));
+                vi.yTransform.word = uint32_t(MEM_W(0x50 + field * 0x14, active));
+                vi.vRegion.word = uint32_t(MEM_W(0x54 + field * 0x14, active));
+                vi.vCurrentLine = field;
+                const auto sampled = vi.fbSize();
+                assert(unsigned(sampled.x) == unsigned(expected.width));
+                assert(unsigned(sampled.y) == unsigned(expected.sampled_height));
+                const float source = float(sampled.x) / float(sampled.y);
+                // Same target/source cancellation as Renderer::sync_settings and
+                // WorkloadQueue. The real presenter supplies physical output bounds.
+                const float target = source * wdc::camera::width_scale();
+                const float scale_x = target / source;
+                const auto viewport = wdc::test::vi_viewport(vi, window_width, 720, scale_x, 1);
+                const float output_aspect = viewport[2] / viewport[3];
+                const float viewport_fraction = (width / expected.width) / (height / expected.height);
+                const float displayed_ratio = matrix[0] / matrix[5] * (width / height) * output_aspect / source;
+                // RT64 estimates mode 3's sampled height as 476, retaining its
+                // existing four-row trim of the logical 480-line menu picture.
+                const float expected_ratio = float(expected.sampled_height) / expected.height;
+                if (!std::isfinite(displayed_ratio) || std::abs(displayed_ratio - expected_ratio) >= 1e-5f) {
+                    std::cerr << "mode " << mode << ", window " << window_width
+                              << ", field " << field << ": displayed width/height " << displayed_ratio
+                              << ", expected " << expected_ratio << ", VI aspect " << source << '\n';
+                    proportions_match = false;
+                }
+                const float aspect = output_aspect * viewport_fraction;
+                const float tangent = std::bit_cast<float>(uint32_t(MEM_W(0x74, camera)));
+                const float extent = std::bit_cast<float>(uint32_t(MEM_W(0x7C, camera)));
+                const float expected_extent = tangent * aspect;
+                if (!std::isfinite(extent) || std::abs(extent / expected_extent - 1) >= 1e-5f) {
+                    std::cerr << "mode " << mode << ", window " << window_width
+                              << ", field " << field << ": cull extent " << extent
+                              << ", expected " << expected_extent << '\n';
+                    proportions_match = false;
+                }
+                if ((window_width == 960 || window_width == 1280) && players == 0 && layout != 3 && field == 0) {
+                    std::cout << "mode " << mode << ", window " << window_width << ": VI " << unsigned(sampled.x) << 'x' << unsigned(sampled.y)
+                              << ", source " << source << ", target " << target
+                              << ", presented aspect " << output_aspect << '\n';
+                }
             }
-            const float aspect = output_aspect * viewport_fraction;
-            const float tangent = std::bit_cast<float>(uint32_t(MEM_W(0x74, camera)));
-            const float extent = std::bit_cast<float>(uint32_t(MEM_W(0x7C, camera)));
-            if (std::abs(extent / (tangent * aspect) - 1) >= 1e-5f) proportions_match = false;
             for (int i = 1; i < 16; ++i) assert(std::abs(matrix[i] - original[i]) < 1e-5f);
         }
     }
