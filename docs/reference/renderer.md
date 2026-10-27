@@ -248,17 +248,23 @@ flag-clear rectangle uses the same step, so the worker does not rewrite
 issue's producers do not emit the shifted packet, and that flag's stability
 between the game thread and the graphics worker was not measured.
 
-`func_8006CA7C` is the only flipped texrect (opcode 37). Executing it with
-the flag set doubled both Y edges and stored `0x02000100`. RT64 applies
-`dsdx` to screen Y and `dtdy` to screen X for opcode 37, so that packet is
-not rewritten. `func_8006CCD4` was executed again and matched its earlier
+`func_8006CA7C` is the only flipped texrect (opcode 37). The in-race pause
+drawer calls it at `0x80045244` and `0x80045274`, next to the ordinary chrome
+draws. Executing it with the flag set doubled both screen Y edges and stored
+`0x02000100` (`dsdx` 0x200, `dtdy` 0x100). RT64 applies `dsdx` along screen Y
+and `dtdy` along screen X. Halving the screen Y edges makes the `dsdx` span
+match the flag-clear packet. Restoring `dtdy` to 0x200 makes the short-axis
+span match too, so the corrected packet is the flag-clear one. The digit
+`0xFF00` rule stays on opcode 36: on a flip that low half is the X step, and
+this blitter does not emit it. `func_8006CCD4` was executed again and matched its earlier
 16x12 capture. It is not the pause-text or race-HUD producer. The background
 divider `func_80024944` emits `0x04000400` and is not an H-RES double.
 
 On hardware the half-scale VI picture would compress the tall buffer back to
 about 240 lines. This port's sampled picture is already 240 lines, so the
-graphics worker rewrites an ordinary texrect whose step proves the extra Y
-shift: `0x02000100`, or a digit low half of `0xFF00`. The rewrite is a 16-byte
+graphics worker rewrites a texrect whose step proves the extra Y
+shift: `0x02000100` on opcode 36 or 37, or a digit low half of `0xFF00` on
+opcode 36. The rewrite is a 16-byte
 stack copy. X and the S/T word are unchanged. The copy is submitted with
 `processDisplayLists` and the guest command stream is not written. Pause text
 is outside the HUD marker, so the same rule applies there, not only inside
@@ -281,11 +287,12 @@ on that 4:3 path skips the undo. The wide-window path still aborts on a bad
 descriptor before it writes X. Mode 3 keeps the doubled Y.
 
 `wdc_hud_stream` checks the captured digit, pause-text and pause-chrome
-packets, the executed `+0x1C` packets, opcode 37, and the menu, normal,
-divider, non-rect and inverted cases. It also walks the worker's submission
-decisions on those captured rectangles. Pause text sits outside the HUD
-marker. The shifted `+0x1C` packet, the flag-clear `0x02000200` packet, the
-divider and the flipped rect stay unchanged. A coefficient split across two
+packets, the executed `+0x1C` packets, the flipped pause edge, and the menu,
+normal, divider, non-rect and inverted cases. It also walks the worker's
+submission decisions on those captured rectangles. Pause text sits outside the
+HUD marker. The shifted `+0x1C` packet, the flag-clear `0x02000200` packet and
+the divider stay unchanged. The flipped edge is rewritten to its flag-clear
+packet, and both texture-axis spans match that packet. A coefficient split across two
 chunks, a task that ends on the held word, a menu edge-fill bracket, and HUD
 alignment against the original X are covered. That walk does not call RT64.
 `wdc_hud_triangle` checks the needle undo at 4:3 and 16:9, mode 3, a clear

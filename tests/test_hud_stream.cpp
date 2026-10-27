@@ -132,14 +132,21 @@ int main() {
     const Texrect generic_shifted{0xE40E01C0u, 0x000A0190u, 0x00000740u, 0x02000200u};
     assert(correct_hres_texrect(generic_tall, 240, 480) == generic_native);
     assert(correct_hres_texrect(generic_shifted, 240, 480) == generic_shifted);
-    // func_8006CA7C, opcode 37, executed with the flag clear and set. RT64
-    // swaps the sample axes, so the doubled Y packet stays unchanged.
+    // func_8006CA7C, opcode 37. The in-race pause drawer calls it at
+    // 0x80045244 and 0x80045274. Flag set doubles both screen Y edges and
+    // stores dtdy 0x100. RT64 runs dsdx along screen Y and dtdy along screen
+    // X, so the corrected packet must match the flag-clear packet on both
+    // texture axes, not only the rectangle.
     const Texrect flip_native{0xE5188184u, 0x00184078u, 0x000007F0u, 0x02000200u};
     const Texrect flip_tall{0xE5188308u, 0x001840F0u, 0x000007F0u, 0x02000100u};
-    assert(correct_hres_texrect(flip_tall, 240, 480) == flip_tall);
+    assert(correct_hres_texrect(flip_tall, 240, 480) == flip_native);
     assert(correct_hres_texrect(flip_native, 240, 480) == flip_native);
-    assert(rdp_axis_span(correct_hres_texrect(flip_tall, 240, 480), false) == rdp_axis_span(flip_tall, false));
-    assert(rdp_axis_span(correct_hres_texrect(flip_tall, 240, 480), true) == rdp_axis_span(flip_tall, true));
+    assert(rdp_axis_span(correct_hres_texrect(flip_tall, 240, 480), false) == rdp_axis_span(flip_native, false));
+    assert(rdp_axis_span(correct_hres_texrect(flip_tall, 240, 480), true) == rdp_axis_span(flip_native, true));
+    // The digit low half is an X-axis step when the rect is flipped.
+    // func_8006CA7C does not emit it, so a flipped 0xFF00 packet stays put.
+    const Texrect flip_digit{0xE5188308u, 0x001840F0u, 0x000007F0u, 0x0200FF00u};
+    assert(correct_hres_texrect(flip_digit, 240, 480) == flip_digit);
     assert(rdp_axis_span(correct_hres_texrect(text_tall, 240, 480), true) == rdp_axis_span(text_native, true));
     assert(rdp_axis_span(correct_hres_texrect(text_tall, 240, 480), false) == rdp_axis_span(text_native, false));
     assert(rdp_axis_span(correct_hres_texrect(digit_y, 240, 480), true) == rdp_axis_span(digit_native, true));
@@ -151,7 +158,7 @@ int main() {
     // Menus (logical 480, buffer 480) and normal racing (240, 240) already
     // match the sampled picture. The background divider's 0x04000400 step,
     // a non-rect opcode, and an inverted position-only rect stay put.
-    for (const Texrect& packet : {text_tall, text_shifted, digit_y, chrome_tall}) {
+    for (const Texrect& packet : {text_tall, text_shifted, digit_y, chrome_tall, flip_tall}) {
         assert(correct_hres_texrect(packet, 480, 480) == packet);
         assert(correct_hres_texrect(packet, 240, 240) == packet);
     }
@@ -165,9 +172,9 @@ int main() {
     assert(correct_hres_texrect(text_tall, -240, -480) == text_tall);
     assert(correct_hres_texrect(text_tall, 240, 479) == text_tall);
 
-    // The graphics worker submits these packets. Pause text and chrome are
-    // outside the HUD marker. The shifted +0x1C packet, the flag-clear
-    // rectangle, the divider and the flipped rect must reach RT64 unchanged.
+    // The graphics worker submits these packets. Pause text, chrome and the
+    // flipped edges are outside the HUD marker. The shifted +0x1C packet,
+    // the flag-clear rectangle and the divider must reach RT64 unchanged.
     std::vector<uint32_t> chunk;
     auto push = [&](Texrect t) {
         chunk.insert(chunk.end(), {t.w0, t.w1, t.w2, t.w3});
@@ -188,12 +195,13 @@ int main() {
     walk_rdp(reinterpret_cast<const uint8_t*>(chunk.data()), 0,
              uint32_t(chunk.size() * 4), 240, 480, hud_active, task, out);
     assert(chunk == original);
-    assert(out.copies.size() == 3);
+    assert(out.copies.size() == 4);
     assert(out.copies[0] == std::vector<uint32_t>({text_native.w0, text_native.w1, text_native.w2, text_native.w3}));
     assert(out.copies[1] == std::vector<uint32_t>({digit_native.w0, digit_native.w1, digit_native.w2, digit_native.w3}));
     assert(out.copies[2] == std::vector<uint32_t>({chrome_native.w0, chrome_native.w1, chrome_native.w2, chrome_native.w3}));
+    assert(out.copies[3] == std::vector<uint32_t>({flip_native.w0, flip_native.w1, flip_native.w2, flip_native.w3}));
     assert(out.guest_spans.size() == 1);
-    const std::vector<uint32_t> unchanged(original.begin() + 12, original.end());
+    const std::vector<uint32_t> unchanged(original.begin() + 12, original.end() - 4);
     assert(out.guest_spans[0] == unchanged);
     assert(out.aligns.empty());
     assert(out.fills.empty());
