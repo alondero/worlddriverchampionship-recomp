@@ -16,8 +16,10 @@ extern "C" void func_80011D54(uint8_t*, recomp_context*);
 extern "C" void func_8000FC18(uint8_t*, recomp_context*);
 extern "C" void func_8002D99C(uint8_t*, recomp_context*);
 extern "C" void func_800006E0(uint8_t*, recomp_context*);
+extern "C" void func_8004D120(uint8_t*, recomp_context*);
 extern "C" void wdc_hud_begin(uint8_t*, recomp_context*);
 extern "C" void wdc_hud_end(uint8_t*, recomp_context*);
+extern "C" void wdc_hud_normal_shift(uint8_t*, recomp_context*);
 extern "C" void func_8002D558(uint8_t*, recomp_context* ctx) {
     ctx->r2 = int32_t(0x80403000);
 }
@@ -117,6 +119,23 @@ int main(int argc, char** argv) {
     // Inventory the selector separately from the projection cases: initialized
     // descriptors 2/4/5/7 are not selected by these layout/variant/player inputs.
     std::array<bool, 9> selected{};
+    // func_8000FC18 copies the race-HUD configuration (0x18 bytes) into
+    // scene+0x2C4. Record what a normal race (layout 0, mode 1) copies for
+    // each player count: wdc_hud_normal_shift must give mode 6 the same one.
+    const gpr config = scene + 0x2C4;
+    std::array<std::array<int32_t, 6>, 3> normal_config{};
+    for (int players = 0; players < 3; ++players) {
+        MEM_W(0, int32_t(0x8007D758)) = 0;
+        MEM_W(0, int32_t(0x8007E57C)) = 0;
+        MEM_W(0, int32_t(0x8007E584)) = players;
+        MEM_W(0, int32_t(0x8007E5B8)) = 0;
+        recomp_context ctx{}; ctx.f_odd = &ctx.f0.u32h;
+        ctx.r29 = int32_t(0x807FF000);
+        func_8000FC18(rdram, &ctx);
+        assert(MEM_W(0, int32_t(0x8007D758)) == boot_descriptor + 0x74);
+        for (int word = 0; word < 6; ++word) normal_config[players][word] = MEM_W(word * 4, config);
+    }
+    int redirected = 0;
     for (int layout = 0; layout < 8; ++layout)
         for (int variant = 0; variant < 4; ++variant)
             for (int players = 0; players < 3; ++players) {
@@ -130,8 +149,31 @@ int main(int argc, char** argv) {
                 const int offset = MEM_W(0, int32_t(0x8007D758)) - boot_descriptor;
                 assert(offset >= 0 && offset % 0x74 == 0 && offset / 0x74 < int(selected.size()));
                 selected[offset / 0x74] = true;
+                const int mode = offset / 0x74;
+                if (mode == 6 || mode == 8) {
+                    // Live one-player H-RES (mode 6) copies 0x8007E61C: small
+                    // dial (kind 0), offsets for a doubled picture, Y shift 1.
+                    if (mode == 6 && players != 2)
+                        for (int word = 0; word < 6; ++word)
+                            assert(MEM_W(word * 4, config) == MEM_W(word * 4, int32_t(0x8007E61C)));
+                    MEM_W(0, int32_t(0x8007D75C)) = MEM_W(0, int32_t(0x8007D758));
+                    MEM_W(0, int32_t(0x8007FE84)) = MEM_W(0x10, config);
+                    recomp_context hud{}; hud.r29 = int32_t(0x807FF000); hud.r5 = config;
+                    wdc_hud_normal_shift(rdram, &hud);
+                    assert(MEM_W(0, int32_t(0x8007FE84)) == 0);
+                    if (mode == 6) {
+                        for (int word = 0; word < 6; ++word)
+                            assert(MEM_W(word * 4, hud.r5) == normal_config[players][word]);
+                        ++redirected;
+                    } else {
+                        // Mode 8's own entry already has no Y shift: keep it.
+                        assert(MEM_W(0x10, config) == 0);
+                        assert(hud.r5 == config);
+                    }
+                }
             }
     assert((selected == std::array{false, true, false, true, false, false, true, false, true}));
+    assert(redirected > 0);
     // Preserve ROM aspect times output scale. Pixel correction 2 distinguishes
     // this contract from substituting a fixed 4:3 aspect (modes 3/6 use 2).
     for (int window_width : {720, 960, 1280, 2560}) {
@@ -350,10 +392,10 @@ int main(int argc, char** argv) {
             }
         }
     }
-    // H-RES samples a 480-line buffer as 240 lines. The builder shifts Y by
-    // 0x8007FE84 before the hook. Mode 6 must undo that at 4:3 and 16:9.
-    // Mode 3 uses the same flag for a buffer as tall as its logical picture,
-    // so the doubled coordinate stays. A clear flag never doubled Y.
+    // The needle builder shifts Y by 0x8007FE84. In mode 6 the scene copy
+    // leaves 1 there, and wdc_hud_normal_shift (before 0x8002E530) clears it,
+    // so the needle keeps its normal-layout Y at 4:3 and 16:9. Mode 3 is a
+    // real 480-line menu: the hook leaves the flag and the doubled Y stays.
     struct NeedleY { int logical_h, buffer_h, flag, kept_shift; };
     for (const NeedleY& ycase : {NeedleY{240, 480, 1, 0}, NeedleY{480, 480, 1, 1}, NeedleY{240, 480, 0, 0}}) {
         MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
@@ -380,6 +422,10 @@ int main(int argc, char** argv) {
             recomp_context ctx{}; ctx.f_odd = &ctx.f0.u32h;
             ctx.r29 = int32_t(0x807FF000); ctx.r4 = int32_t(0x80080578);
             ctx.r5 = points; ctx.r6 = points + 16; ctx.r7 = points + 32;
+            MEM_W(0, int32_t(0x8007FE84)) = ycase.flag;
+            // The builder's state at 0x8002E530: a1 is its configuration.
+            recomp_context builder{}; builder.r29 = ctx.r29; builder.r5 = config;
+            wdc_hud_normal_shift(rdram, &builder);
             wdc_hud_begin(rdram, &ctx);
             func_8002D99C(rdram, &ctx);
             wdc_hud_end(rdram, &ctx);
@@ -393,6 +439,45 @@ int main(int argc, char** argv) {
                 assert(MEM_H(0x18 + i * 16, triangle) == 192 + i * 256);
                 assert(MEM_H(0x1A + i * 16, triangle) == -128);
             }
+        }
+    }
+    // Race-start countdown, func_8004D120. With a buffer taller than 256 lines
+    // it sets the Y shift itself, places each sprite at (centre >> 1) - 9 and
+    // lets func_8002DAD0 double it, so H-RES grows it about the scene centre.
+    // The renderer's correction must give back the mode-1 packets exactly.
+    auto countdown = [&](int mode, float seconds) {
+        MEM_W(0, int32_t(0x8007D75C)) = boot_descriptor + mode * 0x74;
+        MEM_W(0, int32_t(0x8007E570)) = scene;
+        MEM_W(0, scene) = 0; MEM_W(4, scene) = 0; MEM_W(8, scene) = 320; MEM_W(12, scene) = 240;
+        MEM_W(0x7C, scene) = 0;
+        MEM_W(0, int32_t(0x8007FE80)) = 0;
+        MEM_W(0, int32_t(0x8007FE84)) = 0;
+        MEM_W(0, int32_t(0x800DF450)) = 0; // no per-player message
+        put(int32_t(0x80092CC0), 0, seconds);
+        MEM_W(0, int32_t(0x8007ED84)) = int32_t(0x80405000);
+        MEM_W(0, int32_t(0x8007FE74)) = int32_t(0x80408000);
+        recomp_context ctx{}; ctx.f_odd = &ctx.f0.u32h;
+        ctx.r29 = int32_t(0x807FF000);
+        func_8004D120(rdram, &ctx);
+        // func_8002DAD0 links each 32-byte packet with a 0x0E000000 command:
+        // texrect, E1 + S/T word, F1 + step, DF.
+        std::vector<wdc::hud::Texrect> rects;
+        for (gpr link = int32_t(0x80405000); link < MEM_W(0, int32_t(0x8007ED84)); link += 8) {
+            if (uint32_t(MEM_W(0, link)) != 0x0E000000u) continue;
+            const gpr packet = int32_t(0x80000000u | (uint32_t(MEM_W(4, link)) & 0xFFFFFFu));
+            if ((uint32_t(MEM_W(0, packet)) >> 24) != 0xE4) continue;
+            rects.push_back({uint32_t(MEM_W(0, packet)), uint32_t(MEM_W(4, packet)),
+                             uint32_t(MEM_W(0xC, packet)), uint32_t(MEM_W(0x14, packet))});
+        }
+        return rects;
+    };
+    for (float seconds : {0.5f, 1.5f, 2.5f, 3.5f}) {
+        const auto normal = countdown(1, seconds);
+        const auto hres = countdown(6, seconds);
+        assert(!normal.empty() && hres.size() == normal.size());
+        for (size_t i = 0; i < normal.size(); ++i) {
+            assert(hres[i] != normal[i]);
+            assert(wdc::hud::correct_hres_texrect(hres[i], 240, 480) == normal[i]);
         }
     }
     std::cout << "PASS: ROM camera, layout and gauge triangle preserve proportions\n";

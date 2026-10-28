@@ -209,69 +209,90 @@ the scissor correction has no standalone GPU regression seam yet.
 
 ## H-RES sprite and needle proportions
 
-Modes 6 and 8 keep a 240-line logical picture and allocate a buffer twice that
-tall (`320x480` and `640x480`). RT64 samples both back to 240 lines. The
-correction runs when the active descriptor's buffer height is twice its logical
-height. Among modes the layout selector publishes, that is 6 and 8. Mode 3 is a
-real 480-line menu: logical height equals the buffer, and its rectangles stay
-in that space.
+Modes 6 and 8 draw a 240-line picture into a buffer twice that tall
+(`320x480` and `640x480`). The race scissor stays `0..240` and RT64 samples
+those 240 lines. The VI's start lines (`0x9A..0x188`) put that picture in a
+half-height band on a console, so each line is half as tall as in normal
+racing. The game therefore doubles sprite heights in H-RES. It keeps
+positions in the 240-line picture: sprites grow about anchors the game picks,
+not about line 0. This port fills the window with the picture, so the doubled
+sprites look twice as tall. Mode 3 is a real 480-line menu, where logical
+height equals the buffer, and nothing below applies to it.
 
-Race HUD texrects come from `func_8002DAD0`. After the needle, the mode 6
-gauge section stores X scale 0 and Y scale 1. Draws between the HUD-begin
-hook and that store copy player fields this capture did not identify.
-Executing that
-blitter at X=40, Y=50 for scale pairs (0,0), (0,1), (1,1) and (1,0) produced
-steps `0x0200FE00`, `0x0200FF00`, `0x0100FF00` and `0x0100FE00`. Y scale 1
-doubles both Y edges. X scale 1 doubles both X edges and is left alone, so
-mode 8 keeps the `0x0100` high half. `func_8002DAD0` does not read sprite byte
-`+0x1C` and does not emit `0x02000200`. The size arguments in that run (16, 12,
-and a 64 multiplier) were chosen so the rectangle stayed non-zero. The step
-and the edge doubling belong to the blitter at those scale words. The HUD
-builder `func_8002E13C` itself was not executed.
+Live Hawaii practice captures (`WDC_RDP_CAPTURE`, Windows/D3D12, 1296x759
+window) show the guest packets before any correction, NORM then H-RES, in
+picture lines:
 
-In-race pause text reaches `func_8006DA18` through `func_80051028`.
-`func_80050E24` initializes those objects and calls `func_8006CA58` with a
-zero argument on the nested sprite, which stores 0 at byte `+0x1C`. Pause
-chrome is `func_8006D22C` on the type-1 sprites `func_8006C910` sets up
-(192x22 at `0x800DE968`, 304x1 at `0x800DE948`). That setup writes width,
-height and type, and does not write `+0x1C`. `funcs_16.c` calls
-`func_80050E24` for these objects and does not call `func_80050EC4`.
-Executing `func_8006DA18` and `func_8006D22C` with the H-RES flag set and
-`+0x1C` clear produced a height-doubled rectangle and step `0x02000100`.
-The same calls with the flag clear produced the native rectangle and step
-`0x02000200`. Setting `+0x1C` while the flag is set moves the Y origin and
-leaves both the height and the `0x02000200` step. That packet was executed
-for both blitters. It is not the packet those initializers produce. Halving
-both of its Y edges would squash a height that was not doubled, and the
-flag-clear rectangle uses the same step, so the worker does not rewrite
-`0x02000200`. Reading flag `0x80099C60` at submit time is not used: the
-issue's producers do not emit the shifted packet, and that flag's stability
-between the game thread and the graphics worker was not measured.
+| Element | NORM | H-RES | Anchor |
+| --- | --- | --- | --- |
+| Speed digits | 189..209 | 180..220 | gauge centre, about 198 |
+| Track map | 168..232 | 104..232 | map bottom, 232 |
+| Map marker | 199..203 | 166..174 | map bottom, 232 |
+| Timing text | 10..21 | 10..21, narrower font | not doubled |
+| Pause panel | 90..156 | 60..192 | picture centre, 120 |
+| Pause text | 95..105 | 70..90 | picture centre, 120 |
 
-`func_8006CA7C` is the only flipped texrect (opcode 37). The in-race pause
-drawer calls it at `0x80045244` and `0x80045274`, next to the ordinary chrome
-draws. Executing it with the flag set doubled both screen Y edges and stored
-`0x02000100` (`dsdx` 0x200, `dtdy` 0x100). RT64 applies `dsdx` along screen Y
-and `dtdy` along screen X. Halving the screen Y edges makes the `dsdx` span
-match the flag-clear packet. Restoring `dtdy` to 0x200 makes the short-axis
-span match too, so the corrected packet is the flag-clear one. The digit
-`0xFF00` rule stays on opcode 36: on a flip that low half is the X step, and
-this blitter does not emit it. `func_8006CCD4` was executed again and matched its earlier
-16x12 capture. It is not the pause-text or race-HUD producer. The background
-divider `func_80024944` emits `0x04000400` and is not an H-RES double.
+The race HUD builder `func_8002E13C` has a separate H-RES layout, with a
+different gauge, and no single anchor maps it back. Three inputs select it:
 
-On hardware the half-scale VI picture would compress the tall buffer back to
-about 240 lines. This port's sampled picture is already 240 lines, so the
-graphics worker rewrites a texrect whose step proves the extra Y
-shift: `0x02000100` on opcode 36 or 37, or a digit low half of `0xFF00` on
-opcode 36. The rewrite is a 16-byte
-stack copy. X and the S/T word are unchanged. The copy is submitted with
-`processDisplayLists` and the guest command stream is not written. Pause text
-is outside the HUD marker, so the same rule applies there, not only inside
-bracketed HUD rects. Menu edge-fill brackets still see the original art
-coordinates. A texrect whose coefficient sits in the next BOSS chunk keeps
-its first word until that coefficient arrives. If the task ends without it,
-the original first word is handed to RT64's pending-command path.
+- The stack flag at `sp+0x1F0` (stored at `0x8002E1A4`: buffer height > 256)
+  moves layout edges. At `0x8002EDF4` the same flag, with a logical height
+  below 384, sets `0x80080640`, which later picks the narrow timing font.
+- The scene's 0x18-byte HUD configuration at `scene+0x2C4`, held in `a1`, sets
+  the gauge kind and its offsets. `func_8000FC18` copies it from a ROM table
+  chosen by layout `0x8007E578`, variant `0x8007E5B4` and player count
+  `0x8007E580`. A normal one-player race copies `0x8007E5BC` (big dial). The
+  live one-player H-RES race (mode 6, variant 0) copies `0x8007E61C`: the small
+  dial, placed for the doubled picture. Mode 8 (variant 1) copies `0x8007E64C`,
+  which already has the big dial and no Y shift.
+- The Y shift at `0x8007FE84`, copied from that configuration at `0x8002E52C`,
+  makes `func_8002DAD0` and the needle builder double Y. The builder computes
+  each position in picture lines and shifts it right by that amount before the
+  blitter shifts it back.
+
+`wdc_hud_normal_layout`, before `0x8002E1A8`, clears the stack flag and any Y
+shift left by an earlier drawer such as `func_8004D120`. `wdc_hud_normal_shift`,
+before `0x8002E530`, clears the copied Y shift. In mode 6 it also points `a1`
+at the entry a normal race with the same player count copies (`0x8007E5BC`, or
+`0x8007E5D4` for two players). After that point the builder only reads through
+`a1` (saved at `sp+0x1C4`), so neither the scene nor the ROM table is written.
+Both hooks run only when the active descriptor's buffer is twice its logical
+height. A bad descriptor pointer keeps the ROM's layout. Mode 8's wider X
+still uses the scene's X shift and the wide flag at `sp+0x1F4`. Mode 8 and
+two-player H-RES have not been seen live.
+
+Every other doubled sprite measured grows about the picture's centre line.
+The in-race pause drawer reaches `func_8006DA18` (text), `func_8006D22C`
+(panel) and `func_8006CA7C` (the flipped panel edges, opcode 37). With the
+H-RES flag set and sprite byte `+0x1C` clear, these emit step `0x02000100`.
+The pause initializer `func_80050E24` stores that byte as 0, and
+`func_8006C910` does not write it. The race-start countdown `func_8004D120`
+sets the Y shift itself when the buffer is taller than 256 lines, places each
+sprite at `((y0 + h / 2) >> 1) - 9` and lets `func_8002DAD0` double it, so
+its digits carry step low half `0xFF00` instead of `0xFE00`.
+
+The graphics worker rewrites a texrect whose step proves that double:
+`0x02000100` on opcode 36 or 37, or a digit low half of `0xFF00` on opcode 36.
+Both Y edges become `centre + (y - centre) / 2`, with the centre at half the
+logical height, and the step returns to its normal value. Every pause
+rectangle in the capture then has NORM's Y. The game's own H-RES pause layout
+sits 2 pixels further right, and X is not changed. Step `0x02000200` is not
+rewritten. It is both the flag-clear rectangle and the packet with sprite
+byte `+0x1C` set, which moves the origin without doubling the height.
+`func_8006CA7C` doubles both screen Y edges and stores `dtdy` 0x100. RT64
+applies `dsdx` along screen Y and `dtdy` along screen X. Halving the Y edges
+and restoring `dtdy` to 0x200 matches the NORM packet on both texture axes.
+The digit rule stays on opcode 36: on a flip that low half is the X step.
+The background divider `func_80024944` emits `0x04000400` and is not an H-RES
+double.
+
+The rewrite is a 16-byte stack copy, submitted with `processDisplayLists`. X
+and the S/T word are unchanged, and the guest command stream is not written.
+Pause text is outside the HUD marker, so the rule applies to every texrect.
+Menu edge-fill brackets still see the original art coordinates. A texrect
+whose coefficient sits in the next BOSS chunk keeps its first word until that
+coefficient arrives. If the task ends without it, the original first word is
+handed to RT64's pending-command path.
 
 The picture size comes from the ROM-owned descriptor pointer at `0x8007D75C`
 (`+4` logical height, `+12` buffer height, word-swapped signed 32-bit pixels).
@@ -279,29 +300,28 @@ The game thread publishes the pointer before task submission. The graphics
 worker reads it from RDRAM at the start of the task, not from the BOSS chunk,
 which may be DMEM. An unusable pointer skips the correction and does not abort.
 
-`func_8002D99C` applies the separate vertical flag `0x8007FE84` to the needle's
-three signed Y halfwords before `wdc_align_hud_triangle`. The hook halves those
-values when the buffer is twice the logical height and the flag is set,
-including at 4:3, where the horizontal correction does not run. A bad pointer
-on that 4:3 path skips the undo. The wide-window path still aborts on a bad
-descriptor before it writes X. Mode 3 keeps the doubled Y.
+`wdc_camera_rom` runs `func_8000FC18` for every layout, variant and player
+count. In each mode-6 case, `wdc_hud_normal_shift` must leave `a1` on bytes
+equal to what layout 0 copies for the same player count; mode 8 keeps its
+own entry. It runs `func_8004D120` in mode 1 and mode 6 at four countdown
+times. The correction of each mode-6 packet must equal the mode-1 packet. It
+also runs the real needle builder after `wdc_hud_normal_shift`. Mode 6 keeps
+the normal Y, mode 3 keeps its doubled Y, and a clear flag is unchanged.
+`wdc_hud_triangle` checks both layout hooks in modes 6, 8, 3 and 1, with one
+and two players, and with a bad descriptor pointer. `wdc_hud_stream` checks the countdown packets and the
+captured pause packets, including the flipped edge's texture spans, and walks
+the worker's submission decisions. The shifted `+0x1C` packet, the
+flag-clear packet, the divider, a coefficient split across two chunks, a task
+that ends on the held word, a menu edge-fill bracket and HUD alignment against
+the original X are covered. That walk does not call RT64. The HUD builder
+itself is not executed by a test.
 
-`wdc_hud_stream` checks the captured digit, pause-text and pause-chrome
-packets, the executed `+0x1C` packets, the flipped pause edge, and the menu,
-normal, divider, non-rect and inverted cases. It also walks the worker's
-submission decisions on those captured rectangles. Pause text sits outside the
-HUD marker. The shifted `+0x1C` packet, the flag-clear `0x02000200` packet and
-the divider stay unchanged. The flipped edge is rewritten to its flag-clear
-packet, and both texture-axis spans match that packet. A coefficient split across two
-chunks, a task that ends on the held word, a menu edge-fill bracket, and HUD
-alignment against the original X are covered. That walk does not call RT64.
-`wdc_hud_triangle` checks the needle undo at 4:3 and 16:9, mode 3, a clear
-flag, and the fail-open pointer path. The ROM camera test runs the real
-needle builder for those three Y cases. This 2D correction has not been
-checked in a live Hawaii session, and `renderer.cpp` was not compiled here
-because the worktree RT64 checkout is empty. The digit and sprite words
-above were captured by executing the blitters. The HUD builder and the pause
-drawer were not run, and no Hawaii frame was captured.
+Live check (Windows/D3D12, 1296x759 window, Hawaii practice, NORM then
+H-RES switched from the pause menu): with both hooks, the H-RES race frame
+draws the same 41 HUD rectangles as NORM, at the same screen positions and
+with the same steps. Only the digit glyphs (clock and speed values) and the
+map marker's position differ. The big dial, needle, map and timing font match
+the NORM screenshot, and the H-RES pause menu is centred.
 
 ## Race HUD placement
 
@@ -409,13 +429,15 @@ They are quarter-framebuffer-pixel coordinates. It maps each x to
 descriptor's framebuffer width (`+8`) and edge travel is in quarter pixels.
 Original placement uses zero travel. This matches the rectangle path,
 including doubled horizontal-resolution modes and viewport-relative
-coordinates. Y is halved only for the tall H-RES buffer described above.
-Texture coordinates and shared source vertices stay unchanged. The
-guest-memory contract and bounds are in `game_camera.cpp`.
+coordinates. Y is not changed; in H-RES the builder stays on its normal
+layout, as described above. Texture coordinates and shared source vertices
+stay unchanged. The guest-memory contract and bounds are in
+`game_camera.cpp`.
 
 The ROM-backed camera test executes the actual needle builder with a captured
 Hawaii needle fixture, checks final alignment after renderer expansion at
 4:3, 16:9 and ultrawide, and checks both horizontal coordinate shifts. It also
-checks mode 6 restoring the fixture's Y, mode 3 keeping the doubled Y, and a
-clear vertical flag leaving Y unchanged. This tests the generated hook as well
+checks that mode 6 keeps the fixture's Y once `wdc_hud_normal_shift` has run,
+that mode 3 keeps the doubled Y, and that a clear vertical flag leaves Y
+unchanged. This tests the generated hook as well
 as its arithmetic.

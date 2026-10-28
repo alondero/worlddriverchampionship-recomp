@@ -139,6 +139,19 @@ func = "func_8000FC18"
 before_vram = 0x8000FEF0
 text = "{ extern void wdc_remove_overscan(uint8_t*, recomp_context*); wdc_remove_overscan(rdram, ctx); }"
 
+# H-RES fills the window here, so keep the race HUD on its normal layout:
+# clear the tall-buffer flag stored at E1A4 and the Y shift copied at E52C,
+# and in mode 6 point a1 at the normal race's HUD configuration.
+[[hooks]]
+func = "func_8002E13C"
+before_vram = 0x8002E1A8
+text = "{ extern void wdc_hud_normal_layout(uint8_t*, recomp_context*); wdc_hud_normal_layout(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8002E13C"
+before_vram = 0x8002E530
+text = "{ extern void wdc_hud_normal_shift(uint8_t*, recomp_context*); wdc_hud_normal_shift(rdram, ctx); }"
+
 # Instrument/timing portion only: the preceding wrong-way message stays centered.
 # FA78 is the common cleanup for all paths that reach E51C (early exits bypass both).
 [[hooks]]
