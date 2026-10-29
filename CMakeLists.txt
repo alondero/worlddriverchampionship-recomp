@@ -98,13 +98,24 @@ if(WDC_FUNC_C_SOURCES OR WDC_FUNC_CXX_SOURCES)
         "${N64MR}/N64Recomp/include")
 endif()
 
-set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp src/game_driving.cpp src/game_cheats.cpp src/boss_rsp.cpp
+set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp src/game_driving.cpp src/game_cheats.cpp
+    src/boss_rsp.cpp src/boss_events.cpp src/boss_capture.cpp
     src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp src/rumble.cpp)
+# Generated BOSS is one object library shared by the player and the offline
+# wdc_boss_bench replay tool. boss_dma.h routes its RDRAM writes through the
+# capture journal in boss_rsp.cpp.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/aspMain.cpp")
-    list(APPEND WDC_SOURCES src/aspMain.cpp)
+    add_library(WdcBoss OBJECT src/aspMain.cpp)
+    target_compile_options(WdcBoss PRIVATE -fno-strict-aliasing -ggdb
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/src/boss_dma.h")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64")
-        set_source_files_properties(src/aspMain.cpp PROPERTIES COMPILE_OPTIONS "-msse4.1")
+        target_compile_options(WdcBoss PRIVATE -msse4.1)
     endif()
+    target_include_directories(WdcBoss PRIVATE
+        "${N64MR}/ultramodern/include"
+        "${N64MR}/librecomp/include"
+        "${N64MR}/N64Recomp/include")
+    list(APPEND WDC_SOURCES $<TARGET_OBJECTS:WdcBoss>)
 endif()
 
 if(ANDROID)
@@ -161,6 +172,19 @@ endif()
 
 if(WDC_ENABLE_FRONTEND AND NOT WDC_HEADLESS)
     include(cmake/Frontend.cmake)
+endif()
+
+# Offline BOSS task replay benchmark and profiler; see tools/boss/README.md.
+if(TARGET WdcBoss AND NOT ANDROID)
+    add_executable(wdc_boss_bench tools/boss/boss_bench.cpp src/boss_rsp.cpp src/boss_capture.cpp
+        "${N64MR}/librecomp/src/rsp.cpp" $<TARGET_OBJECTS:WdcBoss>)
+    target_include_directories(wdc_boss_bench PRIVATE src
+        "${N64MR}/ultramodern/include"
+        "${N64MR}/librecomp/include"
+        "${N64MR}/librecomp/include/librecomp"
+        "${N64MR}/N64Recomp/include")
+    target_compile_options(wdc_boss_bench PRIVATE -fno-strict-aliasing -ggdb)
+    target_link_libraries(wdc_boss_bench PRIVATE Threads::Threads)
 endif()
 
 include(cmake/Tests.cmake)

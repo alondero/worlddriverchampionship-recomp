@@ -26,7 +26,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same thirteen C++ host-test targets used by the player build,
+This mode builds the same fifteen C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
 headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
@@ -126,6 +126,16 @@ outside YH..YL draw only what the edge walker does. GPU vertex snapping is not
 modelled.
 `tests/test_rdp_seams.py` covers the capture decoder and seam measurement in
 `tools/rdp/` with the same synthetic encoding.
+
+`wdc_boss_capture` covers the BOSS task capture format with synthetic memories:
+N64 byte order on disk, status-read run-length recording and in-order playback,
+the write journal's first-write semantics, and rejection of truncated or
+out-of-bounds, misaligned or over-limit files. `wdc_rsp_dma` also checks that
+the journalled range equals what the patched runtime DMA helper writes.
+Replay of real tasks needs a local capture, so it is not a
+CTest entry. `wdc_boss_bench` is the regression check: it must reproduce a
+capture's RDP output exactly on every iteration. See
+[BOSS task capture](../tools/boss/README.md).
 
 `wdc_controller_pak` covers device reporting, raw-image byte order, block and
 guest-buffer boundaries, ID protection, bank selection, failed publication,
