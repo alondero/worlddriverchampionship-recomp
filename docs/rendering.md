@@ -25,10 +25,12 @@ Terms used below:
 
 ## One racing frame
 
-### 1. Simulation step (variable timestep)
+### 1. Simulation step (fixed per sample)
 
-The simulation advances by measured wall time, not by a fixed tick, and the
-time is measured by the **input sampler**, not by the renderer:
+The simulation advances by a fixed step per input sample, not by the
+renderer's frame time. The **input sampler** sets the step: each sample adds
+`(divider + 1) / 60` seconds, so 1/60 s for menus and 1/30 s for racing.
+Each frame consumes one sample:
 
 - **Input worker.** The thread at `0x800B7620` (entry `0x8002C500`) blocks
   on queue `0x800B7600`. The VI thread posts message 0 to it on every VI,
@@ -44,17 +46,23 @@ time is measured by the **input sampler**, not by the renderer:
   sample per VI. Races call it as `(func_8000C0D0, 1)` at `0x80037B40`, so
   one sample every second VI, 30 Hz. `tests/test_startup_rom.cpp` checks
   both stores against the translated code.
-- **Timestep.** `func_8002C0B8` accumulates `osGetCount` ticks into a 64-bit
-  time at `0x8007FDF8`. It converts the delta since `0x8007FE00` to
-  nanoseconds (`x 64 / 3`; the counter runs at 46.875 MHz), divides by 1e9
-  (the float at `0x8009AC50`), and stores the result in **seconds** at
-  `+0x1F0` of the snapshot slot.
+- **Timestep.** `func_8002C0B8` runs once per sample and adds a delta to a
+  64-bit time at `0x8007FDF8`. The delta is the fixed pair at
+  `0x8007FDF0` / `0x8007FDF4` whenever that pair is non-zero. Otherwise it
+  is the `osGetCount` change since the last sample, kept at `0x8007FE08`.
+  `func_8002CB0C` writes the pair: `0x8007FDF0` is 0, and `0x8007FDF4` is
+  `0xBEBC2` (781,250 ticks, 1/60 s) plus one more `0xBEBC2` for each divider
+  count, so the step is `(divider + 1) * 0xBEBC2`. Once the worker has
+  started the pair is always non-zero, and no code path found clears it, so
+  stock play always takes the fixed branch. The shared tail subtracts the
+  value at `0x8007FE00`, converts the difference to nanoseconds (`x 64 / 3`;
+  the counter runs at 46.875 MHz), divides by 1e9 (the float at
+  `0x8009AC50`), and stores the result in **seconds** at `+0x1F0` of the
+  snapshot slot.
 - **One sample per frame.** Both frame paths, `func_8000C560` (racing) and
   `func_8004E950`, start with "while `0x8007FE14` is zero, wait one VI"
   (`func_800025D8`). `func_8002CA3C` then copies one snapshot to
   `0x800B7400`, so the delta the frame simulates is at `0x800B75F0`.
-- A non-zero pair at `0x8007FDF0` substitutes a fixed delta. It is probably
-  used for demos or replays (unconfirmed).
 - `func_8000A5A0` copies that value into `0x8007E768`, whose initial value is
   1/60, before physics (`func_80017144`). It copies a quarter of it instead
   when record `+0xAC8` is clear, which suggests four substeps.
@@ -62,17 +70,21 @@ time is measured by the **input sampler**, not by the renderer:
   is a substep size or a clamp is not yet known.
 - Player records start at `0x800BA7F0`, stride `0x18A0`.
 
-Measured live in Hawaii practice, the race clock tracks wall time whatever the
-frame rate. HUD clock against wall-stamped screenshots:
+Measured live in Hawaii practice, the race clock tracked wall time at both
+frame rates below. HUD clock against wall-stamped screenshots:
 
 | Frame rate | Race clock advance | Wall time |
 |---|---|---|
 | ~30 fps (normal) | 10.07 s | 10.02 s |
 | ~17 fps (40 ms added to each graphics task) | 9.99 s | 9.98 s |
 
-Rendering more often should therefore not change game speed. Logic that counts
-frames instead of reading this delta would, so it must be audited before
-running faster (see [open questions](#open-questions)).
+Because each frame consumes one fixed step, a higher frame rate does not by
+itself change game speed, as long as samples arrive at the same rate. The
+17 fps row is not explained by that alone: with 30 Hz racing samples, a
+frame rate that low would fill the 8-slot ring (see
+[open questions](#open-questions)). Logic that advances once per frame, without
+using the sample step, would run faster at 60 fps, so it must be audited
+before running faster.
 
 ### 2. Camera and display lists (CPU)
 
@@ -162,7 +174,7 @@ holds racing at exactly 30.0 fps.
    VIs, whatever the CPU and graphics task cost.
 2. **Races sample input, and therefore time, at 30 Hz.** The race starts
    the input worker with divider 1 (see
-   [simulation step](#1-simulation-step-variable-timestep)). A frame cannot
+   [simulation step](#1-simulation-step-fixed-per-sample)). A frame cannot
    start until a snapshot is ready, so a race frame cannot start more often
    than every second VI. Menus use divider 0.
 
@@ -195,11 +207,13 @@ reproducible from the tree.
   menus at 38-41 fps with what is described as the same hook; why the two
   differ is not known.
 - **Both limits lifted**: pre-swap wait skipped and the race's divider
-  forced to 0. Racing held 60.0 fps in every measured window. Game time is the sum
-  of the deltas the frames consumed (`0x800B75F0`), compared with the
-  game thread's wall clock over each window, and it tracked wall time as
-  closely as the stock 30 fps run. The one exception, 0.984, was a
-  59.1 fps window.
+  forced to 0. Racing held 60.0 fps in every measured window. Game time is
+  the sum of the deltas the frames consumed (`0x800B75F0`), compared with
+  the game thread's wall clock over each window, and it tracked wall time as
+  closely as the stock 30 fps run. The one exception, 0.984, was a 59.1 fps
+  window. With fixed steps this ratio equals frame rate divided by the
+  sample rate, so it confirms the frame rate. It does not show that the game
+  clock is timed from the wall clock.
 
 Lifting only the divider should not work. This is reasoned from the code
 and was not measured: samples would carry 1/60 s deltas, but at two VIs per
@@ -298,9 +312,10 @@ own rate only repeats frames. The player-facing note is in
 
 ### Native 60 fps (current route)
 
-Let the game itself produce a frame every VI. The variable timestep keeps game
-speed tied to wall time, so a higher frame rate does not by itself change game
-speed. Three things have to hold for that to be true:
+Let the game itself produce a frame every VI. Each frame consumes one fixed
+step, and the racing step is tied to the sample rate, so a higher frame rate
+does not by itself change game speed. Three things have to hold for that to be
+true:
 
 - **The game's two frame limiters have to be lifted together**, so a frame
   really does happen every VI: the pre-swap VI wait at `0x8000159C`, and
@@ -311,8 +326,8 @@ speed. Three things have to hold for that to be true:
   it fits inside one VI (see
   [two measurements](#two-measurements-of-the-same-task)). The remaining
   work items and the acceptance criteria are in issue #39.
-- **Logic that counts frames instead of reading the measured delta has to be
-  found and changed.** Statically, the frame paths `func_8000C560` /
+- **Logic that advances once per frame, instead of by the sample step, has to
+  be found and changed.** Statically, the frame paths `func_8000C560` /
   `func_8004E950` and their callees; live, by comparing 30 and 60 fps for
   race clock against wall time, lap time under fixed input, menu and HUD
   animation, AI pace, demo and replay playback, and audio sync.
@@ -387,8 +402,11 @@ yet.
   (see [two measurements](#two-measurements-of-the-same-task)).
 - What is the 1/60 s constant at `0x8009A6D8` in `func_80017144` (substep size
   or clamp), and what does record `+0xAC8` select?
-- Is the fixed-delta pair at `0x8007FDF0` used by demos or replays?
-- Which logic counts frames instead of using the measured delta?
+- How do skipped samples (ring full) affect game time? The race clock
+  tracked wall time at about 17 fps. With 30 Hz racing samples, that should
+  fill the 8-slot ring. Either the ring did not fill in that test, or a
+  skipped sample still advances time. Not determined.
+- Which logic advances once per frame instead of by the sample step?
 - Do the CPU's ZSort sublists copy screen-space vertices, or read transformed
   vertices back? The [SP_BREAK handshake](#2-camera-and-display-lists-cpu)
   suggests the CPU reads BOSS output back before sorting, but what
