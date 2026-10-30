@@ -39,6 +39,22 @@ the 3D intro. The focused startup regression, 17 existing CTest entries, nine
 Python tests, documentation, repository-hygiene and whitespace checks passed.
 This was an incremental player rebuild, not a clean build or full-race test.
 
+## BOSS graphics task cost
+
+`src/boss_rsp.cpp` runs each BOSS graphics task synchronously on the graphics
+worker and passes its RDP ranges to RT64. The generated BOSS code writes RDRAM
+only through `wdc_boss_dma_write` (`src/boss_dma.h` is force-included into
+`src/aspMain.cpp`). `WDC_BOSS_CAPTURE` records one task, and `wdc_boss_bench`
+replays it offline; see [BOSS task capture](../../tools/boss/README.md). OS
+event registration lives in `src/boss_events.cpp`, so the replay tool links
+the device without the guest OS.
+
+Measured task cost, where frame time goes, and what limits the frame rate
+are kept in [Rendering and frame rate](../rendering.md#where-the-frame-time-goes).
+That page separates the timings a reader can reproduce from the tree
+(`wdc_boss_bench`) from those taken with temporary live instrumentation, which
+is kept out of the tree on purpose.
+
 Runtime patches must be listed in `patches/README.md`, applied by the scripts,
 and accompanied by a focused reproducer or test. A patch that is useful to a
 general upstream project should also be compared with upstream before being

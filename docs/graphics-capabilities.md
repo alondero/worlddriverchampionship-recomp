@@ -42,8 +42,8 @@ representing the same TV picture.
 
 The camera/viewport hooks and raw-triangle scissor correction are documented
 in the [renderer reference](reference/renderer.md). Fixed 2D artwork and
-cinematic layouts remain centered. Smooth high-rate motion requires a BOSS-aware
-geometry/transform bridge or a validated simulation/render split. Raising VI
+cinematic layouts remain centered. Smooth high-rate motion requires native 60 fps or a validated
+simulation/render split; see [Rendering and frame rate](rendering.md). Raising VI
 frequency would alter timing and is not an acceptable substitute.
 
 The native resolution/4:3/original-rate combination remains available for

@@ -147,6 +147,17 @@ Linux generation currently requires the default filename at the repository root.
   Numbering restarts per run and replaces existing files; a failed write
   deletes the partial capture. Captures contain ROM-derived data and stay local. Remove this probe once RT64
   can record raw RDP batches submitted by BOSS.
+- `WDC_BOSS_CAPTURE=<prefix>`: enable F10 to record the next complete BOSS
+  graphics task, with its RDRAM view and status-read timeline, to
+  `<prefix>-<n>.boss` for the offline `wdc_boss_bench` replay. It can be set
+  together with `WDC_RDP_CAPTURE`. Recording holds that task's DP-complete
+  signal until the RDRAM view is saved, then writes the file on the graphics
+  worker, so the captured frame is late; nothing is recorded otherwise. A
+  scene whose CPU waited for DP-complete mid-task would stall while recording;
+  Hawaii racing does not. Numbering, replacement and the local-only rule match
+  `WDC_RDP_CAPTURE`. See [BOSS task capture](../tools/boss/README.md). Remove
+  this probe, `src/boss_dma.h` and `wdc_boss_bench` once BOSS no longer runs as
+  translated microcode in this port.
 
 The player stores runtime data under ignored `build/user-data`. Native
 RecompFrontend profiles persist in `controls.json`; rumble strength, deadzone and background

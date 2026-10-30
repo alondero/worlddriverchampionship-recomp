@@ -26,7 +26,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same thirteen C++ host-test targets used by the player build,
+This mode builds the same eighteen C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
 headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
@@ -48,7 +48,10 @@ ctest --test-dir build-host-tests --output-on-failure --no-tests=error
 
 On Windows, use the native CMake and MinGW tools described in
 [Building](../BUILDING.md), and set `Python3_EXECUTABLE` to the actual Python
-executable if CMake finds a Windows Store alias. The patch helper restores the
+executable if CMake finds a Windows Store alias. MinGW's `bin` directory must
+be on `PATH`: the compiler proper (`cc1.exe`) needs the MinGW runtime DLLs,
+and without them CMake's compiler check fails with "The C compiler ... is
+broken" rather than naming the missing DLL. The patch helper restores the
 paths a series owns before applying it, so it is safe to run against a tree a
 player build already patched. `git apply --reverse --check` cannot verify that
 state for patch 0014, because patch 0016 rewrites the context it matched.
@@ -126,6 +129,41 @@ outside YH..YL draw only what the edge walker does. GPU vertex snapping is not
 modelled.
 `tests/test_rdp_seams.py` covers the capture decoder and seam measurement in
 `tools/rdp/` with the same synthetic encoding.
+
+`wdc_boss_capture` covers the BOSS task capture format with synthetic memories:
+N64 byte order on disk, status-read run-length recording and in-order playback,
+the write journal's first-write semantics, and rejection of truncated or
+out-of-bounds, misaligned or over-limit files. `wdc_rsp_dma` also checks that
+the journalled range equals what the patched runtime DMA helper writes.
+
+`wdc_boss_dma_seam` pins the compile-time seam the capture depends on: the
+generated BOSS unit is compiled with `src/boss_dma.h` force-included, and
+that header's `DO_DMA_WRITE` override must win over the runtime's macro.
+`tests/test_boss_seam.py` checks the same wiring from the build's side, so the
+seam cannot be dropped from the compile line without a test failing. It also
+checks the pinned runtime header, which is what carries the seam in CI: the
+generated unit is not built there, and a new pin that renamed the macro
+would leave the override quietly dead.
+
+`wdc_boss_replay` covers the replay contract without a ROM or a capture: a
+scripted stand-in for the generated microcode reads the recorded SP_STATUS
+values, writes DP ranges and restores DMEM, and the test checks that the
+recorded reads are consumed in order, that an over-read or an under-read is
+reported, and that no game event is posted during a replay. `wdc_boss_bench`
+is the regression check against real captures: it must reproduce a capture's
+RDP output exactly on every iteration, and it must not signal the game. Its
+argument handling is in `tools/boss/boss_bench_args.h` and is checked by
+`wdc_boss_bench_args` without a capture, because the bench needs one to do
+anything: the count of timed iterations must be a plain number from 1 to
+1,000,000, so a count that would wrap the bench's loop and never end is
+refused. See [BOSS task capture](../tools/boss/README.md).
+
+`wdc_profile_report` covers the profiler's report with no build and no
+profile: reading the bench's sample file, rejecting a malformed line, reading
+the generated RSP labels, splitting addr2line's output into frames, reading
+the executable's image base and size, dropping the samples that fall outside
+that image, and grouping samples by label, by IMEM window and by innermost
+function.
 
 `wdc_controller_pak` covers device reporting, raw-image byte order, block and
 guest-buffer boundaries, ID protection, bank selection, failed publication,

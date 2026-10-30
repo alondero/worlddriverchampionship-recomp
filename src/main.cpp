@@ -101,6 +101,9 @@ int main(int argc, char** argv) {
     const auto hash = XXH3_64bits(rom.data(), rom.size());
     std::fprintf(stderr, "[wdc] ROM XXH3=%016llx; experimental recompiled player\n", (unsigned long long)hash);
     register_overlays();
+    // The BOSS device posts OS events through this sink. The offline replay
+    // tool installs none, so a replay cannot signal the game.
+    wdc::rsp::set_game_event_sink(&wdc::rsp::post_game_event);
     const auto config_path = std::filesystem::current_path() / "build" / "user-data";
     std::filesystem::create_directories(config_path);
     recomp::register_config_path(config_path);

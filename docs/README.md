@@ -9,6 +9,8 @@ Start with:
 - [Configuration](configuration.md) — host settings and environment knobs.
 - [Cheats](cheats.md) — session track and car unlocks.
 - [Graphics capabilities](graphics-capabilities.md) — peer comparison and WDC limits.
+- [Rendering and frame rate](rendering.md) — how a frame is produced, what
+  caps it at 30 fps, and the routes to smoother motion.
 - [Peer projects](peer-projects.md) — conventions distilled from AeroGauge and
   Automobili Lamborghini.
 - [ROM reference](reference/rom.md) — measured identity, layout, and symbols.

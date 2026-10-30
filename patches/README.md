@@ -86,7 +86,10 @@ current upstream runtime instead copy the exact byte count, leaving a stale
 stereo frame at BOSS synthesis boundaries. See the
 [audio evidence](../docs/reference/audio.md) for the measured transfer pattern,
 upstream comparison and captured-task replay. No generated code changes are
-needed: generated BOSS code includes these helpers.
+needed: generated BOSS code includes these helpers. Its RDRAM writes reach
+`dma_dmem_to_rdram` through `wdc_boss_dma_write` (`src/boss_dma.h`), which
+journals the same rounded range for `WDC_BOSS_CAPTURE`; `wdc_rsp_dma` checks
+that range against this patch's helper.
 
 Patch 0014 has a ROM-free perspective/coverage reproducer in
 `tests/test_rdp_triangle_clip.cpp`. A triangle with a negative W vertex beyond

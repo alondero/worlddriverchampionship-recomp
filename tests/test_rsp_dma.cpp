@@ -1,4 +1,5 @@
 #include "librecomp/rsp.hpp"
+#include "boss_dma.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -54,6 +55,22 @@ int main() {
         for (unsigned i = 0; i < rounded; ++i)
             require(RSP_MEM_BU(i, 0) == uint8_t(i * 37 + 11), "short RSP DMA read");
         if (rounded < 4096) require(RSP_MEM_BU(rounded, 0) == 0xa5, "RSP DMA read exceeded rounded bounds");
+    }
+    // The WDC_BOSS_CAPTURE journal must cover exactly the bytes the runtime
+    // helper writes, or a replay sees CPU data where BOSS output belongs.
+    for (unsigned address : {0x80000100u, 0x80000104u, 0x80000107u}) {
+        for (unsigned length : {1u, 4u, 7u, 8u, 9u, 372u, 512u}) {
+            memory.fill(0xa5);
+            for (unsigned i = 0; i < 4096; ++i) RSP_MEM_BU(i, 0) = 0x5a;
+            dma_dmem_to_rdram(rdram, 0, address, length - 1);
+            const auto range = wdc_boss_dma_write_range(address, length - 1);
+            require(range.bytes <= 0x1f00, "journal range exceeds the fixture");
+            for (uint32_t a = 0; a < 0x2000; ++a) {
+                const bool written = memory[a ^ 3u] == 0x5a;
+                const bool journalled = a >= range.address && a < range.address + range.bytes;
+                require(written == journalled, "BOSS capture journal range differs from the DMA write");
+            }
+        }
     }
     std::puts("RSP DMA transfer rounding passed");
 }
