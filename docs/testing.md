@@ -48,7 +48,10 @@ ctest --test-dir build-host-tests --output-on-failure --no-tests=error
 
 On Windows, use the native CMake and MinGW tools described in
 [Building](../BUILDING.md), and set `Python3_EXECUTABLE` to the actual Python
-executable if CMake finds a Windows Store alias. The patch helper restores the
+executable if CMake finds a Windows Store alias. MinGW's `bin` directory must
+be on `PATH`: the compiler proper (`cc1.exe`) needs the MinGW runtime DLLs,
+and without them CMake's compiler check fails with "The C compiler ... is
+broken" rather than naming the missing DLL. The patch helper restores the
 paths a series owns before applying it, so it is safe to run against a tree a
 player build already patched. `git apply --reverse --check` cannot verify that
 state for patch 0014, because patch 0016 rewrites the context it matched.
