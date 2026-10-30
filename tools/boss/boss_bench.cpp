@@ -25,7 +25,10 @@ extern "C" [[noreturn]] void wdc_unimplemented(const char* name) {
     std::fprintf(stderr, "wdc_boss_bench: unsupported BOSS operation: %s\n", name);
     std::exit(3);
 }
-// The bench installs no game event sink, so a replay cannot signal the game.
+// The bench installs a sink that fails loudly: a replay must never reach the
+// game, so a game event during one is a defect in the device, not something
+// to pass over in silence.
+void reject_game_event(unsigned) { wdc_unimplemented("game event during replay"); }
 
 namespace {
 namespace capture = wdc::boss_capture;
@@ -175,6 +178,8 @@ int main(int argc, char** argv) {
     }
     std::vector<uint8_t> rdram(kHostRdram);
     std::vector<double> ms;
+    // A replay must not reach the game. The sink fails loudly if one does.
+    wdc::rsp::set_game_event_sink(&reject_game_event);
 #ifdef _WIN32
     HANDLE self = nullptr;
     DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &self, 0, FALSE, DUPLICATE_SAME_ACCESS);

@@ -41,12 +41,17 @@ unsigned held_dp = 0;
 // Offline replay: recorded status reads and a private status register.
 capture::StatusPlayback* playback = nullptr;
 std::atomic<uint32_t> replay_status{0};
-// The game's OS event sink. The player installs it at startup; an offline
-// tool installs none, so a replay cannot signal the game.
-wdc::rsp::GameEventSink game_event_sink = nullptr;
+// The game's OS event sink. The player installs it on the main thread before
+// the graphics worker starts; an offline tool installs none, so a replay cannot
+// signal the game. The pointer is read on the graphics worker, so it is
+// atomic: the install happens-before the worker runs, and the atomic keeps the
+// read free of a data race if the install is ever moved later.
+std::atomic<wdc::rsp::GameEventSink> game_event_sink{nullptr};
 
-void signal_event(unsigned event) {
-    if (game_event_sink) game_event_sink(event);
+// Call the installed sink, if there is one. A missing sink is not an error:
+// it is how an offline tool says "there is no game to signal".
+void call_sink(unsigned event) {
+    if (const auto sink = game_event_sink.load(); sink) sink(event);
 }
 
 void write_status(uint32_t value, bool from_rsp) {
@@ -66,7 +71,7 @@ void write_status(uint32_t value, bool from_rsp) {
         // ROM handler 0x8007522C clears SIG3 with 0x8008, then dispatches
         // OS_EVENT_SP if SIG1/2 are set, otherwise OS_EVENT_SP_BREAK.
         reg.fetch_and(~0x400u);
-        if (!playback) signal_event((next & 0x300) ? 4 : 11);
+        if (!playback) call_sink((next & 0x300) ? 4 : 11);
     }
 }
 
@@ -91,8 +96,8 @@ void finish_recording(const uint8_t* rdram, unsigned final_event) {
     task.rdram.assign(rdram, rdram + capture::kRdramBytes);
     rec->journal.restore(task.rdram);
     holding_dp = false;
-    for (; held_dp; --held_dp) signal_event(9);
-    signal_event(final_event);
+    for (; held_dp; --held_dp) call_sink(9);
+    call_sink(final_event);
     if (rec->outside_rdram) {
         std::fprintf(stderr, "[wdc] BOSS capture discarded: DMA write outside 8 MiB RDRAM\n");
         return;
@@ -110,7 +115,7 @@ void finish_recording(const uint8_t* rdram, unsigned final_event) {
 extern "C" void wdc_sp_yield(uint8_t*, recomp_context*) { write_status(0x400, false); }
 extern "C" void wdc_sp_set_status(uint8_t*, recomp_context* ctx) { write_status(ctx->r4, false); }
 
-void wdc::rsp::set_game_event_sink(GameEventSink sink) { game_event_sink = sink; }
+void wdc::rsp::set_game_event_sink(GameEventSink sink) { game_event_sink.store(sink); }
 
 // Generated BOSS writes RDRAM only here (src/boss_dma.h redirects every
 // DO_DMA_WRITE), on the graphics worker during run() or an offline replay.
@@ -177,7 +182,7 @@ void rsp_write_cop0(uint32_t reg, uint32_t value) {
 
 void wdc::rsp::signal_dp_complete() {
     if (holding_dp) ++held_dp;
-    else signal_event(9);
+    else call_sink(9);
 }
 
 void wdc::rsp::run(uint8_t* rdram, const OSTask* task, RdpSink sink, void* context) {
@@ -206,7 +211,7 @@ void wdc::rsp::run(uint8_t* rdram, const OSTask* task, RdpSink sink, void* conte
     // BREAK interrupt follows the ROM's SIG1/2 classification too.
     const unsigned final_event = (status.load() & 0x300) ? 4 : 11;
     if (recording) finish_recording(rdram, final_event);
-    else signal_event(final_event);
+    else call_sink(final_event);
 }
 
 wdc::rsp::ReplayResult wdc::rsp::replay(const capture::Capture& recorded, uint8_t* rdram, RdpSink sink, void* context) {

@@ -27,8 +27,11 @@ void wdc::rsp::post_game_event(unsigned event) {
     Event target;
     {
         std::lock_guard lock(event_mutex);
-        // The device only posts the events the game registered, but an event
-        // the game never registered must not throw on the graphics worker.
+        // The device only posts events the game registered, but it must not
+        // throw on the graphics worker if it posts one that was never
+        // registered. An event outside the table is dropped here; an event
+        // inside it that was never registered has a null queue and is
+        // dropped below.
         if (event >= events.size()) return;
         target = events[event];
     }

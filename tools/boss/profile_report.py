@@ -19,6 +19,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 
 def image_base(exe: Path) -> int:
@@ -41,14 +42,21 @@ def read_samples(path: Path) -> dict[int, int]:
     return samples
 
 
-def label_index(asp: Path) -> tuple[list[int], list[int]]:
-    lines, labels = [], []
+class LabelIndex(NamedTuple):
+    """The RSP labels in the generated file: where each is defined and its address."""
+
+    lines: list[int]
+    pcs: list[int]
+
+
+def label_index(asp: Path) -> LabelIndex:
+    lines, pcs = [], []
     for number, text in enumerate(asp.read_text().splitlines(), start=1):
         match = re.match(r"L_([0-9A-Fa-f]+):", text)
         if match:
             lines.append(number)
-            labels.append(int(match.group(1), 16))
-    return lines, labels
+            pcs.append(int(match.group(1), 16))
+    return LabelIndex(lines, pcs)
 
 
 def parse_frames(output: str) -> dict[int, list[tuple[str, str]]]:
@@ -80,7 +88,7 @@ def resolve(addr2line: str, exe: Path, addresses: list[int]) -> dict[int, list[t
 
 
 def attribute(samples: dict[int, int], frames: dict[int, list[tuple[str, str]]],
-              base: int, label_lines: list[int], labels: list[int],
+              base: int, labels: LabelIndex,
               window: int) -> tuple[collections.Counter[str], collections.Counter[str],
                                     collections.Counter[str]]:
     """Group the sample counts by RSP label, IMEM window and innermost function."""
@@ -95,13 +103,13 @@ def attribute(samples: dict[int, int], frames: dict[int, list[tuple[str, str]]],
         asp_lines = [int(m.group(2)) for _, loc in chain
                      if (m := re.match(r"(.*):(\d+)", loc)) and Path(m.group(1)).name == "aspMain.cpp"]
         line = asp_lines[-1] if asp_lines else 0
-        slot = bisect.bisect_right(label_lines, line) - 1 if line else -1
+        slot = bisect.bisect_right(labels.lines, line) - 1 if line else -1
         if slot < 0:
             outer = re.sub(r"\(.*", "", chain[-1][0]) if chain else "??"
             by_label[f"(outside bossMain: {outer})"] += count
             by_window[f"(outside bossMain: {outer})"] += count
             continue
-        pc = labels[slot]
+        pc = labels.pcs[slot]
         by_label[f"L_{pc:04X}"] += count
         start = pc - pc % window
         by_window[f"IMEM {start:04X}-{start + window - 1:04X}"] += count
@@ -127,9 +135,9 @@ def main() -> int:
         raise SystemExit("no samples")
     base = image_base(args.exe)
     frames = resolve(addr2line, args.exe, [base + rva for rva in samples])
-    label_lines, labels = label_index(args.asp)
+    labels = label_index(args.asp)
     by_label, by_window, by_leaf = attribute(
-        samples, frames, base, label_lines, labels, args.window)
+        samples, frames, base, labels, args.window)
 
     def table(title: str, counter: collections.Counter[str]) -> None:
         print(f"\n{title}")

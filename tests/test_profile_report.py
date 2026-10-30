@@ -55,13 +55,13 @@ class ProfileReportTest(unittest.TestCase):
         self.assertEqual(labels, [0x1080, 0x10A0])
 
     def test_addr2line_output_is_split_into_frames(self) -> None:
-        output = ("0x140001000\ndma_dmem_to_rdram\nF:/src/aspMain.cpp:3312\n"
-                  "bossMain\nF:/src/aspMain.cpp:3308\n"
+        output = ("0x140001000\ndma_dmem_to_rdram\nsrc/aspMain.cpp:3312\n"
+                  "bossMain\nsrc/aspMain.cpp:3308\n"
                   "0x140002000\n??\n??:0\n")
         frames = profile_report.parse_frames(output)
         self.assertEqual(frames[0x140001000],
-                         [("dma_dmem_to_rdram", "F:/src/aspMain.cpp:3312"),
-                          ("bossMain", "F:/src/aspMain.cpp:3308")])
+                         [("dma_dmem_to_rdram", "src/aspMain.cpp:3312"),
+                          ("bossMain", "src/aspMain.cpp:3308")])
         self.assertEqual(frames[0x140002000], [("??", "??:0")])
 
     def test_the_image_base_comes_from_the_pe_header(self) -> None:
@@ -73,12 +73,13 @@ class ProfileReportTest(unittest.TestCase):
         base = 0x140000000
         samples = {0x1000: 3, 0x2000: 1}
         frames = {
-            base + 0x1000: [("dma_dmem_to_rdram", "F:/src/aspMain.cpp:3312"),
-                            ("bossMain", "F:/src/aspMain.cpp:3308")],
-            base + 0x2000: [("memcpy", "F:/src/other.cpp:10")],
+            base + 0x1000: [("dma_dmem_to_rdram", "src/aspMain.cpp:3312"),
+                            ("bossMain", "src/aspMain.cpp:3308")],
+            base + 0x2000: [("memcpy", "src/other.cpp:10")],
         }
+        labels = profile_report.LabelIndex([2, 4], [0x1080, 0x10A0])
         by_label, by_window, by_leaf = profile_report.attribute(
-            samples, frames, base, [2, 5], [0x1080, 0x10A0], 0x40)
+            samples, frames, base, labels, 0x40)
         # The generated line 3312 falls after both labels, so it is the last.
         self.assertEqual(by_label["L_10A0"], 3)
         self.assertEqual(by_window["IMEM 1080-10BF"], 3)

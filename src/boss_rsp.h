@@ -7,16 +7,20 @@ namespace wdc::boss_capture { struct Capture; }
 namespace wdc::rsp {
 using RdpSink = void (*)(void*, uint8_t*, uint32_t, uint32_t);
 // The game's OS event sink: posts event `event` to the queue the game
-// registered. The device calls whichever sink is installed, so an offline
-// tool that installs none cannot signal the game.
+// registered.
 using GameEventSink = void (*)(unsigned);
+// Install the sink the device calls to post OS events. The player installs
+// `post_game_event` before the graphics worker starts; an offline tool
+// installs none, so a replay has no game to signal. Passing nullptr removes
+// the sink again.
 void set_game_event_sink(GameEventSink sink);
 // The sink the game installs: posts OS event `event` to the queue the game
-// registered (boss_events.cpp).
+// registered (boss_events.cpp). An event the game never registered is ignored.
 void post_game_event(unsigned event);
 // One graphics worker owns DMEM/RSP/DPC throughout a task. CPU status writes
-// use atomics; event registrations use a mutex. Addresses are physical byte
-// offsets in word-swapped guest RAM, checked before passing them to the sink.
+// use atomics; event registrations use a mutex; the event sink is an atomic
+// pointer. Addresses are physical byte offsets in word-swapped guest RAM,
+// checked before passing them to the sink.
 void run(uint8_t* rdram, const OSTask* task, RdpSink sink, void* context);
 void signal_dp_complete();
 

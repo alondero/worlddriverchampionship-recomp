@@ -175,27 +175,23 @@ own rate only repeats frames. The player-facing note is in
 ### Native 60 fps (current route)
 
 Let the game itself produce a frame every VI. The variable timestep keeps game
-speed tied to wall time. What is needed:
+speed tied to wall time, so a higher frame rate does not by itself change game
+speed. Three things have to hold for that to be true:
 
-1. **Find and lift the racing frame limiter.** Remove the VI waits in
-   `func_800013DC` and whatever else holds racing at 30. Do this behind an
-   option, as reviewed `[[hooks]]` entries in `rom-symbols.toml`.
-2. **Audit logic that counts frames.**
-   - Statically, search the frame paths `func_8000C560` / `func_8004E950` and
-     their callees for counters bumped once per frame instead of by `+0x1F0` /
-     `0x8007E768`.
-   - Live, compare 30 and 60 fps: race clock against wall time, lap time under
-     fixed input, menu and HUD animation, AI pace, demo/replay playback and
-     audio sync.
-3. **Check physics at a 1/60 s frame step.** This means understanding
-   record `+0xAC8` and the 1/60 constant above.
-4. **Acceptance.**
-   - At least 55 fps in Hawaii practice on the reference machine.
-   - Race clock within 1% of wall time over 60 s.
-   - Lap time and car position under scripted input within an agreed
-     tolerance of the 30 fps run.
-   - Replays, menus and split-screen checked. Split-screen may run at a
-     variable rate.
+- **The game's own frame limiter has to be found and lifted**, so a frame
+  really does happen every VI. The VI waits in `func_800013DC` and the
+  per-frame counters in the frame paths are where to look. The work items and
+  the acceptance criteria are in issue #39.
+- **Logic that counts frames instead of reading the measured delta has to be
+  found and changed.** Statically, the frame paths `func_8000C560` /
+  `func_8004E950` and their callees; live, by comparing 30 and 60 fps for
+  race clock against wall time, lap time under fixed input, menu and HUD
+  animation, AI pace, demo and replay playback, and audio sync.
+- **The physics step has to be sound at a 1/60 s frame step**, which means
+  understanding record `+0xAC8` and the 1/60 constant above.
+
+Any change that lifts the limiter belongs behind an option, as reviewed
+`[[hooks]]` entries in `rom-symbols.toml`.
 
 ### Above 60 Hz
 
@@ -245,6 +241,9 @@ rendering has no side effects on simulation. It is deferred until native
   switch.
 
 ## Open questions
+
+The work items for these live in issue #39; this list is what is not known
+yet.
 
 - **What holds racing at exactly 30 fps** once the pre-swap VI wait is
   skipped? Candidates:

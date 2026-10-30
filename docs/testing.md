@@ -151,6 +151,12 @@ is the regression check against real captures: it must reproduce a capture's
 RDP output exactly on every iteration. See
 [BOSS task capture](../tools/boss/README.md).
 
+`wdc_profile_report` covers the profiler's report with no build and no
+profile: reading the bench's sample file, rejecting a malformed line, reading
+the generated RSP labels, splitting addr2line's output into frames, reading
+the executable's image base, and grouping samples by label, by IMEM window and
+by innermost function.
+
 `wdc_controller_pak` covers device reporting, raw-image byte order, block and
 guest-buffer boundaries, ID protection, bank selection, failed publication,
 and preservation of malformed files. `wdc_pfs_rom` is registered only when

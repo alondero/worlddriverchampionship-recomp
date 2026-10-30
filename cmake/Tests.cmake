@@ -48,6 +48,9 @@ if(BUILD_TESTING)
     target_include_directories(wdc_boss_dma_seam_tests PRIVATE
         "${N64MR}/N64Recomp/include" "${N64MR}/librecomp/include" "${N64MR}/ultramodern/include")
     target_compile_options(wdc_boss_dma_seam_tests PRIVATE -include "${WDC_BOSS_DMA_INCLUDE}")
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64")
+        target_compile_options(wdc_boss_dma_seam_tests PRIVATE -msse4.1)
+    endif()
     add_test(NAME wdc_boss_dma_seam COMMAND wdc_boss_dma_seam_tests)
     add_executable(wdc_boss_capture_tests tests/test_boss_capture.cpp src/boss_capture.cpp)
     target_include_directories(wdc_boss_capture_tests PRIVATE src)
@@ -60,6 +63,9 @@ if(BUILD_TESTING)
         "${N64MR}/N64Recomp/include" "${N64MR}/librecomp/include" "${N64MR}/librecomp/include/librecomp"
         "${N64MR}/ultramodern/include")
     target_compile_options(wdc_boss_replay_tests PRIVATE -fno-strict-aliasing -ggdb)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64")
+        target_compile_options(wdc_boss_replay_tests PRIVATE -msse4.1)
+    endif()
     target_link_libraries(wdc_boss_replay_tests PRIVATE Threads::Threads)
     add_test(NAME wdc_boss_replay COMMAND wdc_boss_replay_tests)
     add_executable(wdc_audio_dma_tests tests/test_audio_dma.cpp src/audio_dma.cpp)
@@ -199,6 +205,8 @@ if(BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rdp_seams.py")
         add_test(NAME wdc_boss_seam
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_boss_seam.py")
+        add_test(NAME wdc_profile_report
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_profile_report.py")
         add_test(NAME wdc_bootstrap_structure
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bootstrap.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}")
