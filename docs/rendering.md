@@ -159,6 +159,40 @@ memory: a generic runtime improvement, not needed for 60 fps. This profile is
 reproducible: `wdc_boss_bench --profile` plus `tools/boss/profile_report.py`
 attributes the samples.
 
+### Two measurements of the same task
+
+[Issue #38](https://github.com/alondero/worlddriverchampionship-recomp/issues/38)
+recorded a racing graphics task at **about 17 ms**, of which about 12 ms was
+attributed to translated BOSS. The table above records the same quantity at
+**6.4-8.0 ms**, of which 1.6-2.1 ms is translated BOSS. The two disagree,
+and the difference is entirely in the part left over after the known costs
+were subtracted:
+
+| Part of a racing task | Issue #38 (throwaway spike) | Later live measurement |
+|---|---|---|
+| RT64 raw RDP decode in the sink | about 4.3 ms | 4.4-5.6 ms |
+| SP_STATUS reads and waits | about 0.5 ms | 0.3-0.4 ms |
+| Everything else, called translated BOSS | about 12 ms | 1.6-2.1 ms |
+| Total | about 17 ms | 6.4-8.0 ms |
+
+The later figure is the one to use. Its remainder agrees with the offline
+bench, which measures the same translated code on its own at 1.6-2.3 ms.
+The earlier figure's remainder was a subtraction, so it took in whatever
+else the graphics worker did inside the measured window, and the bench
+shows there was not 12 ms of translated BOSS in there. What that earlier
+measurement did include is not established: the spike it came from was
+thrown away, so it cannot be repeated.
+
+Two consequences for the plan in issue #38:
+
+- Its premise, that the graphics task takes longer than one 16.7 ms VI, does
+  not hold on the later measurement.
+- Its target for the profiling work, bringing translated BOSS from about
+  12 ms down to about 8 ms, is already met by the number the bench reports.
+  The live task's cost sits mostly in the RT64 RDP decode (4.4-5.6 ms of
+  6.4-8.0 ms), and that decode is inside the task, so it is not what holds
+  the game at 30 fps either.
+
 ## Why higher presentation rates add no motion
 
 `src/renderer.cpp` gives RT64 raw RDP commands
@@ -181,7 +215,9 @@ speed. Three things have to hold for that to be true:
 - **The game's own frame limiter has to be found and lifted**, so a frame
   really does happen every VI. The VI waits in `func_800013DC` and the
   per-frame counters in the frame paths are where to look. The work items and
-  the acceptance criteria are in issue #39.
+  the acceptance criteria are in issue #39. The graphics task is not the
+  blocker: at 6.4-8.0 ms it fits inside one VI (see
+  [two measurements](#two-measurements-of-the-same-task)).
 - **Logic that counts frames instead of reading the measured delta has to be
   found and changed.** Statically, the frame paths `func_8000C560` /
   `func_8004E950` and their callees; live, by comparing 30 and 60 fps for
@@ -251,6 +287,10 @@ yet.
     `func_80025350`;
   - the post-swap wait at `0x800015BC` and the "swap not landed" re-wait;
   - a race-only retrace or queue setting.
+- What did issue #38's about 17 ms spike measurement include? The bench
+  built for it measures the same translated BOSS at 1.6-2.3 ms, so the
+  spike's 12 ms remainder was not translated BOSS, and the spike is gone
+  (see [two measurements](#two-measurements-of-the-same-task)).
 - What is the 1/60 s constant at `0x8009A6D8` in `func_80017144` (substep size
   or clamp), and what does record `+0xAC8` select?
 - Is the fixed-delta pair at `0x8007FDF0` used by demos or replays?

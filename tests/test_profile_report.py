@@ -17,14 +17,15 @@ sys.path.insert(0, str(ROOT / "tools" / "boss"))
 import profile_report  # noqa: E402  (the path is set above)
 
 
-def write_pe(path: Path, base: int) -> None:
-    """Write a minimal PE32+ header, enough for the ImageBase lookup."""
+def write_pe(path: Path, base: int, size: int = 0x10000) -> None:
+    """Write a minimal PE32+ header, enough for the image lookups."""
     data = bytearray(0x200)
     data[0:2] = b"MZ"
     struct.pack_into("<I", data, 0x3C, 0x80)
     data[0x80:0x84] = b"PE\0\0"
     struct.pack_into("<H", data, 0x80 + 24, 0x20B)      # optional header magic
     struct.pack_into("<Q", data, 0x80 + 24 + 24, base)  # ImageBase
+    struct.pack_into("<I", data, 0x80 + 24 + 56, size)  # SizeOfImage
     path.write_bytes(bytes(data))
 
 
@@ -68,6 +69,21 @@ class ProfileReportTest(unittest.TestCase):
         exe = self.root / "bench.exe"
         write_pe(exe, 0x140000000)
         self.assertEqual(profile_report.image_base(exe), 0x140000000)
+
+    def test_the_image_size_comes_from_the_pe_header(self) -> None:
+        exe = self.root / "bench.exe"
+        write_pe(exe, 0x140000000, 0x20000)
+        self.assertEqual(profile_report.image_size(exe), 0x20000)
+
+    def test_samples_outside_the_image_are_dropped(self) -> None:
+        # A sample outside the image is code in another module, or a bad
+        # offset. It resolves to nothing, so it is not reported.
+        kept, dropped = profile_report.in_image({0x1000: 3, 0x30000: 2}, 0x20000)
+        self.assertEqual(kept, {0x1000: 3})
+        self.assertEqual(dropped, 2)
+        kept, dropped = profile_report.in_image({0x1000: 3}, 0x20000)
+        self.assertEqual(kept, {0x1000: 3})
+        self.assertEqual(dropped, 0)
 
     def test_samples_are_grouped_by_label_and_window(self) -> None:
         base = 0x140000000

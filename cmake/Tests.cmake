@@ -68,6 +68,11 @@ if(BUILD_TESTING)
     endif()
     target_link_libraries(wdc_boss_replay_tests PRIVATE Threads::Threads)
     add_test(NAME wdc_boss_replay COMMAND wdc_boss_replay_tests)
+    # The bench needs a capture file to do anything, so its argument
+    # handling is in a header and checked here instead.
+    add_executable(wdc_boss_bench_args_tests tests/test_boss_bench_args.cpp)
+    target_include_directories(wdc_boss_bench_args_tests PRIVATE tools/boss)
+    add_test(NAME wdc_boss_bench_args COMMAND wdc_boss_bench_args_tests)
     add_executable(wdc_audio_dma_tests tests/test_audio_dma.cpp src/audio_dma.cpp)
     target_include_directories(wdc_audio_dma_tests PRIVATE src)
     add_test(NAME wdc_audio_dma COMMAND wdc_audio_dma_tests)

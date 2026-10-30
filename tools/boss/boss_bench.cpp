@@ -2,6 +2,7 @@
 // (WDC_BOSS_CAPTURE). Re-runs the translated microcode against the capture's
 // RDRAM view and status-read timeline, requires byte-identical RDP output on
 // every iteration, and reports per-task time. See tools/boss/README.md.
+#include "boss_bench_args.h"
 #include "boss_capture.h"
 #include "boss_rsp.h"
 #include "librecomp/rsp.hpp"
@@ -25,10 +26,12 @@ extern "C" [[noreturn]] void wdc_unimplemented(const char* name) {
     std::fprintf(stderr, "wdc_boss_bench: unsupported BOSS operation: %s\n", name);
     std::exit(3);
 }
-// The bench installs a sink that fails loudly: a replay must never reach the
-// game, so a game event during one is a defect in the device, not something
-// to pass over in silence.
-void reject_game_event(unsigned) { wdc_unimplemented("game event during replay"); }
+// The bench installs a sink that counts: a replay must never reach the
+// game, so a game event during one is a defect in the device. The count is
+// checked after every iteration, so the defect is reported rather than
+// passed over in silence.
+std::atomic<unsigned> game_events{0};
+void count_game_event(unsigned) { ++game_events; }
 
 namespace {
 namespace capture = wdc::boss_capture;
@@ -130,6 +133,8 @@ private:
 
 int usage() {
     std::fprintf(stderr, "usage: wdc_boss_bench <capture.boss> [--iterations N] [--profile samples.txt]\n");
+    std::fprintf(stderr, "  --iterations N: timed replays, 1 to %u (default 200)\n",
+        wdc::boss_bench::kMaxIterations);
     return 2;
 }
 }
@@ -141,17 +146,22 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--iterations" && i + 1 < argc) {
-            // Only a plain count is accepted: strtoul would read "-1" as a
-            // huge number of iterations.
+            // Only a plain, bounded count is accepted: strtoul would read
+            // "-1" as a huge number of iterations, and the loop below counts
+            // up to the limit, so a count near the type's range would wrap
+            // the counter and never end.
             const std::string value = argv[++i];
-            if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos) return usage();
-            iterations = unsigned(std::strtoul(value.c_str(), nullptr, 10));
+            if (!wdc::boss_bench::parse_iterations(value, iterations)) {
+                std::fprintf(stderr, "wdc_boss_bench: --iterations must be a count from 1 to %u\n",
+                    wdc::boss_bench::kMaxIterations);
+                return 2;
+            }
         }
         else if (arg == "--profile" && i + 1 < argc) profile = argv[++i];
         else if (!path && arg[0] != '-') path = argv[i];
         else return usage();
     }
-    if (!path || !iterations) return usage();
+    if (!path) return usage();
 #ifndef _WIN32
     if (profile) { std::fprintf(stderr, "wdc_boss_bench: --profile is implemented on Windows only\n"); return 2; }
 #endif
@@ -178,15 +188,16 @@ int main(int argc, char** argv) {
     }
     std::vector<uint8_t> rdram(kHostRdram);
     std::vector<double> ms;
-    // A replay must not reach the game. The sink fails loudly if one does.
-    wdc::rsp::set_game_event_sink(&reject_game_event);
+    // A replay must not reach the game. The sink counts any event that does.
+    wdc::rsp::set_game_event_sink(&count_game_event);
 #ifdef _WIN32
     HANDLE self = nullptr;
     DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &self, 0, FALSE, DUPLICATE_SAME_ACCESS);
     std::unique_ptr<Sampler> sampler = profile ? std::make_unique<Sampler>(self) : nullptr;
 #endif
     // One untimed warm-up iteration, then `iterations` timed ones; every
-    // iteration starts from the captured RDRAM and must match exactly.
+    // iteration starts from the captured RDRAM and must match exactly. The
+    // count is bounded by the parser, so the counter cannot wrap.
     for (unsigned i = 0; i <= iterations; ++i) {
         std::fill(rdram.begin() + capture::kRdramBytes, rdram.end(), 0);
         std::memcpy(rdram.data(), task.rdram.data(), capture::kRdramBytes);
@@ -203,6 +214,10 @@ int main(int argc, char** argv) {
         if (!result.finished || !result.reads_consumed || result.extra_reads) {
             std::printf("FAIL iteration %u: finished=%d all_status_reads=%d extra_status_reads=%llu\n",
                 i, result.finished, result.reads_consumed, (unsigned long long)result.extra_reads);
+            return 1;
+        }
+        if (const auto events = game_events.load(); events != 0) {
+            std::printf("FAIL iteration %u: the replay signalled the game %u times\n", i, events);
             return 1;
         }
         if (check.failure.empty() && check.next != expected.size())

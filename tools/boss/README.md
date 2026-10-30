@@ -49,6 +49,11 @@ file errors exit 2. Each timed iteration covers `replay()` only: the DMEM copy,
 translated BOSS and an in-place `memcmp` of each RDP range. It excludes the
 RDRAM reset, and replay skips the live path's yield on each status read.
 
+`--iterations` takes a plain count from 1 to 1,000,000. Anything else is
+refused: the tool counts up to the limit, so a count near the range of an
+unsigned would wrap its counter and never end. A replay must also never
+signal the game; the bench counts any event that does and fails the run.
+
 ## Limits
 
 - Only RDP output is compared. Other BOSS RDRAM writes, such as matrices

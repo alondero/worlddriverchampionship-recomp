@@ -30,6 +30,27 @@ def image_base(exe: Path) -> int:
     return struct.unpack_from("<Q", data, pe + 24 + 24)[0]
 
 
+def image_size(exe: Path) -> int:
+    """The size of the executable's loaded image, in bytes."""
+    data = exe.read_bytes()[:4096]
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe:pe + 4] != b"PE\0\0" or struct.unpack_from("<H", data, pe + 24)[0] != 0x20B:
+        raise SystemExit(f"{exe}: not a PE32+ executable")
+    # SizeOfImage is at offset 56 of the PE32+ optional header.
+    return struct.unpack_from("<I", data, pe + 24 + 56)[0]
+
+
+def in_image(samples: dict[int, int], size: int) -> tuple[dict[int, int], int]:
+    """Split the samples into those inside the executable image and those outside.
+
+    A sample outside the image is code in another module, or a bad offset: it
+    resolves to nothing useful, so it is dropped rather than reported.
+    """
+    kept = {rva: count for rva, count in samples.items() if rva < size}
+    dropped = sum(samples.values()) - sum(kept.values())
+    return kept, dropped
+
+
 def read_samples(path: Path) -> dict[int, int]:
     samples: dict[int, int] = {}
     for line in path.read_text().splitlines():
@@ -130,10 +151,14 @@ def main() -> int:
         raise SystemExit("addr2line not found on PATH (MinGW binutils)")
 
     samples = read_samples(args.samples)
+    base = image_base(args.exe)
+    # The collector drops samples outside the executable's image, but this
+    # tool must not trust the file it is handed: an offset outside the image
+    # is code in another module, or a bad offset, and resolves to nothing.
+    samples, dropped = in_image(samples, image_size(args.exe))
     total = sum(samples.values())
     if not total:
-        raise SystemExit("no samples")
-    base = image_base(args.exe)
+        raise SystemExit("no samples inside the executable image")
     frames = resolve(addr2line, args.exe, [base + rva for rva in samples])
     labels = label_index(args.asp)
     by_label, by_window, by_leaf = attribute(
@@ -144,7 +169,8 @@ def main() -> int:
         for name, count in counter.most_common(args.top):
             print(f"  {100.0 * count / total:5.1f}%  {count:7d}  {name}")
 
-    print(f"{total} samples from {args.samples}")
+    print(f"{total} samples from {args.samples}"
+          + (f" ({dropped} outside the executable image ignored)" if dropped else ""))
     table(f"By IMEM window ({args.window:#x} bytes)", by_window)
     table("By RSP label", by_label)
     table("By innermost function", by_leaf)
