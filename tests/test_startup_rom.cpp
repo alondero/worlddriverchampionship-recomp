@@ -43,8 +43,19 @@ int main() {
         ctx.r29 = int32_t(0x807FF000);
         ctx.r16 = 0x1234;
         ctx.r17 = 0x5678;
+        // Menus start the worker as (0, 0); races (0x80037B40) as
+        // (func_8000C0D0, 1). a1 is the poll divider: one snapshot every
+        // a1 + 1 VIs, which is what holds racing at 30 fps (issue #39).
+        // The fixed step per sample is (a1 + 1) / 60 s, stored as
+        // 0x8007FDF0 (high word, 0) and 0x8007FDF4 (low word).
+        const uint32_t callback = run ? 0x8000C0D0 : 0;
+        ctx.r4 = int32_t(callback);
         ctx.r5 = run;
         func_8002CB0C(rdram, &ctx);
+        assert(uint32_t(MEM_W(0, int32_t(0x8007FE24))) == callback);
+        assert(MEM_W(0, int32_t(0x8007FE1C)) == int32_t(run));
+        assert(uint32_t(MEM_W(0, int32_t(0x8007FDF0))) == 0);
+        assert(uint32_t(MEM_W(4, int32_t(0x8007FDF0))) == (run + 1) * 0x000BEBC2u);
         assert(starts == run + 1);
         assert(ctx.r29 == gpr(int32_t(0x807FF000)));
         assert(ctx.r16 == 0x1234 && ctx.r17 == 0x5678);

@@ -25,16 +25,44 @@ Terms used below:
 
 ## One racing frame
 
-### 1. Simulation step (variable timestep)
+### 1. Simulation step (fixed per sample)
 
-The simulation advances by measured wall time, not by a fixed tick:
+The simulation advances by a fixed step per input sample, not by the
+renderer's frame time. The **input sampler** sets the step: each sample adds
+`(divider + 1) / 60` seconds, so 1/60 s for menus and 1/30 s for racing.
+Each frame consumes one sample:
 
-- `func_8002C0B8` accumulates `osGetCount` ticks into a 64-bit time at
-  `0x8007FDF8`. It converts the delta since `0x8007FE00` to nanoseconds
-  (`x 64 / 3`; the counter runs at 46.875 MHz), divides by 1e9 (the float at
-  `0x8009AC50`), and stores the result in **seconds** at player record `+0x1F0`.
-- A non-zero pair at `0x8007FDF0` substitutes a fixed delta. It is probably
-  used for demos or replays (unconfirmed).
+- **Input worker.** The thread at `0x800B7620` (entry `0x8002C500`) blocks
+  on queue `0x800B7600`. The VI thread posts message 0 to it on every VI,
+  and the swap routine posts message 1, while `0x8007FE10` is set. On VI
+  messages it counts down a **poll divider** reloaded from `0x8007FE1C`.
+  When the countdown runs out, it reads the controllers into the next slot
+  of an 8-slot snapshot ring (`0x800B97E8`, stride `0x200`; read index
+  `0x8007FE18`, count `0x8007FE14`), calls `func_8002C0B8` on that slot,
+  and then calls the per-sample callback at `0x8007FE24`, if set. When the
+  ring is full, the sample is skipped.
+- **Divider.** `func_8002CB0C(callback, divider)` starts the worker and
+  stores both values. Menus call it as `(0, 0)` at `0x8004E128`, so one
+  sample per VI. Races call it as `(func_8000C0D0, 1)` at `0x80037B40`, so
+  one sample every second VI, 30 Hz. `tests/test_startup_rom.cpp` checks
+  both stores against the translated code.
+- **Timestep.** `func_8002C0B8` runs once per sample and adds a delta to a
+  64-bit time at `0x8007FDF8`. The delta is the fixed pair at
+  `0x8007FDF0` / `0x8007FDF4` whenever that pair is non-zero. Otherwise it
+  is the `osGetCount` change since the last sample, kept at `0x8007FE08`.
+  `func_8002CB0C` writes the pair: `0x8007FDF0` is 0, and `0x8007FDF4` is
+  `0xBEBC2` (781,250 ticks, 1/60 s) plus one more `0xBEBC2` for each divider
+  count, so the step is `(divider + 1) * 0xBEBC2`. Once the worker has
+  started the pair is always non-zero, and no code path found clears it, so
+  stock play always takes the fixed branch. The shared tail subtracts the
+  value at `0x8007FE00`, converts the difference to nanoseconds (`x 64 / 3`;
+  the counter runs at 46.875 MHz), divides by 1e9 (the float at
+  `0x8009AC50`), and stores the result in **seconds** at `+0x1F0` of the
+  snapshot slot.
+- **One sample per frame.** Both frame paths, `func_8000C560` (racing) and
+  `func_8004E950`, start with "while `0x8007FE14` is zero, wait one VI"
+  (`func_800025D8`). `func_8002CA3C` then copies one snapshot to
+  `0x800B7400`, so the delta the frame simulates is at `0x800B75F0`.
 - `func_8000A5A0` copies that value into `0x8007E768`, whose initial value is
   1/60, before physics (`func_80017144`). It copies a quarter of it instead
   when record `+0xAC8` is clear, which suggests four substeps.
@@ -42,17 +70,21 @@ The simulation advances by measured wall time, not by a fixed tick:
   is a substep size or a clamp is not yet known.
 - Player records start at `0x800BA7F0`, stride `0x18A0`.
 
-Measured live in Hawaii practice, the race clock tracks wall time whatever the
-frame rate:
+Measured live in Hawaii practice, the race clock tracked wall time at both
+frame rates below. HUD clock against wall-stamped screenshots:
 
 | Frame rate | Race clock advance | Wall time |
 |---|---|---|
 | ~30 fps (normal) | 10.07 s | 10.02 s |
 | ~17 fps (40 ms added to each graphics task) | 9.99 s | 9.98 s |
 
-Rendering more often should therefore not change game speed. Logic that counts
-frames instead of reading this delta would, so it must be audited before
-running faster (see [open questions](#open-questions)).
+Because each frame consumes one fixed step, a higher frame rate does not by
+itself change game speed, as long as samples arrive at the same rate. The
+17 fps row is not explained by that alone: with 30 Hz racing samples, a
+frame rate that low would fill the 8-slot ring (see
+[open questions](#open-questions)). Logic that advances once per frame, without
+using the sample step, would run faster at 60 fps, so it must be audited
+before running faster.
 
 ### 2. Camera and display lists (CPU)
 
@@ -72,6 +104,16 @@ running faster (see [open questions](#open-questions)).
 - **ZSort.** Racing triangles come from the CPU's ZSort stage, which writes
   triangle sublists that BOSS consumes. They are not re-projected from the
   camera matrix inside BOSS (see [above 60 Hz](#above-60-hz)).
+- **SP_BREAK handshake.** Queue `0x800B2B40` (512 messages) is registered
+  for `OS_EVENT_SP_BREAK` (event 11) at `0x800241A8`. `func_80023F2C`
+  counts a request at `0x8007ED74`. `func_80023F88` polls the queue and,
+  if it is empty, blocks until BOSS raises a break. Its six callers
+  (`0x800090A0`, `0x800256A0`, `0x80025740`, `0x80025810`, `0x8002780C`,
+  `0x80028344`) then run the `cache_transform` functions
+  `func_80025410` / `func_8002703C`. So the CPU's display-list build waits
+  on BOSS progress within the same frame. Measured in Hawaii racing: about
+  14 calls per frame, about 5 of which block, for 0.2-0.4 ms in total at
+  30 fps and 0.7-1.5 ms at 60 fps.
 
 ### 3. Graphics task (BOSS)
 
@@ -101,7 +143,12 @@ running faster (see [open questions](#open-questions)).
 
 - **VI thread.** The VI thread `func_800016E8` registers
   `osViSetEvent(..., retrace=1)` at `0x8000171C`. It forwards every VI to
-  message queue `0x800AAA28`.
+  message queue `0x800AAA28`, which holds one message (`0x80001ADC`), so a
+  VI nobody is waiting for is dropped rather than queued.
+- **Completion relays.** Thread `0x800017E0` forwards `OS_EVENT_SP` to
+  queue `0x800AA918`, which `func_800005F4` waits on before each swap.
+  Thread `0x80001888` forwards `OS_EVENT_DP` to `0x800AA988`, which
+  `func_80000678` waits on inside the swap routine.
 - **Swap routine.** The frame submitter calls the swap routine `func_800013DC`.
   On the normal path it does, in order:
   1. `osRecvMesg(VI)` at `0x8000159C`;
@@ -112,9 +159,66 @@ running faster (see [open questions](#open-questions)).
   That is at least two VIs per frame.
 - **Observed rates.** The game submits 29.5-30 graphics tasks per second;
   RT64 updates the screen 60 times per second.
-- **Pre-swap wait skipped.** With a hook before `0x80001594` that posts a VI
-  message when the queue is empty, menus rose to 38-41 fps but **racing
-  stayed at exactly 30.0 fps**.
+- **Not landed.** In this runtime `osViSwapBuffer` takes effect at the next
+  VI tick, before that VI's message is sent, so the step 4 re-wait never
+  fired in the measurements below.
+
+### What holds racing at 30 fps
+
+Two independent limits, each worth one VI per frame. Either one alone
+holds racing at exactly 30.0 fps.
+
+1. **The swap routine waits for two VIs per frame.** Step 1 waits for a VI,
+   step 2 swaps, and step 3 waits for the next VI. The next graphics task
+   is only started after step 3 returns, so every frame costs at least two
+   VIs, whatever the CPU and graphics task cost.
+2. **Races sample input, and therefore time, at 30 Hz.** The race starts
+   the input worker with divider 1 (see
+   [simulation step](#1-simulation-step-fixed-per-sample)). A frame cannot
+   start until a snapshot is ready, so a race frame cannot start more often
+   than every second VI. Menus use divider 0.
+
+`0x8007EDBC` is not a limiter. It is set to 3 by the frame submitter and
+decremented by `func_80025350`, and its only reader (`0x8000A3C4`) gates a
+call to `func_800245AC` with the framebuffer's width and height. None of the
+measured waits below depends on it.
+
+Measured with a throwaway probe: hooks timed each blocking wait on the game
+thread, averaged over 120-frame windows. Hawaii practice, the same machine
+as [where the frame time goes](#where-the-frame-time-goes). Recorded, not
+reproducible from the tree.
+
+| Per racing frame, ms | Stock | Pre-swap wait skipped | Both limits lifted |
+|---|---|---|---|
+| Frame rate (fps) | 30.0 | 30.0 | 60.0 |
+| Game-thread work outside waits | 0.4 | about 17 (input wait) | 0.3-0.4 |
+| SP wait (`func_800005F4`) | 4.0-7.7 | under 0.2 | 3.5-6.5 |
+| SP_BREAK waits (ZSort) | 0.2-0.4 | 0.2 | 0.7-1.5 |
+| Pre-swap VI wait (`0x8000159C`) | 8.5-12.1 | skipped | skipped |
+| Post-swap VI wait (`0x800015BC`) | 16.4-16.9 | 15.8-16.2 | 8.7-11.9 |
+| Game time / wall time | 0.995-1.000 | not measured | 0.999-1.001 |
+
+- **Stock.** Only 4.5-8 ms of each 33.3 ms frame is work: the CPU (0.4 ms)
+  and the graphics task. The rest is the two VI waits.
+- **Pre-swap wait skipped**, by posting a VI message when the queue is
+  empty, as in issue #38. Menu screens on the route to Hawaii rose to
+  60.0 fps. Racing stayed at 30.0, and the freed VI reappeared as a wait
+  for the next input snapshot (the "work" row). Issue #38's spike recorded
+  menus at 38-41 fps with what is described as the same hook; why the two
+  differ is not known.
+- **Both limits lifted**: pre-swap wait skipped and the race's divider
+  forced to 0. Racing held 60.0 fps in every measured window. Game time is
+  the sum of the deltas the frames consumed (`0x800B75F0`), compared with
+  the game thread's wall clock over each window, and it tracked wall time as
+  closely as the stock 30 fps run. The one exception, 0.984, was a 59.1 fps
+  window. With fixed steps this ratio equals frame rate divided by the
+  sample rate, so it confirms the frame rate. It does not show that the game
+  clock is timed from the wall clock.
+
+Lifting only the divider should not work. This is reasoned from the code
+and was not measured: samples would carry 1/60 s deltas, but at two VIs per
+frame only 30 would be consumed per second. The 8-slot ring would fill and
+the worker would skip samples, so game time would fall to half of wall time.
 
 ## Where the frame time goes
 
@@ -145,9 +249,9 @@ racing tasks, every iteration byte-identical. The live rows are averages over
 later read, so it did not wait for a CPU signal mid-task.
 
 The whole graphics task fits inside one 16.7 ms VI with time to spare, so its
-cost does not explain the 30 fps cap. Racing's exact, integer 30.0 fps with
-the pre-swap wait removed points to a limiter in the game's own frame loop
-(hypothesis; see [open questions](#open-questions)).
+cost does not explain the 30 fps cap. The cap is two VI waits per frame,
+one in the swap routine and one for the race's 30 Hz input sample (see
+[what holds racing at 30 fps](#what-holds-racing-at-30-fps)).
 
 Within translated BOSS, a sampling profile puts about a quarter of the time
 in the runtime's byte-at-a-time DMA helpers (`dma_rdram_to_dmem`,
@@ -208,18 +312,22 @@ own rate only repeats frames. The player-facing note is in
 
 ### Native 60 fps (current route)
 
-Let the game itself produce a frame every VI. The variable timestep keeps game
-speed tied to wall time, so a higher frame rate does not by itself change game
-speed. Three things have to hold for that to be true:
+Let the game itself produce a frame every VI. Each frame consumes one fixed
+step, and the racing step is tied to the sample rate, so a higher frame rate
+does not by itself change game speed. Three things have to hold for that to be
+true:
 
-- **The game's own frame limiter has to be found and lifted**, so a frame
-  really does happen every VI. The VI waits in `func_800013DC` and the
-  per-frame counters in the frame paths are where to look. The work items and
-  the acceptance criteria are in issue #39. The graphics task is not the
-  blocker: at 6.4-8.0 ms it fits inside one VI (see
-  [two measurements](#two-measurements-of-the-same-task)).
-- **Logic that counts frames instead of reading the measured delta has to be
-  found and changed.** Statically, the frame paths `func_8000C560` /
+- **The game's two frame limiters have to be lifted together**, so a frame
+  really does happen every VI: the pre-swap VI wait at `0x8000159C`, and
+  the race's input poll divider (1 at `0x80037B44`). Both are described in
+  [what holds racing at 30 fps](#what-holds-racing-at-30-fps). A throwaway
+  probe that lifted both held Hawaii racing at 60.0 fps with game time
+  tracking wall time. The graphics task is not the blocker: at 6.4-8.0 ms
+  it fits inside one VI (see
+  [two measurements](#two-measurements-of-the-same-task)). The remaining
+  work items and the acceptance criteria are in issue #39.
+- **Logic that advances once per frame, instead of by the sample step, has to
+  be found and changed.** Statically, the frame paths `func_8000C560` /
   `func_8004E950` and their callees; live, by comparing 30 and 60 fps for
   race clock against wall time, lap time under fixed input, menu and HUD
   animation, AI pace, demo and replay playback, and audio sync.
@@ -281,22 +389,29 @@ rendering has no side effects on simulation. It is deferred until native
 The work items for these live in issue #39; this list is what is not known
 yet.
 
-- **What holds racing at exactly 30 fps** once the pre-swap VI wait is
-  skipped? Candidates:
-  - `0x8007EDBC`, set to 3 in `func_80024FCC` and decremented in
-    `func_80025350`;
-  - the post-swap wait at `0x800015BC` and the "swap not landed" re-wait;
-  - a race-only retrace or queue setting.
+- Is it safe to skip the pre-swap VI wait outright? It was replaced by a
+  posted message in the probe; a reviewed hook should keep the swap aligned
+  to a VI. Removing the post-swap wait instead was not tried.
+- What does the race's per-sample callback `func_8000C0D0` do, and does
+  anything in it assume 30 Hz samples?
+- Why did issue #38's spike record menus at 38-41 fps with the pre-swap
+  wait skipped, when the later probe measured 60.0 fps?
 - What did issue #38's about 17 ms spike measurement include? The bench
   built for it measures the same translated BOSS at 1.6-2.3 ms, so the
   spike's 12 ms remainder was not translated BOSS, and the spike is gone
   (see [two measurements](#two-measurements-of-the-same-task)).
 - What is the 1/60 s constant at `0x8009A6D8` in `func_80017144` (substep size
   or clamp), and what does record `+0xAC8` select?
-- Is the fixed-delta pair at `0x8007FDF0` used by demos or replays?
-- Which logic counts frames instead of using the measured delta?
+- How do skipped samples (ring full) affect game time? The race clock
+  tracked wall time at about 17 fps. With 30 Hz racing samples, that should
+  fill the 8-slot ring. Either the ring did not fill in that test, or a
+  skipped sample still advances time. Not determined.
+- Which logic advances once per frame instead of by the sample step?
 - Do the CPU's ZSort sublists copy screen-space vertices, or read transformed
-  vertices back? This only matters for the above-60 Hz route.
+  vertices back? The [SP_BREAK handshake](#2-camera-and-display-lists-cpu)
+  suggests the CPU reads BOSS output back before sorting, but what
+  `func_80025410` / `func_8002703C` read is not confirmed. This only matters
+  for the above-60 Hz route.
 - Do menus, split-screen and other tracks behave like Hawaii racing (task
   cost, SIG0 timeline)?
 
