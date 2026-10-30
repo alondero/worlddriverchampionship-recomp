@@ -41,6 +41,13 @@ unsigned held_dp = 0;
 // Offline replay: recorded status reads and a private status register.
 capture::StatusPlayback* playback = nullptr;
 std::atomic<uint32_t> replay_status{0};
+// The game's OS event sink. The player installs it at startup; an offline
+// tool installs none, so a replay cannot signal the game.
+wdc::rsp::GameEventSink game_event_sink = nullptr;
+
+void signal_event(unsigned event) {
+    if (game_event_sink) game_event_sink(event);
+}
 
 void write_status(uint32_t value, bool from_rsp) {
     auto& reg = playback ? replay_status : status;
@@ -59,7 +66,7 @@ void write_status(uint32_t value, bool from_rsp) {
         // ROM handler 0x8007522C clears SIG3 with 0x8008, then dispatches
         // OS_EVENT_SP if SIG1/2 are set, otherwise OS_EVENT_SP_BREAK.
         reg.fetch_and(~0x400u);
-        if (!playback) wdc::rsp::signal_game((next & 0x300) ? 4 : 11);
+        if (!playback) signal_event((next & 0x300) ? 4 : 11);
     }
 }
 
@@ -84,8 +91,8 @@ void finish_recording(const uint8_t* rdram, unsigned final_event) {
     task.rdram.assign(rdram, rdram + capture::kRdramBytes);
     rec->journal.restore(task.rdram);
     holding_dp = false;
-    for (; held_dp; --held_dp) wdc::rsp::signal_game(9);
-    wdc::rsp::signal_game(final_event);
+    for (; held_dp; --held_dp) signal_event(9);
+    signal_event(final_event);
     if (rec->outside_rdram) {
         std::fprintf(stderr, "[wdc] BOSS capture discarded: DMA write outside 8 MiB RDRAM\n");
         return;
@@ -103,13 +110,16 @@ void finish_recording(const uint8_t* rdram, unsigned final_event) {
 extern "C" void wdc_sp_yield(uint8_t*, recomp_context*) { write_status(0x400, false); }
 extern "C" void wdc_sp_set_status(uint8_t*, recomp_context* ctx) { write_status(ctx->r4, false); }
 
+void wdc::rsp::set_game_event_sink(GameEventSink sink) { game_event_sink = sink; }
+
 // Generated BOSS writes RDRAM only here (src/boss_dma.h redirects every
 // DO_DMA_WRITE), on the graphics worker during run() or an offline replay.
 // The runtime helper performs the unchanged transfer: whole 8-byte words of
 // word-swapped guest RAM, physical address masked to 24 bits. While
-// recording, the same range is journalled first; a range past the journal's
-// 8 MiB discards the capture instead of failing the task. Remove with the
-// capture probe.
+// recording, the same range is journalled first. A range outside the
+// journal's 8 MiB still reaches guest memory, but the capture can no longer
+// rebuild its input view, so the capture is dropped and the game carries on.
+// Remove with the capture probe.
 void wdc_boss_dma_write(uint8_t* rdram, uint32_t dmem_addr, uint32_t dram_addr, uint32_t wr_len) {
     if (recording) {
         const auto range = wdc_boss_dma_write_range(dram_addr, wr_len);
@@ -167,7 +177,7 @@ void rsp_write_cop0(uint32_t reg, uint32_t value) {
 
 void wdc::rsp::signal_dp_complete() {
     if (holding_dp) ++held_dp;
-    else signal_game(9);
+    else signal_event(9);
 }
 
 void wdc::rsp::run(uint8_t* rdram, const OSTask* task, RdpSink sink, void* context) {
@@ -196,7 +206,7 @@ void wdc::rsp::run(uint8_t* rdram, const OSTask* task, RdpSink sink, void* conte
     // BREAK interrupt follows the ROM's SIG1/2 classification too.
     const unsigned final_event = (status.load() & 0x300) ? 4 : 11;
     if (recording) finish_recording(rdram, final_event);
-    else signal_game(final_event);
+    else signal_event(final_event);
 }
 
 wdc::rsp::ReplayResult wdc::rsp::replay(const capture::Capture& recorded, uint8_t* rdram, RdpSink sink, void* context) {

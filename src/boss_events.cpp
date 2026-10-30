@@ -23,8 +23,14 @@ extern "C" void wdc_set_event(uint8_t* rdram, recomp_context* ctx) {
     osSetEventMesg_recomp(rdram, ctx);
 }
 
-void wdc::rsp::signal_game(unsigned event) {
+void wdc::rsp::post_game_event(unsigned event) {
     Event target;
-    { std::lock_guard lock(event_mutex); target = events.at(event); }
+    {
+        std::lock_guard lock(event_mutex);
+        // The device only posts the events the game registered, but an event
+        // the game never registered must not throw on the graphics worker.
+        if (event >= events.size()) return;
+        target = events[event];
+    }
     if (target.queue) ultramodern::enqueue_external_message(target.queue, target.message, false, false);
 }

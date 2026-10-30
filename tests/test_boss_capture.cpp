@@ -52,15 +52,16 @@ int main() {
     }
 
     // Identical consecutive status reads collapse into runs; playback returns
-    // them in order and then reports every further read as an overrun.
+    // them in order and then reports every further read as an overrun. The
+    // values differ, so a playback that reordered the runs would be caught.
     {
         std::vector<StatusRun> runs;
-        for (uint32_t v : {0x80u, 0x80u, 0u, 0u, 0u, 0x80u}) record_status(runs, v);
-        require(runs == std::vector<StatusRun>{{0x80, 2}, {0, 3}, {0x80, 1}}, "status runs were not collapsed");
+        for (uint32_t v : {0x11u, 0x11u, 0x22u, 0x22u, 0x22u, 0x33u}) record_status(runs, v);
+        require(runs == std::vector<StatusRun>{{0x11, 2}, {0x22, 3}, {0x33, 1}}, "status runs were not collapsed");
         StatusPlayback playback(runs);
-        for (uint32_t v : {0x80u, 0x80u, 0u, 0u, 0u}) require(playback.next(0x55) == v, "status playback out of order");
+        for (uint32_t v : {0x11u, 0x11u, 0x22u, 0x22u, 0x22u}) require(playback.next(0x55) == v, "status playback out of order");
         require(!playback.exhausted(), "status playback ended early");
-        require(playback.next(0x55) == 0x80 && playback.exhausted(), "status playback missed the last read");
+        require(playback.next(0x55) == 0x33 && playback.exhausted(), "status playback missed the last read");
         require(playback.overruns() == 0, "status playback counted a recorded read as an overrun");
         require(playback.next(0x55) == 0x55 && playback.next(0x56) == 0x56, "exhausted playback ignored fallback");
         require(playback.overruns() == 2, "status playback did not count overruns");

@@ -25,8 +25,7 @@ extern "C" [[noreturn]] void wdc_unimplemented(const char* name) {
     std::fprintf(stderr, "wdc_boss_bench: unsupported BOSS operation: %s\n", name);
     std::exit(3);
 }
-// replay() never signals the game; reaching this is a boss_rsp.cpp defect.
-void wdc::rsp::signal_game(unsigned) { wdc_unimplemented("game event during replay"); }
+// The bench installs no game event sink, so a replay cannot signal the game.
 
 namespace {
 namespace capture = wdc::boss_capture;
@@ -96,7 +95,13 @@ private:
         constexpr DWORD kHighResolution = 0x2; // CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
         HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, kHighResolution, TIMER_ALL_ACCESS);
         if (!timer) timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
-        const auto base = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));
+        const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        // Samples are offsets into the executable's image. Code in a DLL
+        // (the C runtime, for one) is outside that image and would resolve
+        // to a meaningless offset, so it is dropped.
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+        const auto image_end = base + nt->OptionalHeader.SizeOfImage;
         while (!quit) {
             LARGE_INTEGER due;
             due.QuadPart = -2500; // 100 ns units, relative
@@ -109,7 +114,7 @@ private:
             // Resume before touching the map: the suspended thread may hold
             // the heap lock that an insertion needs.
             ResumeThread(target);
-            if (sampled) ++samples[context.Rip - base];
+            if (sampled && context.Rip >= base && context.Rip < image_end) ++samples[context.Rip - base];
         }
         CloseHandle(timer);
     }
@@ -132,7 +137,13 @@ int main(int argc, char** argv) {
     unsigned iterations = 200;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--iterations" && i + 1 < argc) iterations = unsigned(std::strtoul(argv[++i], nullptr, 10));
+        if (arg == "--iterations" && i + 1 < argc) {
+            // Only a plain count is accepted: strtoul would read "-1" as a
+            // huge number of iterations.
+            const std::string value = argv[++i];
+            if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos) return usage();
+            iterations = unsigned(std::strtoul(value.c_str(), nullptr, 10));
+        }
         else if (arg == "--profile" && i + 1 < argc) profile = argv[++i];
         else if (!path && arg[0] != '-') path = argv[i];
         else return usage();

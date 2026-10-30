@@ -33,7 +33,10 @@ def read_samples(path: Path) -> dict[int, int]:
     samples: dict[int, int] = {}
     for line in path.read_text().splitlines():
         if line and not line.startswith("#"):
-            rva, count = line.split()
+            fields = line.split()
+            if len(fields) != 2:
+                raise SystemExit(f"{path}: bad sample line: {line}")
+            rva, count = fields
             samples[int(rva, 16)] = int(count)
     return samples
 
@@ -48,15 +51,11 @@ def label_index(asp: Path) -> tuple[list[int], list[int]]:
     return lines, labels
 
 
-def resolve(addr2line: str, exe: Path, addresses: list[int]) -> dict[int, list[tuple[str, str]]]:
-    """Map each address to its frames, innermost first: (function, file:line)."""
-    result = subprocess.run(
-        [addr2line, "-a", "-f", "-i", "-C", "-e", str(exe)],
-        input="\n".join(f"{a:#x}" for a in addresses) + "\n",
-        capture_output=True, text=True, check=True)
+def parse_frames(output: str) -> dict[int, list[tuple[str, str]]]:
+    """Read addr2line output into frames per address, innermost first."""
     frames: dict[int, list[tuple[str, str]]] = {}
     current = None
-    lines = result.stdout.splitlines()
+    lines = output.splitlines()
     i = 0
     while i < len(lines):
         if lines[i].startswith("0x"):
@@ -69,6 +68,44 @@ def resolve(addr2line: str, exe: Path, addresses: list[int]) -> dict[int, list[t
         else:
             i += 1
     return frames
+
+
+def resolve(addr2line: str, exe: Path, addresses: list[int]) -> dict[int, list[tuple[str, str]]]:
+    """Map each address to its frames, innermost first: (function, file:line)."""
+    result = subprocess.run(
+        [addr2line, "-a", "-f", "-i", "-C", "-e", str(exe)],
+        input="\n".join(f"{a:#x}" for a in addresses) + "\n",
+        capture_output=True, text=True, check=True)
+    return parse_frames(result.stdout)
+
+
+def attribute(samples: dict[int, int], frames: dict[int, list[tuple[str, str]]],
+              base: int, label_lines: list[int], labels: list[int],
+              window: int) -> tuple[collections.Counter[str], collections.Counter[str],
+                                    collections.Counter[str]]:
+    """Group the sample counts by RSP label, IMEM window and innermost function."""
+    by_label: collections.Counter[str] = collections.Counter()
+    by_window: collections.Counter[str] = collections.Counter()
+    by_leaf: collections.Counter[str] = collections.Counter()
+    for rva, count in samples.items():
+        chain = frames.get(base + rva, [])
+        leaf = chain[0][0] if chain else "??"
+        by_leaf[re.sub(r"\(.*", "", leaf)] += count
+        # Locations look like "F:/.../src/aspMain.cpp:1234 (discriminator 2)".
+        asp_lines = [int(m.group(2)) for _, loc in chain
+                     if (m := re.match(r"(.*):(\d+)", loc)) and Path(m.group(1)).name == "aspMain.cpp"]
+        line = asp_lines[-1] if asp_lines else 0
+        slot = bisect.bisect_right(label_lines, line) - 1 if line else -1
+        if slot < 0:
+            outer = re.sub(r"\(.*", "", chain[-1][0]) if chain else "??"
+            by_label[f"(outside bossMain: {outer})"] += count
+            by_window[f"(outside bossMain: {outer})"] += count
+            continue
+        pc = labels[slot]
+        by_label[f"L_{pc:04X}"] += count
+        start = pc - pc % window
+        by_window[f"IMEM {start:04X}-{start + window - 1:04X}"] += count
+    return by_label, by_window, by_leaf
 
 
 def main() -> int:
@@ -91,28 +128,8 @@ def main() -> int:
     base = image_base(args.exe)
     frames = resolve(addr2line, args.exe, [base + rva for rva in samples])
     label_lines, labels = label_index(args.asp)
-
-    by_label: collections.Counter[str] = collections.Counter()
-    by_window: collections.Counter[str] = collections.Counter()
-    by_leaf: collections.Counter[str] = collections.Counter()
-    for rva, count in samples.items():
-        chain = frames.get(base + rva, [])
-        leaf = chain[0][0] if chain else "??"
-        by_leaf[re.sub(r"\(.*", "", leaf)] += count
-        # Locations look like "F:/.../src/aspMain.cpp:1234 (discriminator 2)".
-        asp_lines = [int(m.group(2)) for _, loc in chain
-                     if (m := re.match(r"(.*):(\d+)", loc)) and Path(m.group(1)).name == "aspMain.cpp"]
-        line = asp_lines[-1] if asp_lines else 0
-        slot = bisect.bisect_right(label_lines, line) - 1 if line else -1
-        if slot < 0:
-            outer = re.sub(r"\(.*", "", chain[-1][0]) if chain else "??"
-            by_label[f"(outside bossMain: {outer})"] += count
-            by_window[f"(outside bossMain: {outer})"] += count
-            continue
-        pc = labels[slot]
-        by_label[f"L_{pc:04X}"] += count
-        start = pc - pc % args.window
-        by_window[f"IMEM {start:04X}-{start + args.window - 1:04X}"] += count
+    by_label, by_window, by_leaf = attribute(
+        samples, frames, base, label_lines, labels, args.window)
 
     def table(title: str, counter: collections.Counter[str]) -> None:
         print(f"\n{title}")

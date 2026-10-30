@@ -41,9 +41,27 @@ if(BUILD_TESTING)
         target_compile_options(wdc_rsp_dma_tests PRIVATE -msse4.1)
     endif()
     add_test(NAME wdc_rsp_dma COMMAND wdc_rsp_dma_tests)
+    # The generated BOSS unit is compiled with src/boss_dma.h force-included;
+    # this test is compiled the same way so it checks the override the seam
+    # depends on. It stands in for the generated unit, which is not tracked.
+    add_executable(wdc_boss_dma_seam_tests tests/test_boss_dma_seam.cpp)
+    target_include_directories(wdc_boss_dma_seam_tests PRIVATE
+        "${N64MR}/N64Recomp/include" "${N64MR}/librecomp/include" "${N64MR}/ultramodern/include")
+    target_compile_options(wdc_boss_dma_seam_tests PRIVATE -include "${WDC_BOSS_DMA_INCLUDE}")
+    add_test(NAME wdc_boss_dma_seam COMMAND wdc_boss_dma_seam_tests)
     add_executable(wdc_boss_capture_tests tests/test_boss_capture.cpp src/boss_capture.cpp)
     target_include_directories(wdc_boss_capture_tests PRIVATE src)
     add_test(NAME wdc_boss_capture COMMAND wdc_boss_capture_tests)
+    # The replay contract, with a scripted stand-in for the generated
+    # microcode, so it needs no ROM and no generated code.
+    add_executable(wdc_boss_replay_tests tests/test_boss_replay.cpp
+        src/boss_rsp.cpp src/boss_capture.cpp "${N64MR}/librecomp/src/rsp.cpp")
+    target_include_directories(wdc_boss_replay_tests PRIVATE src
+        "${N64MR}/N64Recomp/include" "${N64MR}/librecomp/include" "${N64MR}/librecomp/include/librecomp"
+        "${N64MR}/ultramodern/include")
+    target_compile_options(wdc_boss_replay_tests PRIVATE -fno-strict-aliasing -ggdb)
+    target_link_libraries(wdc_boss_replay_tests PRIVATE Threads::Threads)
+    add_test(NAME wdc_boss_replay COMMAND wdc_boss_replay_tests)
     add_executable(wdc_audio_dma_tests tests/test_audio_dma.cpp src/audio_dma.cpp)
     target_include_directories(wdc_audio_dma_tests PRIVATE src)
     add_test(NAME wdc_audio_dma COMMAND wdc_audio_dma_tests)
@@ -179,6 +197,8 @@ if(BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rom_transforms.py")
         add_test(NAME wdc_rdp_seams
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rdp_seams.py")
+        add_test(NAME wdc_boss_seam
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_boss_seam.py")
         add_test(NAME wdc_bootstrap_structure
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_bootstrap.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}")

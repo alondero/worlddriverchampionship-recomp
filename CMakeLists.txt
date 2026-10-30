@@ -20,6 +20,11 @@ option(WDC_ENABLE_ANDROID "Build the Android-specific native bridge" OFF)
 option(WDC_HEADLESS "Build the bounded CPU startup diagnostic without RT64" OFF)
 
 set(N64MR "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime")
+# The generated BOSS unit is compiled with src/boss_dma.h force-included, so
+# its RDRAM writes pass through the capture journal in src/boss_rsp.cpp.
+# cmake/Tests.cmake compiles the seam's host test the same way; the path is
+# shared so the test cannot drift from the unit it stands in for.
+set(WDC_BOSS_DMA_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/src/boss_dma.h")
 option(WDC_TESTS_ONLY "Build ROM-free host tests without the player or renderer" OFF)
 if(WDC_TESTS_ONLY)
     if(NOT BUILD_TESTING)
@@ -107,7 +112,7 @@ set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_ma
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/aspMain.cpp")
     add_library(WdcBoss OBJECT src/aspMain.cpp)
     target_compile_options(WdcBoss PRIVATE -fno-strict-aliasing -ggdb
-        -include "${CMAKE_CURRENT_SOURCE_DIR}/src/boss_dma.h")
+        -include "${WDC_BOSS_DMA_INCLUDE}")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64")
         target_compile_options(WdcBoss PRIVATE -msse4.1)
     endif()
