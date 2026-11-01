@@ -27,6 +27,8 @@ namespace {
 using wdc::cheats::Cheat;
 using Function = void (*)(uint8_t*, recomp_context*);
 constexpr int32_t career = int32_t(0x80097D00);
+constexpr size_t career_offset = uint32_t(career) & 0x1FFFFFFF;
+constexpr size_t career_size = 0x1104; // Through the last career flag at +0x1100.
 constexpr int32_t car = career + 0xB4C, team = career + 0x2C;
 constexpr int32_t track = career + 0xE08, event = career + 0x288;
 constexpr uint32_t car_menu[] = {0x80058148, 0x8005A728, 0x8005AED4, 0x8006B9D4};
@@ -57,6 +59,14 @@ void reset_options() {
 int main() {
     std::vector<uint8_t> memory(8 * 1024 * 1024, 0xA5);
     auto* rdram = memory.data();
+    auto copy_career = [&] {
+        std::array<uint8_t, career_size> before;
+        std::copy_n(memory.begin() + career_offset, career_size, before.begin());
+        return before;
+    };
+    auto assert_career = [&](const auto& before) {
+        assert(std::equal(before.begin(), before.end(), memory.begin() + career_offset));
+    };
     // Each call runs the actual generated accessor and hook, including the
     // guest load that supplies v0. Sentinels make missing/wrong loads visible.
     auto call = [&](Function function, int32_t object, uint32_t ra, int argument = 0) {
@@ -70,9 +80,9 @@ int main() {
         return int64_t(ctx.r2);
     };
     auto read = [&](Function function, int32_t object, uint32_t ra) {
-        const auto before = memory;
+        const auto before = copy_career();
         const auto result = call(function, object, ra);
-        assert(memory == before); // Entire RDRAM, not only the lock field.
+        assert_career(before); // All career records and flags, including neighbours.
         return result;
     };
 
@@ -190,9 +200,9 @@ int main() {
             assert(read(func_8006663C, career, 0) == balance);
         }
         wdc::cheats::set_enabled(Cheat::InfiniteRestarts, true);
-        const auto before = memory;
+        const auto before = copy_career();
         call(func_80066648, career, 0x80045AFC, 8);
-        assert(memory == before);
+        assert_career(before);
     }
     // Other callers still set earned credits normally, even with the toggle.
     call(func_80066648, career, 0, 3);
@@ -228,18 +238,43 @@ int main() {
     assert(read(func_800696A8, career, 0x800592D4) == 1);
     reset_options();
 
+    // Check all of RDRAM once for a representative enabled accessor scenario.
+    // Fine-grained permutations above compare the full career, avoiding an
+    // 8 MiB allocation/copy/comparison for every model, venue and caller.
+    MEM_W(8, car) = 34; MEM_B(0, car) = 0; MEM_B(1, car) = 0;
+    MEM_W(0, team) = 12; MEM_B(16, team) = 0; MEM_W(20, team) = 0;
+    MEM_W(0, track) = 0; MEM_B(5, track) = 0;
+    MEM_W(0x50, event) = 10; MEM_B(0x4C, event) = 0;
+    MEM_W(0x1060, career) = 4;
+    MEM_B(0x10FD, career) = 0; MEM_B(0x10FE, career) = 0;
+    for (const auto& entry : wdc::cheats::catalog)
+        wdc::cheats::set_enabled(entry.cheat, true);
+    struct Read { Function function; int32_t record; uint32_t ra; int expected; };
+    const Read representative[] = {
+        {func_800565E0, car, car_menu[0], 1},
+        {func_800565EC, car, seen_menu[0], 1},
+        {func_80056974, team, team_menu[0], 1},
+        {func_80056B90, team, class_menu[0], 3},
+        {func_80057000, track, track_menu[0], 1},
+        {func_80057420, event, event_menu[0], 1},
+        {func_8006663C, career, restart_menu[0], 9},
+        {func_8006969C, career, 0, 1},
+        {func_800696A8, career, 0x800592D4, 1},
+    };
+    const auto full_before = memory;
+    for (const auto& sample : representative)
+        assert(call(sample.function, sample.record, sample.ra) == sample.expected);
+    assert(memory == full_before);
+    reset_options();
+
     // Enter real translated menu callers with an arbitrary stale ra. Their
     // JALs must publish the caller's actual continuation before each accessor
     // hook runs; manually seeding the accessor's ra cannot catch this bug.
     // These callers use stack scratch, so compare the complete career region.
-    constexpr size_t career_offset = uint32_t(career) & 0x1FFFFFFF;
-    constexpr size_t career_size = 0x1100;
     auto read_career = [&](Function function, int32_t object, uint32_t stale_ra) {
-        const auto before = memory;
+        const auto before = copy_career();
         const auto result = call(function, object, stale_ra);
-        assert(std::equal(memory.begin() + career_offset,
-                          memory.begin() + career_offset + career_size,
-                          before.begin() + career_offset));
+        assert_career(before);
         return result;
     };
     for (int i = 0; i < 8; ++i) {
@@ -278,11 +313,9 @@ int main() {
     // against exactly that one expected career-byte change.
     MEM_B(1, car) = 1;
     MEM_B(16, progressing_team) = 1;
-    const auto earned = memory;
+    const auto earned = copy_career();
     MEM_B(16, progressing_team) = 0;
     call(func_80056B18, progressing_team, 0x80058030);
-    assert(std::equal(memory.begin() + career_offset,
-                      memory.begin() + career_offset + career_size,
-                      earned.begin() + career_offset));
+    assert_career(earned);
     reset_options();
 }

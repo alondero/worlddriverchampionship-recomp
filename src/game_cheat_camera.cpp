@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <vector>
 
 namespace {
 constexpr uint32_t state_slot = 0x8007D848;
@@ -28,14 +27,22 @@ uint32_t float_word(float value) {
     return bits;
 }
 struct CameraFrame {
-    uint8_t* owner;
-    uint32_t camera;
+    uint8_t* owner = nullptr;
+    uint32_t camera = 0;
     std::array<uint32_t, offsets.size()> original{};
-    bool applied = false;
 };
-// func_80012354 does not recurse in the ROM. A frame per entry also preserves
-// pairing if a future caller nests updates or toggles the option during a call.
-thread_local std::vector<CameraFrame> frames;
+// func_80012354 is nonrecursive. A single snapshot needs no heap allocation.
+thread_local CameraFrame active_frame;
+
+void restore_frame(uint8_t* rdram) {
+    if (!active_frame.owner) return;
+    const auto frame = active_frame;
+    active_frame = {}; // Every exit consumes the snapshot, including bad exits.
+    if (frame.owner != rdram) return;
+    const gpr camera = int32_t(frame.camera);
+    for (std::size_t i = 0; i < offsets.size(); ++i)
+        MEM_W(offsets[i], camera) = frame.original[i];
+}
 }
 
 // USA func_80012354 entry (a0) through its sole epilogue at 80012870.
@@ -48,20 +55,22 @@ thread_local std::vector<CameraFrame> frames;
 // button handler's 13*scale, 11*scale and (0,0,4), then restore every bit at
 // epilogue regardless of later UI toggles or state changes. The translated
 // function reads but does not write these five fields. No save object changes.
-// A snapshot's address/RDRAM identity lasts only through that invocation; nested
-// calls have separate snapshots. Bad inputs or nonpositive/nonfinite scales
-// leave memory alone. A mismatched exit cannot write another RDRAM allocation.
+// A snapshot's address/RDRAM identity lasts until exit. A missing epilogue is
+// recovered before the next enabled entry if it supplies the same RDRAM.
+// Bad inputs or nonpositive/nonfinite scales never create a new snapshot.
+// An exit with null/mismatched RDRAM discards it without writing either allocation;
+// it cannot safely restore fields after losing the owner's identity. Exit does
+// not need ctx and still restores when the option is switched off mid-call.
 // Remove these bridges when the guest camera exposes scoped view parameters.
 extern "C" void wdc_cheat_top_down_begin(uint8_t* rdram, recomp_context* ctx) {
-    if (!rdram || !ctx) return;
-    frames.push_back({rdram, uint32_t(ctx->r4)});
-    auto& frame = frames.back();
-    if (!wdc::cheats::enabled(wdc::cheats::Cheat::TopDown) ||
-        !word_range(ctx->r4, 0xAC) ||
-        !local_scene(frame.camera - 0x11C) ||
+    if (!wdc::cheats::enabled(wdc::cheats::Cheat::TopDown)) return;
+    restore_frame(rdram);
+    if (!rdram || !ctx || !word_range(ctx->r4, 0xAC)) return;
+    const auto camera = uint32_t(ctx->r4);
+    if (!local_scene(camera - 0x11C) ||
         uint32_t(MEM_W(0, int32_t(state_slot))) != race_state) return;
 
-    const uint32_t scale_bits = uint32_t(MEM_W(0x8C, int32_t(frame.camera)));
+    const uint32_t scale_bits = uint32_t(MEM_W(0x8C, int32_t(camera)));
     float scale;
     std::memcpy(&scale, &scale_bits, sizeof(scale));
     const float distance = 13.0f * scale, height = 11.0f * scale;
@@ -69,24 +78,20 @@ extern "C" void wdc_cheat_top_down_begin(uint8_t* rdram, recomp_context* ctx) {
         !std::isfinite(distance) || !std::isfinite(height)) return;
     const std::array<uint32_t, 5> replacement{
         float_word(distance), float_word(height), 0, 0, float_word(4.0f)};
+    active_frame.owner = rdram;
+    active_frame.camera = camera;
+    const gpr camera_base = int32_t(camera);
     for (std::size_t i = 0; i < offsets.size(); ++i) {
-        frame.original[i] = uint32_t(MEM_W(offsets[i], gpr(int32_t(frame.camera))));
-        MEM_W(offsets[i], gpr(int32_t(frame.camera))) = replacement[i];
+        active_frame.original[i] = uint32_t(MEM_W(offsets[i], camera_base));
+        MEM_W(offsets[i], camera_base) = replacement[i];
     }
-    frame.applied = true;
 }
 
-extern "C" void wdc_cheat_top_down_end(uint8_t* rdram, recomp_context* ctx) {
-    if (!rdram || !ctx || frames.empty() || frames.back().owner != rdram) return;
-    const auto& frame = frames.back();
-    if (frame.applied) {
-        for (std::size_t i = 0; i < offsets.size(); ++i)
-            MEM_W(offsets[i], gpr(int32_t(frame.camera))) = frame.original[i];
-    }
-    frames.pop_back();
+extern "C" void wdc_cheat_top_down_end(uint8_t* rdram, recomp_context*) {
+    restore_frame(rdram);
 }
 
-// USA func_8000E1F4, immediately after each of its six scene+1400 u32 loads.
+// USA func_8000E1F4, immediately after the hooked scene+1400 u32 loads.
 // Its current scene pointer is the big-endian word at sp+130 throughout those
 // sites. Read only that aligned stack word and the callback above on the game
 // thread; require the full stack range to be in 8 MiB KSEG0 RDRAM and one of

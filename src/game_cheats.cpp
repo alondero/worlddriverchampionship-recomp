@@ -15,6 +15,9 @@ void set_enabled(Cheat cheat, bool value) {
     const auto index = static_cast<std::size_t>(cheat);
     if (index < flags.size()) flags[index].store(value, std::memory_order_relaxed);
 }
+bool consume_ending() {
+    return flags[static_cast<std::size_t>(Cheat::Ending)].exchange(false, std::memory_order_relaxed);
+}
 }
 
 namespace {
@@ -189,6 +192,5 @@ extern "C" uint64_t wdc_cheat_blur(uint64_t original) {
 // No write to career+0x10FD; a native ending request remains effective too.
 extern "C" void wdc_cheat_ending(uint8_t*, recomp_context* ctx) {
     if (ctx && uint32_t(ctx->r31) == 0x800592D4 &&
-        wdc::cheats::flags[static_cast<std::size_t>(wdc::cheats::Cheat::Ending)].exchange(false,
-            std::memory_order_relaxed)) ctx->r2 = 1;
+        wdc::cheats::consume_ending()) ctx->r2 = 1;
 }

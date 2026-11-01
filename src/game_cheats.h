@@ -79,4 +79,6 @@ inline constexpr std::array<Description, static_cast<std::size_t>(Cheat::Count)>
 
 bool enabled(Cheat cheat);
 void set_enabled(Cheat cheat, bool value);
+// Atomically clear the one-shot request without changing native guest state.
+bool consume_ending();
 }

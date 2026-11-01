@@ -1,6 +1,7 @@
 #undef NDEBUG
 #include "game_cheats.h"
 #include "recomp.h"
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -64,31 +65,25 @@ int main() {
     }
 
     wdc::cheats::set_enabled(Cheat::TopDown, true);
-    // Nested camera updates restore in reverse order without losing either.
+    // The translated function is nonrecursive. Consecutive updates of either
+    // local camera must leave no state for the next call.
     const auto baseline = memory;
-    ctx.r4 = scenes[0] + 0x11C;
-    wdc_cheat_top_down_begin(rdram, &ctx);
-    const auto first_active = memory;
-    ctx.r4 = scenes[1] + 0x11C;
-    wdc_cheat_top_down_begin(rdram, &ctx);
-    wdc_cheat_top_down_end(rdram, &ctx);
-    assert(memory == first_active);
-    wdc_cheat_top_down_end(rdram, &ctx);
-    assert(memory == baseline);
+    for (auto scene : scenes) {
+        ctx.r4 = scene + 0x11C;
+        wdc_cheat_top_down_begin(rdram, &ctx);
+        wdc_cheat_top_down_end(rdram, &ctx);
+        assert(memory == baseline);
+    }
     wdc_cheat_top_down_end(rdram, &ctx); // Unmatched exit is harmless.
     assert(memory == baseline);
 
-    // A disabled inner call also has an exit frame; it cannot restore its parent.
+    // A missing epilogue must not make the next invocation snapshot already
+    // overridden fields and permanently lose the original camera settings.
     ctx.r4 = scenes[0] + 0x11C;
     wdc_cheat_top_down_begin(rdram, &ctx);
-    const auto parent_active = memory;
-    wdc::cheats::set_enabled(Cheat::TopDown, false);
     wdc_cheat_top_down_begin(rdram, &ctx);
     wdc_cheat_top_down_end(rdram, &ctx);
-    assert(memory == parent_active);
-    wdc_cheat_top_down_end(rdram, &ctx);
     assert(memory == baseline);
-    wdc::cheats::set_enabled(Cheat::TopDown, true);
 
     for (const uint64_t camera : {uint64_t(0), uint64_t(0x800ABF5D),
              uint64_t(0x807FFFFC), uint64_t(0x800ABF60), uint64_t(0x1800ABF5C)}) {
@@ -114,22 +109,34 @@ int main() {
     assert(memory == menu);
     MEM_W(0, state) = int32_t(0x8000C560);
 
-    // A bad exit cannot write another memory allocation or discard restoration.
+    // Restoration needs the saved camera, not the caller's argument context.
     ctx.r4 = scenes[0] + 0x11C;
-    const auto before_mismatch = memory;
+    const auto before_exit = memory;
     wdc_cheat_top_down_begin(rdram, &ctx);
+    wdc_cheat_top_down_end(rdram, nullptr);
+    assert(memory == before_exit);
+
+    // An invalid/mismatched allocation discards the snapshot without writing
+    // through a retained pointer. A later exit must not restore an orphan.
     std::vector<uint8_t> other(memory.size(), 0xA5);
     const auto other_before = other;
-    wdc_cheat_top_down_end(other.data(), &ctx);
-    wdc_cheat_top_down_end(nullptr, &ctx);
-    wdc_cheat_top_down_end(rdram, nullptr);
-    assert(other == other_before);
-    wdc_cheat_top_down_end(rdram, &ctx);
-    assert(memory == before_mismatch);
+    for (auto* invalid_owner : {other.data(), static_cast<uint8_t*>(nullptr)}) {
+        wdc_cheat_top_down_begin(rdram, &ctx);
+        const auto substituted = memory;
+        wdc_cheat_top_down_end(invalid_owner, &ctx);
+        assert(memory == substituted && other == other_before);
+        wdc_cheat_top_down_end(rdram, &ctx);
+        assert(memory == substituted);
+        // Model reinitialization after losing the original allocation/context.
+        std::copy(before_exit.begin(), before_exit.end(), memory.begin());
+        wdc_cheat_top_down_begin(rdram, &ctx);
+        wdc_cheat_top_down_end(rdram, &ctx);
+        assert(memory == before_exit);
+    }
     wdc_cheat_top_down_begin(nullptr, &ctx);
     wdc_cheat_top_down_begin(rdram, nullptr);
     wdc_cheat_top_down_end(rdram, &ctx);
-    assert(memory == before_mismatch);
+    assert(memory == before_exit);
 
     constexpr uint64_t native = 0xFEDCBA9876543210ull;
     wdc::cheats::set_enabled(Cheat::Cinematic, true);

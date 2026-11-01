@@ -196,5 +196,9 @@ documented next to `src/game_cheat_camera.cpp`.
 
 `wdc_cheats_rom` executes the translated accessor/setter closure and requires
 the generated hooks to exist. It checks original loads, caller isolation,
-on/off behavior, one-shot consumption and preservation of full synthetic
-RDRAM. `wdc_cheat_camera` checks both camera records, bounds and restoration.
+on/off behavior, one-shot consumption and preservation of the complete career
+in each permutation. A representative accessor scenario additionally checks
+all synthetic RDRAM once. `wdc_cheat_camera` checks both camera records,
+bounds, restoration, and recovery from missing or invalid exits without heap
+allocation. The nonrecursive camera routine uses one fixed snapshot; disabled
+entry leaves it untouched, and every exit consumes any active snapshot.
