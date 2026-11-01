@@ -1,0 +1,103 @@
+#include "game_cheats.h"
+#include "recomp.h"
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <vector>
+
+namespace {
+constexpr uint32_t state_slot = 0x8007D848;
+constexpr uint32_t race_state = 0x8000C560;
+constexpr std::array<uint32_t, 2> scenes{0x800ABE40, 0x800AE670};
+constexpr std::array<uint32_t, 5> offsets{0x94, 0x9C, 0xA0, 0xA4, 0xA8};
+
+bool word_range(uint64_t value, uint32_t bytes) {
+    const auto address = uint32_t(value);
+    // Generated pointers may be zero-extended or MIPS sign-extended.
+    if (value != address && value != uint64_t(int64_t(int32_t(address)))) return false;
+    return address >= 0x80000000 && bytes <= 0x800000 &&
+        address - 0x80000000 <= 0x800000 - bytes && !(address & 3);
+}
+bool local_scene(uint32_t address) {
+    return address == scenes[0] || address == scenes[1];
+}
+uint32_t float_word(float value) {
+    uint32_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+struct CameraFrame {
+    uint8_t* owner;
+    uint32_t camera;
+    std::array<uint32_t, offsets.size()> original{};
+    bool applied = false;
+};
+// func_80012354 does not recurse in the ROM. A frame per entry also preserves
+// pairing if a future caller nests updates or toggles the option during a call.
+thread_local std::vector<CameraFrame> frames;
+}
+
+// USA func_80012354 entry (a0) through its sole epilogue at 80012870.
+// The two local scene objects at 800ABE40/800AE670 own embedded cameras +11C.
+// Their +8C is float32 distance scale, +94/+9C are scaled distance/height in
+// world units, and +A0/+A4/+A8 are a float32 target offset vector. MEM_W handles
+// the runtime's word-swapped representation of these N64 big-endian words.
+// Only active races (u32 callback at 8007D848 == 8000C560) use this override.
+// Snapshot five words on the calling game thread, substitute the original
+// button handler's 13*scale, 11*scale and (0,0,4), then restore every bit at
+// epilogue regardless of later UI toggles or state changes. The translated
+// function reads but does not write these five fields. No save object changes.
+// A snapshot's address/RDRAM identity lasts only through that invocation; nested
+// calls have separate snapshots. Bad inputs or nonpositive/nonfinite scales
+// leave memory alone. A mismatched exit cannot write another RDRAM allocation.
+// Remove these bridges when the guest camera exposes scoped view parameters.
+extern "C" void wdc_cheat_top_down_begin(uint8_t* rdram, recomp_context* ctx) {
+    if (!rdram || !ctx) return;
+    frames.push_back({rdram, uint32_t(ctx->r4)});
+    auto& frame = frames.back();
+    if (!wdc::cheats::enabled(wdc::cheats::Cheat::TopDown) ||
+        !word_range(ctx->r4, 0xAC) ||
+        !local_scene(frame.camera - 0x11C) ||
+        uint32_t(MEM_W(0, int32_t(state_slot))) != race_state) return;
+
+    const uint32_t scale_bits = uint32_t(MEM_W(0x8C, int32_t(frame.camera)));
+    float scale;
+    std::memcpy(&scale, &scale_bits, sizeof(scale));
+    const float distance = 13.0f * scale, height = 11.0f * scale;
+    if (!(scale > 0.0f) || !std::isfinite(scale) ||
+        !std::isfinite(distance) || !std::isfinite(height)) return;
+    const std::array<uint32_t, 5> replacement{
+        float_word(distance), float_word(height), 0, 0, float_word(4.0f)};
+    for (std::size_t i = 0; i < offsets.size(); ++i) {
+        frame.original[i] = uint32_t(MEM_W(offsets[i], gpr(int32_t(frame.camera))));
+        MEM_W(offsets[i], gpr(int32_t(frame.camera))) = replacement[i];
+    }
+    frame.applied = true;
+}
+
+extern "C" void wdc_cheat_top_down_end(uint8_t* rdram, recomp_context* ctx) {
+    if (!rdram || !ctx || frames.empty() || frames.back().owner != rdram) return;
+    const auto& frame = frames.back();
+    if (frame.applied) {
+        for (std::size_t i = 0; i < offsets.size(); ++i)
+            MEM_W(offsets[i], gpr(int32_t(frame.camera))) = frame.original[i];
+    }
+    frames.pop_back();
+}
+
+// USA func_8000E1F4, immediately after each of its six scene+1400 u32 loads.
+// Its current scene pointer is the big-endian word at sp+130 throughout those
+// sites. Read only that aligned stack word and the callback above on the game
+// thread; require the full stack range to be in 8 MiB KSEG0 RDRAM and one of
+// the two local scenes. Mode 2 selects original trackside camera keyframes.
+// Override only the destination register, retaining native camera/save state.
+// Invalid pointers, non-race callbacks and disabled options preserve original.
+extern "C" uint64_t wdc_cheat_cinematic(
+    uint8_t* rdram, recomp_context* ctx, uint64_t original) {
+    if (!rdram || !ctx || !wdc::cheats::enabled(wdc::cheats::Cheat::Cinematic) ||
+        !word_range(ctx->r29, 0x134) ||
+        uint32_t(MEM_W(0, int32_t(state_slot))) != race_state) return original;
+    const auto scene = uint32_t(MEM_W(0x130, int32_t(ctx->r29)));
+    return local_scene(scene) ? uint64_t(2) : original;
+}

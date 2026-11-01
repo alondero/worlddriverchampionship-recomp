@@ -66,7 +66,11 @@ int main() {
         require(wdc::cheats::enabled(wdc::cheats::Cheat::Tracks) &&
                 std::get<bool>(cheats.get_option_value("unlock_tracks")),
                 "Controls reset cleared a cheat");
+        for (const auto& entry : wdc::cheats::catalog) cheats.set_option_value(entry.id, true);
         wdc::ui::stage_defaults(5);
+        for (const auto& entry : wdc::cheats::catalog)
+            require(!wdc::cheats::enabled(entry.cheat) &&
+                !std::get<bool>(cheats.get_option_value(entry.id)), "Cheats reset left an option enabled");
         require(!wdc::cheats::enabled(wdc::cheats::Cheat::Tracks) &&
                 !std::get<bool>(cheats.get_option_value("unlock_tracks")) &&
                 !cheats.is_dirty(),

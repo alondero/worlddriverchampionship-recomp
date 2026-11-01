@@ -26,7 +26,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same eighteen C++ host-test targets used by the player build,
+This mode builds the same nineteen C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
 headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
@@ -86,7 +86,10 @@ See the [input reference](reference/input.md) for ownership and test limits.
 
 `wdc_driving` checks pedal publication and guest-hook bounds with synthetic
 RDRAM. `wdc_cheats` checks the session unlock hooks against synthetic car, team
-and track records and checks that guest bytes stay unchanged. `wdc_driving_rom`
+and track records, original effect flags and ending requests, checking that
+guest bytes stay unchanged. `wdc_cheat_camera` checks temporary camera fields
+and restoration; `wdc_cheats_rom` executes the translated cheat accessor and
+restart setter closure, including save-reader isolation. `wdc_driving_rom`
 runs the translated input, gearbox and drivetrain
 closure against USA ROM constants and controlled car parameters. It verifies
 progressive throttle/brake torque, reverse and full-power digital overrides,

@@ -9,6 +9,9 @@ if(BUILD_TESTING)
     add_executable(wdc_cheats_tests tests/test_cheats.cpp src/game_cheats.cpp)
     target_include_directories(wdc_cheats_tests PRIVATE src "${N64MR}/N64Recomp/include")
     add_test(NAME wdc_cheats COMMAND wdc_cheats_tests)
+    add_executable(wdc_cheat_camera_tests tests/test_cheat_camera.cpp src/game_cheat_camera.cpp src/game_cheats.cpp)
+    target_include_directories(wdc_cheat_camera_tests PRIVATE src "${N64MR}/N64Recomp/include")
+    add_test(NAME wdc_cheat_camera COMMAND wdc_cheat_camera_tests)
     add_executable(wdc_hud_stream_tests tests/test_hud_stream.cpp)
     target_include_directories(wdc_hud_stream_tests PRIVATE src)
     add_test(NAME wdc_hud_stream COMMAND wdc_hud_stream_tests)
@@ -96,6 +99,17 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         if(NOT WDC_TESTS_ONLY AND TARGET WdcRecompiledFuncs AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_cheats_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c"
+                DEPENDS tests/extract_cheats_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_cheats_rom_tests tests/test_cheats_rom.cpp src/game_cheats.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c")
+            target_include_directories(wdc_cheats_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_cheats_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_cheats_rom COMMAND wdc_cheats_rom_tests)
+            set_tests_properties(wdc_cheats_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_rumble_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/rumble_test_funcs.c"
@@ -160,7 +174,7 @@ if(BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/visibility_test_funcs.c"
                 DEPENDS tests/extract_visibility_test.py ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
-            add_executable(wdc_visibility_rom_tests tests/test_visibility_rom.cpp src/game_visibility.cpp
+            add_executable(wdc_visibility_rom_tests tests/test_visibility_rom.cpp src/game_visibility.cpp src/game_cheats.cpp
                 "${CMAKE_CURRENT_BINARY_DIR}/visibility_test_funcs.c")
             target_include_directories(wdc_visibility_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_visibility_rom_tests PRIVATE -fno-strict-aliasing)
