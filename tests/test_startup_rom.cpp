@@ -1,5 +1,6 @@
 #undef NDEBUG
 #include "recomp.h"
+#include "game_framerate.h"
 #include <algorithm>
 #include <cassert>
 #include <vector>
@@ -36,7 +37,10 @@ void osStartThread_recomp(uint8_t* rdram, recomp_context* ctx) {
 int main() {
     std::vector<uint8_t> storage(8 * 1024 * 1024);
     auto* rdram = storage.data();
-    for (unsigned run = 0; run < 2; ++run) {
+    for (unsigned run = 0; run < 4; ++run) {
+        const bool native = run >= 2;
+        const bool race = run % 2;
+        wdc::framerate::configure(native);
         // Poison the ring on restart so stale pointers cannot hide ordering.
         std::fill(storage.begin() + 0xB97E8, storage.begin() + 0xBA7E8, 0);
         recomp_context ctx{};
@@ -48,14 +52,15 @@ int main() {
         // a1 + 1 VIs, which is what holds racing at 30 fps (issue #39).
         // The fixed step per sample is (a1 + 1) / 60 s, stored as
         // 0x8007FDF0 (high word, 0) and 0x8007FDF4 (low word).
-        const uint32_t callback = run ? 0x8000C0D0 : 0;
+        const uint32_t callback = race ? 0x8000C0D0 : 0;
         ctx.r4 = int32_t(callback);
-        ctx.r5 = run;
+        ctx.r5 = race;
         func_8002CB0C(rdram, &ctx);
         assert(uint32_t(MEM_W(0, int32_t(0x8007FE24))) == callback);
-        assert(MEM_W(0, int32_t(0x8007FE1C)) == int32_t(run));
+        const uint32_t divider = race && !native ? 1 : 0;
+        assert(MEM_W(0, int32_t(0x8007FE1C)) == int32_t(divider));
         assert(uint32_t(MEM_W(0, int32_t(0x8007FDF0))) == 0);
-        assert(uint32_t(MEM_W(4, int32_t(0x8007FDF0))) == (run + 1) * 0x000BEBC2u);
+        assert(uint32_t(MEM_W(4, int32_t(0x8007FDF0))) == (divider + 1) * 0x000BEBC2u);
         assert(starts == run + 1);
         assert(ctx.r29 == gpr(int32_t(0x807FF000)));
         assert(ctx.r16 == 0x1234 && ctx.r17 == 0x5678);

@@ -40,6 +40,7 @@ void apply_enhancements() {
     settings.full_car_detail = std::get<bool>(page.get_option_value("full_car_detail"));
     settings.full_track_detail = std::get<bool>(page.get_option_value("full_track_detail"));
     settings.draw_distance = int(std::get<uint32_t>(page.get_option_value("draw_distance")));
+    settings.native_60fps = std::get<bool>(page.get_option_value("native_60fps"));
     request_settings(settings);
 }
 void seed_cheats() {
@@ -64,6 +65,7 @@ void refresh_settings() {
     sync(enhancements, "full_car_detail", s.full_car_detail);
     sync(enhancements, "full_track_detail", s.full_track_detail);
     sync(enhancements, "draw_distance", uint32_t(s.draw_distance));
+    sync(enhancements, "native_60fps", s.native_60fps);
     seed_cheats();
 }
 void stage_defaults(int tab_index) {
@@ -128,6 +130,8 @@ void create_settings() {
     page.set_save_callback(apply_graphics);
     auto& enhancements = ui::create_config_tab("Enhancements", enhancements_id, true);
     enhancements.external_storage = true;
+    enhancements.add_bool_option("native_60fps", "Native 60 fps (experimental)",
+        "Targets 60 fps racing. Takes effect when starting the next race or returning to the menus. Requires enough performance to finish each frame in 16.7 ms. Replay and ghost playback can run at the wrong speed; lap equivalence is still being checked.", false);
     enhancements.add_bool_option("full_car_detail", "Full car detail",
         "Keeps the nearest car detail level at all visible distances. Draw distance still limits visibility. May reduce performance.", false);
     enhancements.add_bool_option("full_track_detail", "Full track detail",

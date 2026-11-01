@@ -112,6 +112,21 @@ Headless runs must have a bounded frame/VI budget and a machine-readable result
 when they are used in CI. A passing process exit alone is not proof that the
 game reached the intended scene or submitted a graphics/audio task.
 
+`wdc_framerate_rom` executes the translated steady-state swap, controller
+callback, wheel animation and numerical integrators. A controlled VI queue
+checks stock/two-wait and native/one-wait behavior, pending messages, delayed
+buffer landing and settings changed mid-race. Wheel angles and the controller
+action lifetime agree over equal elapsed time at both rates. The translated
+camera blend retains its stock exponential decay at the scoped caller and
+its stock coefficient at other callers. Integrators run all 16 components
+against a controlled decaying force at both sample rates; vehicle forces and
+track collisions are outside that fixture. `wdc_startup_rom` also checks the
+actual generated startup hook, divider and tick pair before worker preemption.
+The graphics/frontend checks cover opt-in defaults, persistence, Apply/Discard
+and restoring defaults. These tests do not establish racing frame rate,
+fixed-input lap equivalence or replay compatibility; see the
+[native frame-rate audit](rendering.md#native-60-fps-option).
+
 The first-playable headless diagnostic exits 2 on its 15-second limit and is
 not a CI success gate. See [acceptance evidence](first-playable.md) for the
 separately verified windowed practice-driving path. Synthetic tests cover

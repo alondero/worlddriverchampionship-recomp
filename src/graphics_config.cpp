@@ -1,5 +1,6 @@
 #include "graphics_config.h"
 #include "game_visibility.h"
+#include "game_framerate.h"
 #include "json/json.hpp"
 #include <algorithm>
 #include <cstdio>
@@ -58,6 +59,7 @@ void load(const std::filesystem::path& path) {
             s.fullscreen = j.value("fullscreen", false);
             s.full_car_detail = j.value("full_car_detail", false);
             s.full_track_detail = j.value("full_track_detail", false);
+            s.native_60fps = j.value("native_60fps", false);
             integer("draw_distance", s.draw_distance);
             // Version 1 forcibly disabled widescreen, including saved 0 values.
             // Upgrade those preferences to the working camera-aware default.
@@ -73,11 +75,13 @@ void load(const std::filesystem::path& path) {
     std::lock_guard lock(mutex);
     current = s;
     visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
+    framerate::configure(s.native_60fps);
 }
 bool apply(Settings s) {
     s = normalize(s);
     { std::lock_guard lock(mutex); current = s; }
     visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
+    framerate::configure(s.native_60fps);
     try {
         if (file.empty()) throw std::runtime_error("settings path is not configured");
         nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
@@ -85,7 +89,7 @@ bool apply(Settings s) {
             {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen},
             {"hud", s.hud},
             {"full_car_detail", s.full_car_detail}, {"full_track_detail", s.full_track_detail},
-            {"draw_distance", s.draw_distance}};
+            {"draw_distance", s.draw_distance}, {"native_60fps", s.native_60fps}};
         auto temporary = file;
         temporary += ".tmp";
         std::ofstream out(temporary, std::ios::trunc);
