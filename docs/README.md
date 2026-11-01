@@ -7,7 +7,7 @@ Start with:
 - [Publishing](publishing.md) — source hygiene and public-release checks.
 - [Debugging](debugging.md) — reproduce, minimise, instrument, verify.
 - [Configuration](configuration.md) — host settings and environment knobs.
-- [Cheats](cheats.md) — session track and car unlocks.
+- [Cheats](cheats.md) — session unlocks, original effects and ROM research.
 - [Graphics capabilities](graphics-capabilities.md) — peer comparison and WDC limits.
 - [Rendering and frame rate](rendering.md) — how a frame is produced, what
   caps it at 30 fps, and the routes to smoother motion.

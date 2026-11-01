@@ -54,6 +54,65 @@ def load_force_stubs() -> list[str]:
     ]
 
 
+def link_register_hooks(
+    rom: bytes, targets: list[int], functions: list[tuple[str, int, int]],
+    code_start: int, code_end: int, mapping_delta: int,
+    existing_hooks: list[dict] = (),
+) -> list[dict]:
+    """Restore MIPS JAL's link for reviewed caller-sensitive leaf routines.
+
+    The pinned recompiler normally emits host calls without updating r31.
+    Every direct call to these targets needs the link, including save and
+    progression callers that must not inherit a previous menu caller's link.
+    Hooks run before JAL, so its delay slot also observes the correct value.
+    Overlapping translated bodies each receive their own hook. Unreviewed
+    indirect/tail entries or an existing hook at the same site fail closed.
+    """
+    selected = set(targets)
+    if not selected:
+        return []
+    if not (0 <= code_start < code_end <= len(rom)) or code_start % 4 or code_end % 4:
+        raise ValueError("link-register code range must be aligned and inside the ROM")
+    entries = {start for _, start, _ in functions}
+    if not selected <= entries:
+        raise ValueError("link-register target lacks a reviewed function entry")
+
+    # No selected accessor is a ROM function-pointer target. A future table
+    # reference needs an explicit indirect-caller policy before regeneration.
+    for index, (word,) in enumerate(struct.iter_unpack(">I", memoryview(rom)[:len(rom) // 4 * 4])):
+        if word in selected:
+            raise ValueError(f"unreviewed link-register function pointer at ROM {index * 4:#x}")
+
+    occupied = {(hook["func"], hook["before_vram"]) for hook in existing_hooks}
+    hooks = []
+    called = set()
+    for offset in range(code_start, code_end, 4):
+        word = struct.unpack_from(">I", rom, offset)[0]
+        if word >> 26 not in (2, 3):  # j / jal
+            continue
+        address = offset + mapping_delta
+        target = ((address + 4) & 0xF0000000) | ((word & 0x03FFFFFF) << 2)
+        if target not in selected:
+            continue
+        if word >> 26 == 2:
+            raise ValueError(f"unreviewed tail entry to link-register target at {address:#x}")
+        if offset + 8 > code_end:
+            raise ValueError(f"link-register call lacks its delay slot at {address:#x}")
+        owners = [(name, start, size) for name, start, size in functions
+                  if start <= address < start + size]
+        if not owners or any(address + 8 > start + size for _, start, size in owners):
+            raise ValueError(f"link-register call is outside complete function bodies at {address:#x}")
+        called.add(target)
+        for name, _, _ in owners:
+            if (name, address) in occupied:
+                raise ValueError(f"link-register hook conflicts with {name} at {address:#x}")
+            hooks.append({"func": name, "before_vram": address,
+                          "text": f"ctx->r31 = (int32_t)0x{address + 8:08X}u;"})
+    if called != selected:
+        raise ValueError("link-register target has no measured direct callers")
+    return hooks
+
+
 def main() -> int:
     config = read_analysis()
     rom_path = ROOT / str(config["filename"])
@@ -152,7 +211,14 @@ def main() -> int:
         f'rom_file_path = "{config["filename"]}"', "", "[patches]",
         f"stubs = {stubs_toml}", "ignored = []", "",
     ]
-    for hook in symbol_config.get("hooks", []):
+    hooks = symbol_config.get("hooks", [])
+    try:
+        hooks = hooks + link_register_hooks(
+            rom, symbol_config.get("link_register_targets", []), functions,
+            code_start, code_end, entry - section_rom, hooks)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    for hook in hooks:
         output.extend(['[[patches.hook]]', f'func = "{hook["func"]}"',
                        f'before_vram = {hook["before_vram"]:#x}',
                        f'text = \'{hook["text"]}\'', ''])

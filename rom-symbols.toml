@@ -1,5 +1,12 @@
 # USA symbols measured with relocation-masked SDK comparison, then startup
 # call-site inspection. Addresses are WDC addresses, never peer addresses.
+# N64Recomp omits direct JAL link writes. These scoped accessors inspect ra:
+# emit its real MIPS value at EVERY call, including save/progression callers.
+link_register_targets = [
+    0x800565E0, 0x800565EC, 0x80056974, 0x80057000, 0x80057420,
+    0x80056B90, 0x8006663C, 0x80066648, 0x8006969C, 0x800696A8,
+]
+
 [symbols]
 0x800028E0 = "wdc_boot"
 0x8006ED70 = "osRecvMesg"
@@ -261,3 +268,148 @@ text = "{ extern void wdc_cheat_team_available(uint8_t*, recomp_context*); wdc_c
 func = "func_80057000"
 before_vram = 0x80057004
 text = "{ extern void wdc_cheat_track_available(uint8_t*, recomp_context*); wdc_cheat_track_available(rdram, ctx); }"
+
+# Original ROM effects: register overrides retain native cheats and save bytes.
+# Read sites, widths, and activation timing: docs/cheats.md.
+
+[[hooks]]
+func = "func_80031674"
+before_vram = 0x80031758
+text = "{ extern uint64_t wdc_cheat_pink(uint64_t); ctx->r3 = wdc_cheat_pink(ctx->r3); }"
+
+[[hooks]]
+func = "func_80031674"
+before_vram = 0x80031764
+text = "{ extern uint64_t wdc_cheat_black(uint64_t); ctx->r25 = wdc_cheat_black(ctx->r25); }"
+
+[[hooks]]
+func = "func_80031674"
+before_vram = 0x800317C0
+text = "{ extern uint64_t wdc_cheat_black(uint64_t); ctx->r15 = wdc_cheat_black(ctx->r15); }"
+
+[[hooks]]
+func = "func_800218F0"
+before_vram = 0x80022008
+text = "{ extern uint64_t wdc_cheat_small(uint64_t); ctx->r13 = wdc_cheat_small(ctx->r13); }"
+
+[[hooks]]
+func = "func_800218F0"
+before_vram = 0x80022264
+text = "{ extern uint64_t wdc_cheat_small(uint64_t); ctx->r12 = wdc_cheat_small(ctx->r12); }"
+
+[[hooks]]
+func = "func_800218F0"
+before_vram = 0x80022434
+text = "{ extern uint64_t wdc_cheat_small(uint64_t); ctx->r15 = wdc_cheat_small(ctx->r15); }"
+
+[[hooks]]
+func = "func_800218F0"
+before_vram = 0x80021A60
+text = "{ extern uint64_t wdc_cheat_visible(uint64_t); ctx->r14 = wdc_cheat_visible(ctx->r14); }"
+
+[[hooks]]
+func = "func_80008ED8"
+before_vram = 0x80008FF4
+text = "{ extern uint64_t wdc_cheat_red_skids(uint64_t); ctx->r14 = wdc_cheat_red_skids(ctx->r14); }"
+
+[[hooks]]
+func = "func_800230D4"
+before_vram = 0x80023248
+text = "{ extern uint64_t wdc_cheat_retro(uint64_t); ctx->r12 = wdc_cheat_retro(ctx->r12); }"
+
+[[hooks]]
+func = "func_80024944"
+before_vram = 0x8002497C
+text = "{ extern uint64_t wdc_cheat_blur(uint64_t); ctx->r14 = wdc_cheat_blur(ctx->r14); }"
+
+[[hooks]]
+func = "func_80024944"
+before_vram = 0x80024B30
+text = "{ extern uint64_t wdc_cheat_blur(uint64_t); ctx->r15 = wdc_cheat_blur(ctx->r15); }"
+
+[[hooks]]
+func = "func_80024FCC"
+before_vram = 0x80024FE0
+text = "{ extern uint64_t wdc_cheat_clear_scene(uint64_t); ctx->r14 = wdc_cheat_clear_scene(ctx->r14); }"
+
+[[hooks]]
+func = "func_80067F94"
+before_vram = 0x80068060
+text = "{ extern uint64_t wdc_cheat_mirror(uint64_t); ctx->r13 = wdc_cheat_mirror(ctx->r13); }"
+
+[[hooks]]
+func = "func_8006969C"
+before_vram = 0x800696A0
+text = "{ extern uint64_t wdc_cheat_race_select(uint64_t); ctx->r2 = wdc_cheat_race_select(ctx->r2); }"
+
+[[hooks]]
+func = "func_800364A0"
+before_vram = 0x80036518
+text = "{ extern uint64_t wdc_cheat_evilrob(uint64_t); ctx->r2 = wdc_cheat_evilrob(ctx->r2); }"
+
+[[hooks]]
+func = "func_80057420"
+before_vram = 0x80057424
+text = "{ extern void wdc_cheat_event_available(uint8_t*, recomp_context*); wdc_cheat_event_available(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80056B90"
+before_vram = 0x80056B94
+text = "{ extern void wdc_cheat_team_class(uint8_t*, recomp_context*); wdc_cheat_team_class(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8006663C"
+before_vram = 0x80066640
+text = "{ extern void wdc_cheat_restart_count(uint8_t*, recomp_context*); wdc_cheat_restart_count(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80066648"
+before_vram = 0x80066648
+text = "{ extern void wdc_cheat_restart_spend(uint8_t*, recomp_context*); wdc_cheat_restart_spend(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800696A8"
+before_vram = 0x800696AC
+text = "{ extern void wdc_cheat_ending(uint8_t*, recomp_context*); wdc_cheat_ending(rdram, ctx); }"
+
+# Original race-camera effects; temporary fields are restored at the sole epilogue.
+
+[[hooks]]
+func = "func_80012354"
+before_vram = 0x80012354
+text = "{ extern void wdc_cheat_top_down_begin(uint8_t*, recomp_context*); wdc_cheat_top_down_begin(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80012354"
+before_vram = 0x80012870
+text = "{ extern void wdc_cheat_top_down_end(uint8_t*, recomp_context*); wdc_cheat_top_down_end(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8000E1F4"
+before_vram = 0x8000E278
+text = "{ extern uint64_t wdc_cheat_cinematic(uint8_t*, recomp_context*, uint64_t); ctx->r14 = wdc_cheat_cinematic(rdram, ctx, ctx->r14); }"
+
+[[hooks]]
+func = "func_8000E1F4"
+before_vram = 0x8000E558
+text = "{ extern uint64_t wdc_cheat_cinematic(uint8_t*, recomp_context*, uint64_t); ctx->r24 = wdc_cheat_cinematic(rdram, ctx, ctx->r24); }"
+
+[[hooks]]
+func = "func_8000E1F4"
+before_vram = 0x8000E5C0
+text = "{ extern uint64_t wdc_cheat_cinematic(uint8_t*, recomp_context*, uint64_t); ctx->r8 = wdc_cheat_cinematic(rdram, ctx, ctx->r8); }"
+
+[[hooks]]
+func = "func_8000E1F4"
+before_vram = 0x8000EF44
+text = "{ extern uint64_t wdc_cheat_cinematic(uint8_t*, recomp_context*, uint64_t); ctx->r24 = wdc_cheat_cinematic(rdram, ctx, ctx->r24); }"
+
+[[hooks]]
+func = "func_8000E1F4"
+before_vram = 0x8000F078
+text = "{ extern uint64_t wdc_cheat_cinematic(uint8_t*, recomp_context*, uint64_t); ctx->r11 = wdc_cheat_cinematic(rdram, ctx, ctx->r11); }"
+
+[[hooks]]
+func = "func_8000E1F4"
+before_vram = 0x8000F0B4
+text = "{ extern uint64_t wdc_cheat_cinematic(uint8_t*, recomp_context*, uint64_t); ctx->r14 = wdc_cheat_cinematic(rdram, ctx, ctx->r14); }"

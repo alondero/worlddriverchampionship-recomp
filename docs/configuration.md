@@ -28,11 +28,12 @@ leaving the tab, and follow the same live **Restore defaults** policy as General
 Digital A/B overrides remain available. See [Controllers](controllers.md) for
 trigger binding conflicts and reverse controls.
 
-**Cheats** unlocks all tracks, all GT1 cars and teams, or all GT2 cars and
-teams for the current session. Changes apply immediately and are forgotten when
+**Cheats** offers the original game's understood unlocks, name-password
+effects, restart credits, rendering effects and cameras for the current
+session. Changes apply at the boundary described by each option and are forgotten when
 the application closes. These toggles do not write the Controller Pak note.
-The measured save routine still sees the real locks. Championship event locks
-and the Falcon Interceptor stay as saved. Turn a toggle off, then open the
+The measured save routine still sees the real locks and earned credit balance.
+Turn an unlock toggle off, then open the
 list again, to see the saved locks. **Restore defaults** on that tab turns the
 toggles off. A few menu screens also keep a copy of what they displayed;
 [Cheats](cheats.md) describes that copy.

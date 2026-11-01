@@ -10,6 +10,22 @@ void wdc_cheat_car_available(uint8_t*, recomp_context*);
 void wdc_cheat_car_seen(uint8_t*, recomp_context*);
 void wdc_cheat_team_available(uint8_t*, recomp_context*);
 void wdc_cheat_track_available(uint8_t*, recomp_context*);
+void wdc_cheat_event_available(uint8_t*, recomp_context*);
+void wdc_cheat_team_class(uint8_t*, recomp_context*);
+void wdc_cheat_restart_count(uint8_t*, recomp_context*);
+void wdc_cheat_restart_spend(uint8_t*, recomp_context*);
+void wdc_cheat_ending(uint8_t*, recomp_context*);
+uint64_t wdc_cheat_pink(uint64_t);
+uint64_t wdc_cheat_black(uint64_t);
+uint64_t wdc_cheat_small(uint64_t);
+uint64_t wdc_cheat_visible(uint64_t);
+uint64_t wdc_cheat_red_skids(uint64_t);
+uint64_t wdc_cheat_retro(uint64_t);
+uint64_t wdc_cheat_blur(uint64_t);
+uint64_t wdc_cheat_clear_scene(uint64_t);
+uint64_t wdc_cheat_mirror(uint64_t);
+uint64_t wdc_cheat_race_select(uint64_t);
+uint64_t wdc_cheat_evilrob(uint64_t);
 }
 
 namespace {
@@ -132,5 +148,98 @@ int main() {
     wdc_cheat_team_available(rdram, nullptr);
     wdc_cheat_track_available(rdram, nullptr);
 
+    for (const auto& entry : wdc::cheats::catalog) wdc::cheats::set_enabled(entry.cheat, false);
+
+    // Distinct name-password venue ranges, including Black Forest's four
+    // layouts. These overrides must not affect any other venue or save read.
+    constexpr Cheat venues[] = {Cheat::Hawaii, Cheat::LesGets, Cheat::LasVegas,
+        Cheat::NewZealand, Cheat::Lisbon, Cheat::Rome, Cheat::Sydney,
+        Cheat::Zurich, Cheat::Kyoto, Cheat::BlackForest};
+    for (int venue = 0; venue < 10; ++venue) {
+        wdc::cheats::set_enabled(venues[venue], true);
+        for (int id = -1; id <= 58; ++id) {
+            MEM_W(0, track) = id;
+            const bool available = id >= 0 && id < 58 && id / 6 == venue;
+            assert(result(wdc_cheat_track_available, rdram, track, 0, track_menu[0]) == available);
+            assert(result(wdc_cheat_track_available, rdram, track, 0, 0x800648D8) == 0);
+        }
+        wdc::cheats::set_enabled(venues[venue], false);
+    }
+
+    for (Cheat special : {Cheat::Challenger, Cheat::Interceptor}) {
+        wdc::cheats::set_enabled(special, true);
+        for (int model = 0; model <= 35; ++model) {
+            MEM_W(8, car) = model;
+            const bool available = model == (special == Cheat::Challenger ? 16 : 34);
+            assert(result(wdc_cheat_car_available, rdram, car, 0, car_menu[0]) == available);
+            assert(result(wdc_cheat_car_seen, rdram, car, 0, car_seen_menu[0]) == available);
+        }
+        wdc::cheats::set_enabled(special, false);
+    }
+    wdc::cheats::set_enabled(Cheat::Interceptor, true);
+    MEM_W(0, team) = 12;
+    assert(result(wdc_cheat_team_available, rdram, team, 0, team_menu[0]) == 1);
+    assert(result(wdc_cheat_team_class, rdram, team, 0, 0x8005AE80) == 3);
+    assert(result(wdc_cheat_team_class, rdram, team, 2, 0x800681FC) == 2);
+    wdc::cheats::set_enabled(Cheat::Interceptor, false);
+
+    constexpr int32_t event = int32_t(0x80097F88);
+    for (Cheat category : {Cheat::Gt1Events, Cheat::Gt2Events}) {
+        wdc::cheats::set_enabled(category, true);
+        for (int id = -1; id <= 20; ++id) {
+            MEM_W(0x50, event) = id;
+            const bool available = category == Cheat::Gt2Events ? id >= 0 && id < 10 : id >= 10 && id < 20;
+            assert(result(wdc_cheat_event_available, rdram, event, 0, 0x8005B298) == available);
+            assert(result(wdc_cheat_event_available, rdram, event, 0, 0) == 0);
+        }
+        wdc::cheats::set_enabled(category, false);
+    }
+
+    // Register-only effects preserve native cheats and negative strcmp
+    // results when off, and return the original immediately after disabling.
+    struct Effect { Cheat cheat; uint64_t (*read)(uint64_t); uint64_t on; };
+    const Effect effects[] = {
+        {Cheat::PinkCars, wdc_cheat_pink, 1}, {Cheat::BlackCars, wdc_cheat_black, 1},
+        {Cheat::SmallCars, wdc_cheat_small, 1}, {Cheat::InvisibleCars, wdc_cheat_visible, 0},
+        {Cheat::RedSkidmarks, wdc_cheat_red_skids, 1}, {Cheat::RetroGraphics, wdc_cheat_retro, 0},
+        {Cheat::ClearScene, wdc_cheat_clear_scene, 1}, {Cheat::MirrorChampionship, wdc_cheat_mirror, 1},
+        {Cheat::RaceSelect, wdc_cheat_race_select, 1}, {Cheat::EvilRob, wdc_cheat_evilrob, 0},
+    };
+    const auto snapshot = memory;
+    for (const auto& effect : effects) {
+        for (uint64_t original : {uint64_t(0), uint64_t(1), ~uint64_t(0)}) {
+            assert(effect.read(original) == original);
+            wdc::cheats::set_enabled(effect.cheat, true);
+            assert(effect.read(original) == effect.on);
+            wdc::cheats::set_enabled(effect.cheat, false);
+            assert(effect.read(original) == original);
+        }
+    }
+    wdc::cheats::set_enabled(Cheat::SuperBlur, true);
+    assert(wdc_cheat_blur(0) == 0xA0);
+    assert(wdc_cheat_blur(0xC0) == 0xC0);
+    wdc::cheats::set_enabled(Cheat::SuperBlur, false);
+    assert(wdc_cheat_blur(0) == 0);
+
+    wdc::cheats::set_enabled(Cheat::Ending, true);
+    assert(result(wdc_cheat_ending, rdram, 0, 0, 0) == 0);
+    assert(wdc::cheats::enabled(Cheat::Ending));
+    assert(result(wdc_cheat_ending, rdram, 0, 0, 0x800592D4) == 1);
+    assert(result(wdc_cheat_ending, rdram, 0, 0, 0x800592D4) == 0);
+    assert(!wdc::cheats::enabled(Cheat::Ending));
+    assert(memory == snapshot);
+
+    constexpr int32_t career = int32_t(0x80097D00);
+    MEM_W(0x1060, career) = 2;
+    wdc::cheats::set_enabled(Cheat::InfiniteRestarts, true);
+    assert(result(wdc_cheat_restart_count, rdram, career, 2, 0x80045AD4) == 9);
+    assert(result(wdc_cheat_restart_count, rdram, career, 2, 0x80064B24) == 2);
+    recomp_context ctx{};
+    ctx.r4 = career; ctx.r5 = 8; ctx.r31 = int32_t(0x80045AFC);
+    wdc_cheat_restart_spend(rdram, &ctx);
+    assert(ctx.r5 == 2 && MEM_W(0x1060, career) == 2);
+    ctx.r4 = 0; ctx.r5 = 8;
+    wdc_cheat_restart_spend(rdram, &ctx);
+    assert(ctx.r5 == 8);
     for (const auto& entry : wdc::cheats::catalog) wdc::cheats::set_enabled(entry.cheat, false);
 }
