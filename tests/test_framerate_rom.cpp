@@ -13,6 +13,7 @@ namespace {
 bool pending = false, swapped = false, delay_landing = false;
 unsigned ticks = 0, sends = 0;
 uint32_t current_buffer = 0, next_buffer = 0;
+uint8_t* guest_rdram = nullptr;
 void start_worker(recomp_context&);
 recomp_context context() {
     recomp_context ctx{};
@@ -95,19 +96,21 @@ NOOP(func_80013B78) NOOP(func_8001A000) NOOP(func_80013998)
 #undef NOOP
 }
 namespace {
-void start_worker(recomp_context& ctx) { wdc_framerate_start(nullptr, &ctx); }
+void start_worker(recomp_context& ctx) { wdc_framerate_start(guest_rdram, &ctx); }
 }
 
 int main(int argc, char** argv) {
     assert(argc == 2);
     std::vector<uint8_t> storage(8 * 1024 * 1024);
     auto* rdram = storage.data();
+    guest_rdram = rdram;
     std::ifstream rom(argv[1], std::ios::binary);
     rom.seekg(0x1000);
     std::vector<char> data(0x100000);
     rom.read(data.data(), data.size());
     assert(rom);
     for (size_t i = 0; i < data.size(); ++i) MEM_B(i, int32_t(0x80000400)) = data[i];
+    MEM_W(0, int32_t(0x800923E4)) = 8; // Playable practice scene.
 
     for (bool native : {false, true}) for (bool menu : {false, true})
     for (bool queued_vi : {false, true}) for (bool delayed : {false, true}) {

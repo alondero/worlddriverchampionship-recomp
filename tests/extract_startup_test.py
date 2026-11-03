@@ -4,7 +4,11 @@ import sys
 from pathlib import Path
 
 source, destination = map(Path, sys.argv[1:3])
-roots = {"func_8002CB0C", "func_8002C494", "func_800036CC"}
+roots = {"func_8002CB0C", "func_8002C494", "func_800036CC",
+         "func_80003ABC", "func_80003A68", "func_80003A5C", "func_80003AA4",
+         "func_80004070", "func_80003BB0", "func_80003BA0", "func_80003B70",
+         "func_80003B5C", "func_80003FDC", "func_80003E74", "func_80003CD4",
+         "func_80003894", "func_800031BC"}
 natives = {"osCreateMesgQueue_recomp", "osSendMesg_recomp", "func_8004D79C",
            "osCreateThread_recomp", "osStartThread_recomp", "wdc_framerate_start"}
 functions = {}

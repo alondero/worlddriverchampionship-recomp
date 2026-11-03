@@ -122,6 +122,11 @@ its stock coefficient at other callers. Integrators run all 16 components
 against a controlled decaying force at both sample rates; vehicle forces and
 track collisions are outside that fixture. `wdc_startup_rom` also checks the
 actual generated startup hook, divider and tick pair before worker preemption.
+It also runs the real replay initializer and both players' RLE decoders on a
+synthetic stream for 60 VIs. Intro/demo scenes `0x11..0x13` must consume exactly
+30 recorded inputs, with identical steering and elapsed time whether Native
+60 fps is on or off. It checks that all rate corrections remain stock there,
+and that the following menu and practice race honor the saved 60 fps choice.
 The graphics/frontend checks cover opt-in defaults, persistence, Apply/Discard
 and restoring defaults. These tests do not establish racing frame rate,
 fixed-input lap equivalence or replay compatibility; see the

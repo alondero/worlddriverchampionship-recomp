@@ -232,6 +232,17 @@ The race divider becomes 0 before the ROM computes its fixed tick pair and
 starts the worker. Apply during a race waits until the next worker startup;
 it cannot change just the wait or just the timestep of queued samples.
 
+Authored intro/demo scenes `0x11..0x13` retain stock 30 Hz sampling, the
+pre-swap wait and all stock sample-counted behavior, even with the option on.
+The game-thread hook reads the current scene enum at `0x800923E4` before
+worker startup. Race setup groups these modes at `0x80036D44..0x80036D78`
+and loads scene `0x11`'s original recording at `0x80036ED0..0x80036EE4`.
+Those inputs were authored at 30 Hz; reading twice as many per second changes
+the cars' route even though elapsed game time remains correct. The selected
+preference is preserved for the following menu or playable race.
+With Native 60 fps enabled, a live Windows debugger check before worker
+startup confirmed scene `0x11`, divider 1 and 1,562,500 ticks (1/30 second).
+
 Before `0x8000159C`, the hook posts message 0 nonblocking to the one-slot VI
 queue `0x800AAA28`. A full queue is left intact. The original receive consumes
 that message before `osViSwapBuffer`; the post-swap wait and framebuffer check
@@ -261,15 +272,18 @@ The frame-count audit currently establishes these boundaries:
 | Camera direction smoothing | `80012354` calls the 2D blend `8001A4C4` at `800124E8` with coefficient 0.25 | Use `1-sqrt(0.75)` at that caller only, retaining the original exponential decay |
 | Track animations/effects | `8000BF40`, `8000BFC8`, `8000C050` receive the sum of consumed sample seconds | Original elapsed-time arguments |
 | Sample counter/HUD flash | `8000C6DC` increments `8007E530`; `8002E230..8002E254` uses its age for a delay and flashing mask | Halve the unsigned age in this reader, preserving stock hold and flash cadence |
-| Replay/ghost input | `80003DA4` and `80003E74` advance stream `+0x70` once per consumed sample | Rate compatibility and playback still require validation |
+| Replay/ghost input | `80003DA4` and `80003E74` advance stream `+0x70` once per consumed sample | Original intro/demo scenes stay at stock 30 Hz; player replay/ghost compatibility still requires validation |
 
 Replay compatibility is a known implementation gap, not just a missing visual
-check. `func_80003C38` records action/steering bytes without timestep metadata;
+check for player recordings. `func_80003C38` records action/steering bytes
+without timestep metadata;
 `func_80003CD4` reads them once per sample. A stock recording sampled at 60 Hz
 consumes its inputs twice as quickly; a 60 Hz recording played at 30 Hz has the
 reverse mismatch. A rate flag for just the most recent race would not cover
 loaded recordings or the separate ghost stream at `0x8007E028`. The setting
-remains experimental and the issue must stay open pending a compatible policy.
+remains experimental and the issue must stay open pending a compatible policy
+for those streams. The fixed 30 Hz exception for original intro/demo scenes
+does not reinterpret player recordings.
 
 A Windows D3D12/RTX 3080 run of Hawaii practice reached the scene with the
 option on, but **did not pass acceptance**. At automatic resolution in a
