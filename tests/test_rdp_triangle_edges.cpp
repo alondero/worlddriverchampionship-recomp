@@ -33,6 +33,10 @@ std::array<uint32_t, 8> encode(std::array<Point, 3> v, int slopeBits) {
 
 bool covers(const EdgeTriangles& t, double x, double y) {
     for (uint32_t s = 0; s < t.vertexCount; s += 3) {
+        const auto& a = t.vertices[s];
+        const auto& b = t.vertices[s + 1];
+        const auto& c = t.vertices[s + 2];
+        if ((double(b.x) - a.x) * (c.y - a.y) == (double(b.y) - a.y) * (c.x - a.x)) continue;
         bool positive = false, negative = false;
         for (unsigned e = 0; e < 3; e++) {
             const auto& a = t.vertices[s + e]; const auto& b = t.vertices[s + (e + 1) % 3];
@@ -74,7 +78,82 @@ EdgeTriangles reconstruct(const std::array<Point, 3>& v, int slopeBits) {
     return triangulateEdges(decodeTriangleEdges(encode(v, slopeBits)));
 }
 
+// RasterVS adds half an output pixel. D3D then rounds vertex coordinates to
+// its 8-bit subpixel grid before testing coverage. Keep output pixel units so
+// the sample positions themselves never need a lossy inverse transform.
+EdgeTriangles snapVertices(EdgeTriangles t, double scale) {
+    for (uint32_t i = 0; i < t.vertexCount; i++) {
+        auto& p = t.vertices[i];
+        p.x = float(std::round((p.x * scale + 0.5) * 256) / 256);
+        p.y = float(std::round((p.y * scale + 0.5) * 256) / 256);
+    }
+    return t;
+}
+
 int main() {
+    // Exactly coincident H/L coefficients, but splitting H at YM=87 moves
+    // its new vertex off the neighbour's unsplit L after GPU snapping.
+    // Before the fix, standard 4x MSAA sample (43.625,108.875), with a .75px
+    // X shift, is uncovered
+    // even at native resolution. Moving the geometry changes which frames
+    // expose the crack. Also exercise the opposite major-edge orientation.
+    for (bool mirror : {false, true}) {
+        for (int shift = 0; shift < 8; shift++) {
+            auto point = [&](double x, double y) -> Point {
+                return {mirror ? 300 - x - shift * .25 : x + shift * .25, y};
+            };
+            auto a = decodeTriangleEdges(encode({point(10, 10), point(82.5, 230), point(2, 87)}, 10));
+            auto b = decodeTriangleEdges(encode({point(100, 2), point(10, 10), point(82.5, 230)}, 10));
+            // Keep both outer edges on their valid sides through YL so this
+            // isolates the split at YM from the inverted-span cut fallback.
+            a.dxldy += mirror ? 10.0 / 1024 : -10.0 / 1024;
+            b.dxhdy += mirror ? -10.0 / 1024 : 10.0 / 1024;
+            require(a.dxhdy == b.dxldy, "Snapping fixture edges have different slopes");
+            const std::array<Point, 7> samples{{{.5,.5}, {.25,.25}, {.75,.75},
+                {.375,.125}, {.875,.375}, {.125,.625}, {.625,.875}}};
+            for (double scale : {1.0, 2.0, 4.8, 8.0}) {
+                const auto left = snapVertices(triangulateEdges(a), scale);
+                const auto right = snapVertices(triangulateEdges(b), scale);
+                for (int row = int(12 * scale); row < int(228 * scale); row++) {
+                    const int edgeColumn = int(std::floor(a.majorX(row / scale) * scale + .5));
+                    for (int column = edgeColumn - 1; column <= edgeColumn + 1; column++) {
+                        for (const auto& sample : samples) {
+                            const double x = column + sample[0], y = row + sample[1];
+                            // Stay close to the shared edge, clear of the
+                            // quad's outer boundary near its narrow bottom.
+                            if (std::abs(x - (a.majorX((y - .5) / scale) * scale + .5)) > .01) continue;
+                            require(covers(left, x, y) || covers(right, x, y),
+                                    "GPU vertex snapping opened a shared-edge crack");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A discontinuity at YM makes a concave polygon. Both directions of the
+    // jog, and both major-edge orientations, must preserve the walked spans.
+    for (bool leftMajor : {false, true}) {
+        for (bool outward : {false, true}) {
+            const double side = leftMajor ? 1 : -1;
+            const TriangleEdges jog{.leftMajor = leftMajor, .yh = 0, .ym = 4, .yl = 8,
+                .xh = 16, .xm = 16 + side * 6, .xl = 17 + side * (outward ? 8 : 2),
+                .dxhdy = .25, .dxmdy = .25, .dxldy = .25};
+            const auto polygon = triangulateEdges(jog);
+            require(polygon.vertexCount <= MaxEdgeVertices, "Edge polygon exceeded vertex storage");
+            for (int iy = -4; iy < 36; iy++) {
+                const double y = (iy + .5) / 4;
+                for (int ix = 24; ix < 112; ix++) {
+                    const double x = (ix + .5) / 4;
+                    const double width = side * ((y < jog.ym ? jog.middleX(y) : jog.lowX(y)) - jog.majorX(y));
+                    const double offset = side * (x - jog.majorX(y));
+                    const bool expected = y >= jog.yh && y < jog.yl && offset >= 0 && offset <= width;
+                    require(covers(polygon, x, y) == expected, "Minor-edge jog changed walked coverage");
+                }
+            }
+        }
+    }
+
     // Synthetic quad, no captured ROM commands. The diagonal (10,10)-(200,230)
     // is the H edge of the left triangle and the L edge of the right one. With
     // a 10-bit slope each H extrapolation misses the shared vertex by up to

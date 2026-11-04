@@ -124,8 +124,11 @@ Patch 0016 has a ROM-free coverage reproducer in
 [raw RDP decoder](https://github.com/rt64/rt64/blob/main/src/gbi/rt64_gbi_rdp.cpp)
 builds each triangle from three corners extrapolated along H, ignoring the M
 and L slopes, so neighbours rebuild a shared edge as two different lines. The
-patch adds `rt64_rdp_triangle_edges.h` to emit the trapezoids the RDP edge
-walker fills. Each output triangle is clipped by patch 0014, so 0016 applies
+patch adds `rt64_rdp_triangle_edges.h` to emit the area the RDP edge
+walker fills. Valid spans share one unbroken H boundary: splitting it at YM
+introduced a T-junction that GPU vertex rounding could turn into a crack.
+The regression models that rounding and fails with the earlier trapezoids.
+Inverted spans retain separate cuts. Each output triangle is clipped by patch 0014, so 0016 applies
 after it. The mechanism, measurements and limits are in the
 [renderer reference](../docs/reference/renderer.md#raw-triangle-edge-reconstruction).
 
