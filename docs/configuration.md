@@ -1,5 +1,55 @@
 # Configuration
 
+## Developer race warps
+
+Launch directly into any of the 58 course layouts with any of the 35 vehicles,
+including locked content:
+
+```powershell
+./play.ps1 -Warp '1:0'                 # Hawaii A, model 0, Practice Laps
+./play.ps1 -Warp '58:34:arcade:3'       # Last course, Interceptor, 3-lap Arcade Race
+./play.ps1 -Warp '47:16:time-attack'    # Zurich BR, Challenger, Time Attack without ghost
+```
+
+The cross-platform equivalent is environment variable
+`WDC_WARP=track[:car[:mode[:laps]]]`. Track IDs are **1..58** (ROM course id + 1),
+vehicle IDs **0..34**. Omitted fields select model 0, `practice`, and the native
+lap count. Modes are `practice`, `time-attack`, and `arcade`; only Arcade accepts
+an explicit lap count, 2..5, or 0 for the course default. Practice is unlimited.
+Invalid values stop startup with a diagnostic instead of silently changing the
+requested test. Remove the variable to restore ordinary startup.
+
+Print the full ID/name catalog from your local ROM:
+
+```text
+python -B tools/rom/warp_catalog.py
+python -B tools/rom/warp_catalog.py --json
+```
+
+**Ctrl+Shift+R** reloads the last requested setup. **Ctrl+Shift+1..9,0** starts
+practice with model 0 on the first layout of Hawaii, Les Gets, Las Vegas,
+New Zealand, Lisbon, Rome, Sydney, Zurich, Kyoto, or Black Forest respectively.
+These developer shortcuts also work during a race. A request waits through
+boot/loading and active transitions; the newest pending request wins.
+Startup requests skip boot dialogs and the logo delay while retaining the
+original Controller Pak scan and menu initialization.
+For a scripted mid-race transition, also set
+`WDC_WARP_AT=vi:track[:car[:mode[:laps]]]` (VI 1..2147483647).
+For example, `WDC_WARP=1:0` with `WDC_WARP_AT=300:58:34:arcade:3` starts in
+Hawaii practice, then queues the Interceptor race at host VI 300. The VI
+callback only publishes a request; the game thread performs the transition.
+
+Warps use automatic transmission, no mirror and no ghost, and follow the
+original scene cleanup and race loader. They temporarily borrow and restore
+the career's setup selectors; they do not unlock content or write a save.
+Ordinary race results can still grant the original Quick Race rewards, and
+explicit saving afterward can preserve those rewards. Warp selection is
+session-only and does not enter settings files.
+
+The bridge and its ROM addresses are documented in
+[`src/game_warp.cpp`](../src/game_warp.cpp). Native setup comparisons cover all
+course/model/mode combinations; see [testing](testing.md).
+
 Graphics settings are stored in `build/user-data/graphics.json`. The SDL main
 thread loads and saves settings; the graphics thread takes a mutex-protected
 copy at display-list/VI boundaries. SDL window operations stay on the main
