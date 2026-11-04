@@ -13,6 +13,7 @@
 #include "xxHash/xxh3.h"
 #include "boss_rsp.h"
 #include "controller_pak.h"
+#include "game_warp.h"
 #ifdef WDC_PLAYER
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -74,6 +75,7 @@ public:
 };
 
 int main(int argc, char** argv) {
+    if (!wdc::warp::configure_from_environment()) return 1;
 #ifdef WDC_PLAYER
     SDL_SetMainReady();
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
@@ -166,6 +168,16 @@ int main(int argc, char** argv) {
         bool captured = wdc::ui::captures_input();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_KEYDOWN && !event.key.repeat &&
+                (event.key.keysym.mod & KMOD_CTRL) && (event.key.keysym.mod & KMOD_SHIFT)) {
+                const auto key = event.key.keysym.sym;
+                if (key == SDLK_r) { wdc::warp::repeat(); continue; }
+                if (key >= SDLK_0 && key <= SDLK_9) {
+                    const int venue = key == SDLK_0 ? 9 : int(key - SDLK_1);
+                    wdc::warp::request({venue * 6 + 1});
+                    continue;
+                }
+            }
             // These shortcuts stay owned by WDC, rather than the framework's
             // separate graphics schema. SDL window changes happen here only.
             if (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_F11 ||
@@ -216,7 +228,7 @@ int main(int argc, char** argv) {
 #endif
     };
 #endif
-    cfg.events_callbacks.vi_callback = [] { ++vis; };
+    cfg.events_callbacks.vi_callback = [] { wdc::warp::vi_tick(++vis); };
     cfg.error_handling_callbacks.message_box = [](const char* message) { std::fprintf(stderr, "[wdc] %s\n", message); };
     cfg.input_callbacks.poll_input = [] {};
     cfg.input_callbacks.get_input = [](int port, uint16_t* buttons, float* x, float* y) {

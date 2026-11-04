@@ -26,7 +26,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same nineteen C++ host-test targets used by the player build,
+This mode builds the same twenty C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
 headers from pinned public dependencies and five of the normal dependency
 patches. From a fresh checkout:
@@ -69,6 +69,17 @@ ctest --test-dir build --output-on-failure
 `wdc_startup_rom` checks that the translated input-worker startup initializes
 every controller snapshot before making the worker runnable, including on
 restart. See [startup ordering](reference/runtime.md#input-worker-startup-ordering).
+
+`wdc_warp` checks strict request parsing, invalid-input preservation and guards
+against boot/transition writes. `wdc_warp_rom` compares all 6,090 combinations
+of 58 layouts, 35 models and three Quick Race modes against the translated
+native constructor. It also checks native fade requests, lap-dependent arcade
+AI profiles, byte-exact career restoration, register preservation, retry cache,
+one-shot application and queued repeats. Only guest debug printing is stubbed;
+scene cleanup and rendering are outside this fixture. The extractor requires
+all production hooks. A separate execution of the translated boot control flow
+stubs presentation/input/SDK boundaries and asserts that pending warps retain
+the Pak scan and skip interactive dialogs. These are setup checks, not completed races.
 
 With the frontend enabled, `wdc_input` exercises SDL virtual-gamepad hotplug,
 native profile evaluation/remapping/persistence, analog axes and overlay input

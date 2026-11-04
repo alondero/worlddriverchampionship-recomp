@@ -111,6 +111,42 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x80078940 = "wdc_pak_read"
 0x80079700 = "wdc_pak_write"
 
+# Developer warp boundaries; guest-memory contracts live in src/game_warp.cpp.
+[[hooks]]
+func = "func_8003BC50"
+before_vram = 0x8003C1EC
+text = "{ extern int wdc_warp_boot_pending(void); if (wdc_warp_boot_pending()) goto L_8003C270; }"
+
+[[hooks]]
+func = "func_8003BC50"
+before_vram = 0x8003C2DC
+text = "{ extern int wdc_warp_boot_pending(void); if (wdc_warp_boot_pending()) goto L_8003C52C; }"
+
+[[hooks]]
+func = "func_8003BC50"
+before_vram = 0x8003C610
+text = "{ extern int wdc_warp_boot_pending(void); if (wdc_warp_boot_pending()) ctx->r1 = 0; }"
+
+[[hooks]]
+func = "func_8004E950"
+before_vram = 0x8004EAB8
+text = "{ extern void wdc_warp_menu(uint8_t*, recomp_context*); wdc_warp_menu(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8000C560"
+before_vram = 0x8000C560
+text = "{ extern void wdc_warp_race(uint8_t*, recomp_context*); wdc_warp_race(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800369E0"
+before_vram = 0x800369E0
+text = "{ extern void wdc_warp_load(uint8_t*, recomp_context*); wdc_warp_load(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80068AA8"
+before_vram = 0x80068B88
+text = "{ extern void wdc_warp_laps(uint8_t*, recomp_context*); wdc_warp_laps(rdram, ctx); }"
+
 # Keep WDC's original effect timers; renew a held motor only on its active path.
 [[hooks]]
 func = "func_8004D450"

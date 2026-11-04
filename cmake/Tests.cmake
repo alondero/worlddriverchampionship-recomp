@@ -1,4 +1,7 @@
 if(BUILD_TESTING)
+    add_executable(wdc_warp_tests tests/test_warp.cpp src/game_warp.cpp)
+    target_include_directories(wdc_warp_tests PRIVATE src "${N64MR}/N64Recomp/include")
+    add_test(NAME wdc_warp COMMAND wdc_warp_tests)
     add_executable(wdc_rumble_tests tests/test_rumble.cpp src/rumble.cpp)
     target_include_directories(wdc_rumble_tests PRIVATE src "${N64MR}/N64Recomp/include")
     target_link_libraries(wdc_rumble_tests PRIVATE Threads::Threads)
@@ -99,6 +102,18 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         if(NOT WDC_TESTS_ONLY AND TARGET WdcRecompiledFuncs AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/warp_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_warp_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/warp_test_funcs.c"
+                DEPENDS tests/extract_warp_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_warp_rom_tests tests/test_warp_rom.cpp src/game_warp.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/warp_test_funcs.c")
+            target_include_directories(wdc_warp_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_warp_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_warp_rom COMMAND wdc_warp_rom_tests
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_warp_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_cheats_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c"
