@@ -3,7 +3,7 @@
 #include <string>
 
 namespace wdc::graphics {
-// Host-owned values. Aspect also controls the game camera; VI/timing stay native.
+// Host-owned values. Presentation rate is independent of native game sampling.
 struct Settings {
     int resolution = 0; // 0: automatic window integer scale; 1..8: native multiplier
     int aspect = 1; // 0: Original 4:3; 1: wider camera matching the window
@@ -16,6 +16,7 @@ struct Settings {
     bool full_car_detail = false;
     bool full_track_detail = false;
     int draw_distance = 1; // 1..4: far plane and bounded track-section range
+    bool native_60fps = false; // Latches at the next input-worker startup.
     bool operator==(const Settings&) const = default;
 };
 Settings normalize(Settings settings);

@@ -48,6 +48,25 @@ not a physical-output listening comparison. These checks distinguish
 synthesis corruption from host starvation;
 long scheduling stalls can still exhaust the playback reserve described below.
 
+The ROM's SFX voice update has a separate one-shot lifetime bug exposed by
+native 60 fps. `func_80043A30` stops non-looping voices whose source position
+has reached their length, then merges pending pitch changes. With one synthesis
+block per game frame, a pitch change can repeatedly undo that stop. Hawaii's
+passing-car sample 80 was observed with position 8,255 beyond its 8,240-frame
+length and a nonzero pitch. Multiple blocks per frame often hide this because
+the next block stops the voice without another pending update.
+
+`src/game_audio.cpp` guards the pending-pitch store at `80043B5C` for SFX
+channels 6..9. An exhausted non-looping voice keeps pitch zero; volume updates,
+looping engines, music channels and the full-state transfer for a new sound
+retain their ROM behavior. `wdc_audio_voice_rom` executes the translated
+stop/merge stage and finished query, including repeated pending updates,
+the exact endpoint, the last valid frame, looping and slot reuse. Synthesis
+is outside that fixture. In a separate two-minute replay of captured Hawaii
+effect parameters through the real audio generator and BOSS, the change
+reduced isolated impulses from 113 to 3; those same 3 were present with the
+affected effects muted. This is signal evidence, not a listening test.
+
 `src/audio.cpp` reverses the halfwords in each word-swapped signed stereo pair,
 queues host-owned buffers under a mutex, and opens/feeds SDL only on the main
 thread. Playback starts paused and waits for 100 ms of actual PCM or three

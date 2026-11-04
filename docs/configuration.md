@@ -92,7 +92,20 @@ Navigate with the mouse, arrows or Tab and Enter. Escape/F1 closes the overlay;
 the header also has close and quit buttons. Pause a race with Enter before
 opening settings: the game continues running while the overlay is open, but
 menu input is blocked from the game. Held gameplay buttons, stick and enabled pedals must be released before
-input resumes. Color precision requires a restart; the other changes apply live.
+input resumes. Color precision requires a restart; most other changes apply live.
+
+**Native 60 fps (experimental)** in Enhancements is off by default. Apply saves
+the preference; it takes effect when the game next starts its input worker
+(starting a race or returning to the menus). It raises racing's sampling and
+rendering to 60 Hz together. Changing it during a race leaves that race's rate
+intact. The original intro and attract-mode demos keep their authored 30 fps
+timing, even with this option enabled. Presentation rate remains a separate
+setting and does not enable this option. See
+[rendering and frame rate](rendering.md#native-60-fps-option) for
+the audit, measurements and remaining validation.
+Replay/ghost streams do not store their sampling rate; recordings are not
+compatible across the two rates. Keep this option off for normal play until
+the experimental acceptance work is complete.
 
 The window title shows requested settings. Graphics options are reached through
 the RT64 frontend overlay, which is the port's only menu and opens in both

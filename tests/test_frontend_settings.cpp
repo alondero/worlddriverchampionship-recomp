@@ -167,22 +167,26 @@ int main() {
         enhancements.load_config();
         require(enhancements.external_storage && enhancements.requires_confirmation,
             "enhancements must use host storage and Apply/Discard");
+        require(!std::get<bool>(enhancements.get_option_value("native_60fps")), "native 60 fps must default off");
+        enhancements.update_option_value("native_60fps", true);
         enhancements.update_option_value("full_car_detail", true);
         enhancements.update_option_value("full_track_detail", true);
         enhancements.update_option_value("draw_distance", uint32_t(4));
         wdc::ui::refresh_settings();
-        require(!requested && !wdc::graphics::snapshot().full_car_detail,
+        require(!requested && !wdc::graphics::snapshot().full_car_detail && !wdc::graphics::snapshot().native_60fps,
             "staged enhancement reached game");
         enhancements.revert_temp_config();
         require(!requested && !enhancements.is_dirty(), "Discard published enhancements");
         enhancements.update_option_value("full_car_detail", true);
         enhancements.update_option_value("full_track_detail", true);
         enhancements.update_option_value("draw_distance", uint32_t(4));
+        enhancements.update_option_value("native_60fps", true);
         require(enhancements.save_config() && requested, "enhancement Apply failed");
         auto enhanced = wdc::graphics::snapshot();
         enhanced.full_car_detail = true;
         enhanced.full_track_detail = true;
         enhanced.draw_distance = 4;
+        enhanced.native_60fps = true;
         require(*requested == enhanced, "enhancement Apply overwrote graphics");
         require(wdc::graphics::apply(*requested), "enhancement publish failed");
         requested.reset();
@@ -191,7 +195,7 @@ int main() {
         page.load_config();
         page.update_option_value("resolution", uint32_t(6));
         require(page.save_config() && requested && requested->full_car_detail &&
-            requested->full_track_detail && requested->draw_distance == 4,
+            requested->full_track_detail && requested->draw_distance == 4 && requested->native_60fps,
             "graphics Apply reset enhancements");
         requested.reset();
         enhancements.load_config();
@@ -200,12 +204,13 @@ int main() {
             "enhancement defaults were not staged");
         require(std::get<uint32_t>(enhancements.get_temp_option_value("draw_distance")) == 1 &&
             !std::get<bool>(enhancements.get_temp_option_value("full_car_detail")) &&
-            !std::get<bool>(enhancements.get_temp_option_value("full_track_detail")), "wrong enhancement defaults");
+            !std::get<bool>(enhancements.get_temp_option_value("full_track_detail")) &&
+            !std::get<bool>(enhancements.get_temp_option_value("native_60fps")), "wrong enhancement defaults");
         enhancements.revert_temp_config();
         require(!enhancements.is_dirty() && wdc::graphics::snapshot() == enhanced, "discard defaults changed game");
         wdc::ui::stage_defaults(1);
         require(enhancements.save_config() && requested && !requested->full_car_detail &&
-            !requested->full_track_detail && requested->draw_distance == 1 && requested->resolution == enhanced.resolution,
+            !requested->full_track_detail && !requested->native_60fps && requested->draw_distance == 1 && requested->resolution == enhanced.resolution,
             "defaults Apply lost graphics or retained enhancements");
         // An invalid host file must not be replaced just by loading the UI.
         { std::ofstream out(path); out << "{"; }

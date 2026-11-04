@@ -4,9 +4,13 @@ import sys
 from pathlib import Path
 
 source, destination = map(Path, sys.argv[1:3])
-roots = {"func_8002CB0C", "func_8002C494", "func_800036CC"}
+roots = {"func_8002CB0C", "func_8002C494", "func_800036CC",
+         "func_80003ABC", "func_80003A68", "func_80003A5C", "func_80003AA4",
+         "func_80004070", "func_80003BB0", "func_80003BA0", "func_80003B70",
+         "func_80003B5C", "func_80003FDC", "func_80003E74", "func_80003CD4",
+         "func_80003894", "func_800031BC"}
 natives = {"osCreateMesgQueue_recomp", "osSendMesg_recomp", "func_8004D79C",
-           "osCreateThread_recomp", "osStartThread_recomp"}
+           "osCreateThread_recomp", "osStartThread_recomp", "wdc_framerate_start"}
 functions = {}
 for path in sorted(source.glob("*.c")):
     for match in re.finditer(r"RECOMP_FUNC void (\w+)\(.*?(?=RECOMP_FUNC void |\Z)",
@@ -15,6 +19,8 @@ for path in sorted(source.glob("*.c")):
             functions[match[1]] = match[0]
 if roots - functions.keys():
     raise SystemExit(f"Missing translated bodies: {roots - functions.keys()}")
+if "wdc_framerate_start(rdram, ctx)" not in functions["func_8002CB0C"]:
+    raise SystemExit("Missing native frame-rate startup hook; regenerate CPU code")
 calls = set()
 for body in functions.values():
     if "LOOKUP_FUNC" in body:

@@ -91,7 +91,7 @@ if(BUILD_TESTING)
         "${N64MR}/N64Recomp/include" "${N64MR}/ultramodern/include")
     target_link_libraries(wdc_controller_pak_tests PRIVATE Threads::Threads)
     add_test(NAME wdc_controller_pak COMMAND wdc_controller_pak_tests)
-    add_executable(wdc_graphics_config_tests tests/test_graphics_config.cpp src/graphics_config.cpp src/game_visibility.cpp)
+    add_executable(wdc_graphics_config_tests tests/test_graphics_config.cpp src/graphics_config.cpp src/game_visibility.cpp src/game_framerate.cpp)
     target_include_directories(wdc_graphics_config_tests PRIVATE src "${N64MR}/thirdparty" "${N64MR}/N64Recomp/include")
     target_compile_definitions(wdc_graphics_config_tests PRIVATE NOMINMAX)
     target_link_libraries(wdc_graphics_config_tests PRIVATE Threads::Threads)
@@ -114,6 +114,29 @@ if(BUILD_TESTING)
             add_test(NAME wdc_warp_rom COMMAND wdc_warp_rom_tests
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
             set_tests_properties(wdc_warp_rom PROPERTIES TIMEOUT 30)
+
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/audio_voice_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_audio_voice_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/audio_voice_test_funcs.c"
+                DEPENDS tests/extract_audio_voice_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_audio_voice_rom_tests tests/test_audio_voice_rom.cpp src/game_audio.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/audio_voice_test_funcs.c")
+            target_include_directories(wdc_audio_voice_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_audio_voice_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_audio_voice_rom COMMAND wdc_audio_voice_rom_tests)
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_framerate_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c"
+                DEPENDS tests/extract_framerate_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_framerate_rom_tests tests/test_framerate_rom.cpp src/game_framerate.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c")
+            target_include_directories(wdc_framerate_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_framerate_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_framerate_rom COMMAND wdc_framerate_rom_tests
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_framerate_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_cheats_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c"
@@ -227,8 +250,9 @@ if(BUILD_TESTING)
                 DEPENDS tests/extract_startup_test.py ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
             add_executable(wdc_startup_rom_tests tests/test_startup_rom.cpp
+                src/game_framerate.cpp
                 "${CMAKE_CURRENT_BINARY_DIR}/startup_test_funcs.c")
-            target_include_directories(wdc_startup_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
+            target_include_directories(wdc_startup_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_startup_rom_tests PRIVATE -fno-strict-aliasing)
             add_test(NAME wdc_startup_rom COMMAND wdc_startup_rom_tests)
             set_tests_properties(wdc_startup_rom PROPERTIES TIMEOUT 30)

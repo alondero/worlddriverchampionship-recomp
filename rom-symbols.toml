@@ -5,6 +5,7 @@
 link_register_targets = [
     0x800565E0, 0x800565EC, 0x80056974, 0x80057000, 0x80057420,
     0x80056B90, 0x8006663C, 0x80066648, 0x8006969C, 0x800696A8,
+    0x8001A4C4, # Frame-rate correction of the scoped camera smoothing call.
 ]
 
 [symbols]
@@ -147,6 +148,37 @@ func = "func_80068AA8"
 before_vram = 0x80068B88
 text = "{ extern void wdc_warp_laps(uint8_t*, recomp_context*); wdc_warp_laps(rdram, ctx); }"
 
+# Native 60 fps: latch sampling and swap policy together at worker startup.
+[[hooks]]
+func = "func_8002CB0C"
+before_vram = 0x8002CB0C
+text = "{ extern void wdc_framerate_start(uint8_t*, recomp_context*); wdc_framerate_start(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800013DC"
+before_vram = 0x8000159C
+text = "{ extern uint32_t wdc_framerate_preswap(void); extern void osSendMesg_recomp(uint8_t*, recomp_context*); if (wdc_framerate_preswap()) { recomp_context message = *ctx; message.r4 = (int32_t)0x800AAA28u; message.r5 = 0; message.r6 = 0; osSendMesg_recomp(rdram, &message); } }"
+
+[[hooks]]
+func = "func_80017164"
+before_vram = 0x800171BC
+text = "{ extern void wdc_framerate_wheels(uint8_t*, recomp_context*); wdc_framerate_wheels(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8000C0D0"
+before_vram = 0x8000C140
+text = "{ extern void wdc_framerate_action_lifetime(uint8_t*, recomp_context*); wdc_framerate_action_lifetime(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8001A4C4"
+before_vram = 0x8001A4C4
+text = "{ extern void wdc_framerate_camera(uint8_t*, recomp_context*); wdc_framerate_camera(rdram, ctx); }"
+
+[[hooks]]
+func = "func_8002E13C"
+before_vram = 0x8002E24C
+text = "{ extern void wdc_framerate_hud_age(uint8_t*, recomp_context*); wdc_framerate_hud_age(rdram, ctx); }"
+
 # Keep WDC's original effect timers; renew a held motor only on its active path.
 [[hooks]]
 func = "func_8004D450"
@@ -246,6 +278,11 @@ text = "{ extern void wdc_menu_car_visibility(uint8_t*, recomp_context*); wdc_me
 func = "func_80011D54"
 before_vram = 0x80011DE8
 text = "{ extern void wdc_projection_distance(uint8_t*, recomp_context*); wdc_projection_distance(rdram, ctx); }"
+
+[[hooks]]
+func = "func_80011D54"
+before_vram = 0x80011DFC
+text = "{ extern void wdc_projection_normalize(uint8_t*, recomp_context*); wdc_projection_normalize(rdram, ctx); }"
 
 [[hooks]]
 func = "func_800218F0"
@@ -407,6 +444,12 @@ text = "{ extern void wdc_cheat_restart_spend(uint8_t*, recomp_context*); wdc_ch
 func = "func_800696A8"
 before_vram = 0x800696AC
 text = "{ extern void wdc_cheat_ending(uint8_t*, recomp_context*); wdc_cheat_ending(rdram, ctx); }"
+
+# Do not let a pending SFX pitch update resurrect an exhausted one-shot voice.
+[[hooks]]
+func = "func_80043A30"
+before_vram = 0x80043B5C
+text = "{ extern void wdc_audio_oneshot_pitch(uint8_t*, recomp_context*); wdc_audio_oneshot_pitch(rdram, ctx); }"
 
 # Original race-camera effects; temporary fields are restored at the sole epilogue.
 

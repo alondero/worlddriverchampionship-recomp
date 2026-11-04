@@ -39,6 +39,7 @@ int main() {
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
         s.hud = 2;
         s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 4;
+        s.native_60fps = true;
         require(apply(s), "save failed");
         load(path);
         require(snapshot() == s, "settings did not survive restart");
@@ -64,7 +65,8 @@ int main() {
         for (const char* invalid : {"{", "[]", "{\"version\":3}", "{\"resolution\":\"4\"}",
                                    "{\"rate\":18446744073709551615}", "{\"samples\":2.5}",
                                    "{\"full_car_detail\":1}", "{\"full_track_detail\":\"true\"}",
-                                   "{\"draw_distance\":2.5}", "{\"hud\":\"Full\"}"}) {
+                                   "{\"draw_distance\":2.5}", "{\"hud\":\"Full\"}",
+                                   "{\"native_60fps\":1}", "{\"native_60fps\":\"true\"}"}) {
             { std::ofstream out(path); out << invalid; }
             load(path);
             require(snapshot() == Settings{}, "invalid settings were accepted");

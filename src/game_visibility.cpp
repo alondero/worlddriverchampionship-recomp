@@ -1,8 +1,10 @@
 #include "game_visibility.h"
 #include "recomp.h"
+#include "guest_memory.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cmath>
 #include <limits>
 
@@ -48,6 +50,25 @@ extern "C" void wdc_menu_car_visibility(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void wdc_projection_distance(uint8_t*, recomp_context* ctx) {
     // 80011DE8: f10 is scene far distance, before multiplication by 32.
     ctx->f10.fl *= distance_scale();
+}
+// USA 80011DFC, after guPerspectiveF: BOSS uses perspNorm both for reciprocal
+// W and as a projected-coordinate clamp. A larger far plane reduces it (Hawaii
+// 10 -> 2 at 4x), clipping sky vertices before their texture planes are built.
+// Keep the ROM normalization computed from the original distance, while retaining
+// the extended projection matrix. This function's stack +0x34 holds that original
+// float32 world distance; near is 32 and far is distance * 32 in guPerspectiveF.
+// Game render thread, runtime-owned word-swapped RDRAM: read four aligned stack
+// bytes and write the ROM's u16 normalization at 8007ED64. No pointer is retained.
+// Invalid stack ranges abort; invalid distance leaves the ROM result untouched.
+// Remove when the guest projection builder separates range from normalization.
+extern "C" void wdc_projection_normalize(uint8_t* rdram, recomp_context* ctx) {
+    wdc_require_guest_range(ctx->r29 + 0x34, 4, 4);
+    const float distance = std::bit_cast<float>(uint32_t(MEM_W(0x34, ctx->r29)));
+    if (!std::isfinite(distance) || distance < 0) return;
+    const float sum = 32.0f + distance * 32.0f;
+    const auto norm = uint16_t(std::max(1.0, std::min(65535.0, 131072.0 / double(sum))));
+    wdc_require_guest_range(0x8007ED64, 2, 2);
+    MEM_H(0, int32_t(0x8007ED64)) = norm;
 }
 extern "C" void wdc_car_distance(uint8_t*, recomp_context* ctx) {
     // 800219F0: f8 is far threshold, f0 remains actual camera depth.
