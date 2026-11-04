@@ -280,6 +280,11 @@ before_vram = 0x80011DE8
 text = "{ extern void wdc_projection_distance(uint8_t*, recomp_context*); wdc_projection_distance(rdram, ctx); }"
 
 [[hooks]]
+func = "func_80011D54"
+before_vram = 0x80011DFC
+text = "{ extern void wdc_projection_normalize(uint8_t*, recomp_context*); wdc_projection_normalize(rdram, ctx); }"
+
+[[hooks]]
 func = "func_800218F0"
 before_vram = 0x800219F0
 text = "{ extern void wdc_car_distance(uint8_t*, recomp_context*); wdc_car_distance(rdram, ctx); }"
@@ -439,6 +444,12 @@ text = "{ extern void wdc_cheat_restart_spend(uint8_t*, recomp_context*); wdc_ch
 func = "func_800696A8"
 before_vram = 0x800696AC
 text = "{ extern void wdc_cheat_ending(uint8_t*, recomp_context*); wdc_cheat_ending(rdram, ctx); }"
+
+# Do not let a pending SFX pitch update resurrect an exhausted one-shot voice.
+[[hooks]]
+func = "func_80043A30"
+before_vram = 0x80043B5C
+text = "{ extern void wdc_audio_oneshot_pitch(uint8_t*, recomp_context*); wdc_audio_oneshot_pitch(rdram, ctx); }"
 
 # Original race-camera effects; temporary fields are restored at the sole epilogue.
 

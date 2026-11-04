@@ -10,6 +10,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 extern "C" void func_80011D54(uint8_t*, recomp_context*);
@@ -61,13 +62,13 @@ int main(int argc, char** argv) {
     put(camera, 0x10, -1); put(camera, 0x24, 1); put(camera, 8, -1);
     put(camera, 0x68, 1.04719755f); put(camera, 0x74, std::tan(1.04719755f));
     MEM_W(0, int32_t(0x8007D75C)) = int32_t(descriptor);
-    auto run_camera = [&](float width, float height) {
+    auto run_camera = [&](float width, float height, float distance = 100.0f) {
         recomp_context ctx{};
         ctx.f_odd = &ctx.f0.u32h;
         ctx.r29 = int32_t(0x807FF000); ctx.r4 = camera;
         ctx.r5 = std::bit_cast<uint32_t>(width);
         ctx.r6 = std::bit_cast<uint32_t>(height);
-        ctx.r7 = std::bit_cast<uint32_t>(100.0f);
+        ctx.r7 = std::bit_cast<uint32_t>(distance);
         func_80011D54(rdram, &ctx);
         assert(MEM_W(0, int32_t(0x8007ED68)) == int32_t(0x80402000));
         return std::bit_cast<float>(uint32_t(MEM_W(0x7C, camera)));
@@ -80,16 +81,29 @@ int main(int argc, char** argv) {
     };
     const float original_extent = project(960, 720, 240, 1);
     const auto original = matrix;
+    const auto original_normalize = MEM_HU(0, int32_t(0x8007ED64));
+    assert(original_normalize == 40);
     wdc::visibility::configure(false, false, 4);
     project(960, 720, 240, 1);
     // Distance changes depth projection only; FOV, aspect, near plane and
     // camera-space transforms are still supplied by the original routines.
     assert(matrix[10] != original[10] && matrix[14] != original[14]);
+    // BOSS also uses perspective normalization as its screen-coordinate clamp.
+    // Extending the far plane must not tighten that clamp on sky vertices.
+    assert(MEM_HU(0, int32_t(0x8007ED64)) == original_normalize);
     for (int i = 0; i < 16; ++i) {
         assert(std::isfinite(matrix[i]));
         if (i != 10 && i != 14) assert(matrix[i] == original[i]);
     }
     wdc::visibility::configure(false, false, 1);
+    for (const auto [distance, expected] : {std::pair{100.0f, 40}, std::pair{400.0f, 10},
+                                          std::pair{1200.0f, 3}}) {
+        for (int scale : {1, 2, 3, 4, 1}) {
+            wdc::visibility::configure(false, false, scale);
+            run_camera(320, 240, distance);
+            assert(MEM_HU(0, int32_t(0x8007ED64)) == expected);
+        }
+    }
     // Initialize the actual USA display descriptors, then use the real mode
     // selector and scene layout. The old fixture replaced those with one fake
     // descriptor and missed cinematic modes' different logical/buffer heights.

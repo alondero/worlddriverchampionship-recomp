@@ -115,6 +115,16 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
             set_tests_properties(wdc_warp_rom PROPERTIES TIMEOUT 30)
 
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/audio_voice_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_audio_voice_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/audio_voice_test_funcs.c"
+                DEPENDS tests/extract_audio_voice_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_audio_voice_rom_tests tests/test_audio_voice_rom.cpp src/game_audio.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/audio_voice_test_funcs.c")
+            target_include_directories(wdc_audio_voice_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_audio_voice_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_audio_voice_rom COMMAND wdc_audio_voice_rom_tests)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_framerate_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c"

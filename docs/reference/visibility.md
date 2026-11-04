@@ -53,6 +53,13 @@ packet generation. It preserves cockpit, near/side and section rejection.
 **Draw distance** multiplies the far comparison operand at `0x800219F0` and
 the matching projection input at `0x80011DE8`. The latter is subsequently
 multiplied by 32 by the ROM. It does not modify the near plane or simulation.
+After the projection builder returns, `0x80011DFC` preserves the normalization
+computed from the original far distance. BOSS also uses this value to clamp
+projected coordinates: allowing the extended far plane to reduce it clamped
+off-screen sky vertices (Hawaii's value fell from 10 to 2 at 4x), producing
+large flat sky polygons. The projection matrix still uses the extended range.
+The ROM-backed camera test checks both the depth matrix change and unchanged
+normalization across distance settings, including restoration to 1x.
 
 ## Track detail and section visibility
 
