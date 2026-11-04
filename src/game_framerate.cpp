@@ -1,4 +1,5 @@
 #include "game_framerate.h"
+#include "guest_memory.h"
 #include "recomp.h"
 #include <atomic>
 #include <bit>
@@ -7,7 +8,7 @@
 namespace {
 std::atomic<bool> requested{};
 std::atomic<bool> racing_60{};
-bool skip_preswap = false; // Game thread only, like input-worker startup.
+std::atomic<bool> skip_preswap{};
 }
 
 void wdc::framerate::configure(bool native_60fps) {
@@ -41,12 +42,16 @@ extern "C" void wdc_framerate_start(uint8_t* rdram, recomp_context* ctx) {
     const bool enabled = requested.load(std::memory_order_relaxed);
     bool eligible = menu;
     if (enabled && race && rdram) {
+        wdc_require_guest_range(0x800923E4, 4, 4);
         const uint32_t scene = MEM_W(0, int32_t(0x800923E4));
         eligible = scene < 0x11 || scene > 0x13;
     }
-    skip_preswap = enabled && eligible;
-    racing_60.store(skip_preswap && race, std::memory_order_relaxed);
-    if (skip_preswap && race) ctx->r5 = 0;
+    const bool active = enabled && eligible;
+    // Independent policy flags, not publication of other memory. Startup
+    // remains the only writer; configure() changes only the requested value.
+    skip_preswap.store(active, std::memory_order_relaxed);
+    racing_60.store(active && race, std::memory_order_relaxed);
+    if (active && race) ctx->r5 = 0;
 }
 
 // USA func_800013DC before 8000159C, game thread. The generated hook posts
@@ -60,7 +65,7 @@ extern "C" void wdc_framerate_start(uint8_t* rdram, recomp_context* ctx) {
 // stock. Context is copied so native send cannot clobber guest registers.
 // Off is a strict no-op. Replace with a named presentation API when recovered.
 extern "C" uint32_t wdc_framerate_preswap() {
-    return skip_preswap;
+    return skip_preswap.load(std::memory_order_relaxed);
 }
 
 // USA func_80017164 after the ROM's f28 load (800171B8). This is wheel

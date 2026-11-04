@@ -310,8 +310,13 @@ This is a bounded audit, not proof that all AI, HUD, camera and demo paths
 are independent of sample count. The integrator test uses a controlled
 decaying force over one second at both rates, with all 16 state components;
 it establishes finite, comparable timestep handling, not lap equivalence or
-collision stability on every track. Fixed-input lap comparison, a second
-track, split-screen and replay remain required acceptance work for
+collision stability on every track. The maintainer has deferred the per-track
+fixed-input lap corpus and 30/60 Hz lap comparison from PR #46 to
+[issue #53](https://github.com/alondero/worlddriverchampionship-recomp/issues/53),
+using the scenario infrastructure tracked in
+[issue #49](https://github.com/alondero/worlddriverchampionship-recomp/issues/49).
+Lap equivalence is not established. A second track, split-screen and replay
+remain explicitly unverified for
 [issue #42](https://github.com/alondero/worlddriverchampionship-recomp/issues/42).
 
 ## Where the frame time goes

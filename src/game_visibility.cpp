@@ -67,6 +67,7 @@ extern "C" void wdc_projection_normalize(uint8_t* rdram, recomp_context* ctx) {
     if (!std::isfinite(distance) || distance < 0) return;
     const float sum = 32.0f + distance * 32.0f;
     const auto norm = uint16_t(std::max(1.0, std::min(65535.0, 131072.0 / double(sum))));
+    wdc_require_guest_range(0x8007ED64, 2, 2);
     MEM_H(0, int32_t(0x8007ED64)) = norm;
 }
 extern "C" void wdc_car_distance(uint8_t*, recomp_context* ctx) {

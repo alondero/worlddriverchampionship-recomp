@@ -33,6 +33,7 @@ void start(bool native, bool race = true) {
 }
 extern "C" {
 void wdc_framerate_start(uint8_t*, recomp_context*);
+uint32_t wdc_framerate_preswap();
 void func_800013DC(uint8_t*, recomp_context*);
 void func_8000C0D0(uint8_t*, recomp_context*);
 void func_8000C164(uint8_t*, recomp_context*);
@@ -131,11 +132,19 @@ int main(int argc, char** argv) {
         auto ctx = context();
         // A preference changed during a race must not change only one limit.
         wdc::framerate::configure(!native);
+        assert(wdc_framerate_preswap() == unsigned(native));
         func_800013DC(rdram, &ctx);
         assert(swapped && current_buffer == next_buffer && !pending);
         assert(sends == unsigned(native));
         assert(ticks == (native ? 1u : queued_vi ? 1u : 2u) + unsigned(delayed));
         assert(ctx.r29 == gpr(int32_t(0x807FF000)));
+        // The pending preference takes effect only at the next startup.
+        auto next = context();
+        next.r4 = menu ? 0 : int32_t(0x8000C0D0);
+        next.r5 = menu ? 0 : 1;
+        start_worker(next);
+        assert(wdc_framerate_preswap() == unsigned(!native));
+        assert(next.r5 == (menu || !native ? 0 : 1));
     }
 
     constexpr int32_t car = int32_t(0x800BA7F0), snapshot = int32_t(0x800B97E8);

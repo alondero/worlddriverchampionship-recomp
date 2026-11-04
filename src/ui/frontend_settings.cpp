@@ -131,7 +131,7 @@ void create_settings() {
     auto& enhancements = ui::create_config_tab("Enhancements", enhancements_id, true);
     enhancements.external_storage = true;
     enhancements.add_bool_option("native_60fps", "Native 60 fps (experimental)",
-        "Targets 60 fps racing. Takes effect when starting the next race or returning to the menus. Requires enough performance to finish each frame in 16.7 ms. Replay and ghost playback can run at the wrong speed; lap equivalence is still being checked.", false);
+        "Targets 60 fps racing. Takes effect when starting the next race or returning to the menus. Requires enough performance to finish each frame in 16.7 ms. Replay and ghost playback can run at the wrong speed; lap equivalence has not been validated.", false);
     enhancements.add_bool_option("full_car_detail", "Full car detail",
         "Keeps the nearest car detail level at all visible distances. Draw distance still limits visibility. May reduce performance.", false);
     enhancements.add_bool_option("full_track_detail", "Full track detail",
