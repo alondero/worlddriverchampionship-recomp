@@ -281,9 +281,11 @@ without timestep metadata;
 consumes its inputs twice as quickly; a 60 Hz recording played at 30 Hz has the
 reverse mismatch. A rate flag for just the most recent race would not cover
 loaded recordings or the separate ghost stream at `0x8007E028`. The setting
-remains experimental and the issue must stay open pending a compatible policy
-for those streams. The fixed 30 Hz exception for original intro/demo scenes
-does not reinterpret player recordings.
+remains experimental. The maintainer deferred compatible player replay/ghost
+handling from PR #46 to
+[issue #54](https://github.com/alondero/worlddriverchampionship-recomp/issues/54).
+The fixed 30 Hz exception for original intro/demo scenes does not reinterpret
+player recordings; the compatibility warning remains in the settings UI.
 
 A Windows D3D12/RTX 3080 run of Hawaii practice reached the scene with the
 option on, but **did not pass acceptance**. At automatic resolution in a
