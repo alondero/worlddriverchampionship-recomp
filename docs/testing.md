@@ -159,8 +159,12 @@ command words); the three-point reconstruction fails both. It also checks
 that exact coefficients keep the original four-sample MSAA coverage,
 that attribute-plane offsets and interpolated shade match the plane, and that
 every vertex lies on an RDP edge. It also checks that inverted spans and YM
-outside YH..YL draw only what the edge walker does. GPU vertex snapping is not
-modelled.
+outside YH..YL draw only what the edge walker does. A shared H/L fixture models
+the half-output-pixel offset and 8-bit GPU vertex snapping at 1x, 2x, 4.8x and
+8x with single-, two- and four-sample positions. It fails with the old YM split
+on H and passes with the unbroken major edge, including translated and mirrored
+geometry. Concave minor-edge jogs in both directions retain the walked spans.
+This is a host coverage model, not a GPU or reference-console comparison.
 `tests/test_rdp_seams.py` covers the capture decoder and seam measurement in
 `tools/rdp/` with the same synthetic encoding.
 

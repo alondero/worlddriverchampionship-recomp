@@ -40,7 +40,11 @@ eight coverage samples per pixel hide such gaps; GPU sample centres expose
 them as dotted seams that worsen with resolution.
 
 Patch 0016 submits the walked area instead: H against M from YH to YM and H
-against L from YM to YL, as two trapezoids. Rows where the minor edge has
+against L from YM to YL. When both spans remain on the valid side of H, it
+triangulates their combined polygon with H as one unbroken boundary edge.
+The fan starts at whichever minor-edge point at YM is nearer H; this also
+preserves a discontinuity between M and L without overlapping triangles.
+Inverted spans retain independent trapezoids: rows where the minor edge has
 crossed H are dropped, following the edge walker's empty spans. Shade,
 texture, W and depth come from the unchanged coefficient planes, offset from
 floor(YH) and from H on the vertex's row. Each triangle still passes through
@@ -54,12 +58,24 @@ tens, where BOSS's own neighbouring edges differ by up to 0.25 pixels. The
 ROM-free regression `tests/test_rdp_triangle_edges.cpp` includes a pair
 reduced from such a capture.
 
-Known limits: the split at YM adds a vertex part-way along H, a T-junction
-that GPU vertex snapping can still crack at sub-pixel scale. Gaps present in
-BOSS's own edges remain. The inverted-span cut follows edge-walker semantics
-but is not checked against a reference. Live checks covered Hawaii practice
-at automatic scale, native 1x with 4x MSAA, and 6x; no reference-console or
-emulator comparison was performed.
+The original trapezoid split inserted a vertex part-way along H. GPU vertex
+snapping could move it off a neighbour's unsplit M/L edge, opening intermittent
+pinholes even with identical edge coefficients. The ROM-free regression now
+reproduces this with the half-output-pixel offset and D3D's
+[8-bit subpixel coordinate rounding](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#3.4.1%20Coordinate%20Snapping).
+Keeping H unbroken passes that regression at 1x, 2x, 4.8x and 8x with single,
+two- and four-sample positions, including mirrored and translated geometry.
+The pinned upstream three-corner decoder has no YM split on H; this particular
+crack was introduced by our trapezoid reconstruction, not upstream.
+
+Known limits: gaps present in BOSS's own edges remain. Inverted-span cuts,
+off-screen clipping and pre-existing mesh T-junctions can still give neighbours
+different edge endpoints; this fix does not weld or expand geometry. The
+inverted-span cut follows edge-walker semantics
+but is not checked against a reference. Earlier live checks of the original
+edge reconstruction covered Hawaii practice at automatic scale, native 1x with
+4x MSAA, and 6x. The unbroken-H change has host regression coverage, but no
+new visual acceptance or reference-console/emulator comparison.
 
 ## Window aspect and border-free racing
 

@@ -336,10 +336,10 @@ index 9621677..558d91f 100644
              return trianglesEnd;
 diff --git a/src/gbi/rt64_rdp_triangle_edges.h b/src/gbi/rt64_rdp_triangle_edges.h
 new file mode 100644
-index 0000000..97eb374
+index 0000000..4c6f784
 --- /dev/null
 +++ b/src/gbi/rt64_rdp_triangle_edges.h
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,114 @@
 +//
 +// RT64
 +//
@@ -375,7 +375,7 @@ index 0000000..97eb374
 +    }
 +
 +    struct EdgeVertex { float x, y; };
-+    // Two trapezoids, each split into two triangles.
++    // At most four triangles covering the two edge-walker spans.
 +    constexpr uint32_t MaxEdgeVertices = 12;
 +    struct EdgeTriangles {
 +        std::array<EdgeVertex, MaxEdgeVertices> vertices{};
@@ -392,6 +392,43 @@ index 0000000..97eb374
 +        EdgeTriangles result;
 +        if (!(e.yl > e.yh)) return result;
 +        const double side = e.leftMajor ? 1.0 : -1.0;
++        const double ym = std::clamp(e.ym, e.yh, e.yl);
++        auto vertex = [](double x, double y) { return EdgeVertex{float(x), float(y)}; };
++        auto emit = [&](EdgeVertex a, EdgeVertex b, EdgeVertex c) {
++            for (const auto& v : {a, b, c}) result.vertices[result.vertexCount++] = v;
++        };
++        // Keep H as one boundary edge. Splitting it at YM creates a
++        // T-junction against a neighbour's unsplit M/L edge: GPU subpixel
++        // snapping moves the inserted vertex off that line and opens cracks.
++        // The nearer minor-edge point at YM can see the whole walked polygon,
++        // including a discontinuity between M(YM) and L(YM). Fan from it.
++        if (ym > e.yh && ym < e.yl &&
++            side * (e.middleX(e.yh) - e.majorX(e.yh)) >= 0 &&
++            side * (e.middleX(ym) - e.majorX(ym)) >= 0 &&
++            side * (e.lowX(ym) - e.majorX(ym)) >= 0 &&
++            side * (e.lowX(e.yl) - e.majorX(e.yl)) >= 0) {
++            const auto top = vertex(e.majorX(e.yh), e.yh);
++            const auto topMinor = vertex(e.middleX(e.yh), e.yh);
++            const auto midM = vertex(e.middleX(ym), ym);
++            const auto midL = vertex(e.lowX(ym), ym);
++            const auto bottomMinor = vertex(e.lowX(e.yl), e.yl);
++            const auto bottom = vertex(e.majorX(e.yl), e.yl);
++            if (side * (e.middleX(ym) - e.lowX(ym)) <= 0) {
++                emit(top, topMinor, midM);
++                emit(top, midM, bottom);
++                emit(midM, midL, bottomMinor);
++                emit(midM, bottomMinor, bottom);
++            }
++            else {
++                emit(top, topMinor, midL);
++                emit(topMinor, midM, midL);
++                emit(top, midL, bottom);
++                emit(midL, bottomMinor, bottom);
++            }
++            return result;
++        }
++        // Inverted spans can disconnect the polygon at YM. Retain the
++        // independent span cuts for those commands and for a single span.
 +        auto trapezoid = [&](double y0, double y1, auto minorX) {
 +            if (!(y1 > y0)) return;
 +            // Span width is linear in y. The RDP draws nothing where the
@@ -405,7 +442,6 @@ index 0000000..97eb374
 +            const EdgeVertex c{float(minorX(y1)), float(y1)}, d{float(e.majorX(y1)), float(y1)};
 +            for (const auto& v : {a, b, c, a, c, d}) result.vertices[result.vertexCount++] = v;
 +        };
-+        const double ym = std::clamp(e.ym, e.yh, e.yl);
 +        trapezoid(e.yh, ym, [&](double y) { return e.middleX(y); });
 +        trapezoid(ym, e.yl, [&](double y) { return e.lowX(y); });
 +        return result;
