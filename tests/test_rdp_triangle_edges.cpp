@@ -104,16 +104,15 @@ int main() {
             };
             auto a = decodeTriangleEdges(encode({point(10, 10), point(82.5, 230), point(2, 87)}, 10));
             auto b = decodeTriangleEdges(encode({point(100, 2), point(10, 10), point(82.5, 230)}, 10));
-            // Keep both outer edges on their valid sides through YL so this
-            // isolates the split at YM from the inverted-span cut fallback.
-            a.dxldy += mirror ? 10.0 / 1024 : -10.0 / 1024;
-            b.dxhdy += mirror ? -10.0 / 1024 : 10.0 / 1024;
+            // Keep the rounded slopes, including inverted corners. The old
+            // test biased these slopes to avoid the split fallback, missing
+            // the remaining cracks seen while racing.
             require(a.dxhdy == b.dxldy, "Snapping fixture edges have different slopes");
             const std::array<Point, 7> samples{{{.5,.5}, {.25,.25}, {.75,.75},
                 {.375,.125}, {.875,.375}, {.125,.625}, {.625,.875}}};
             for (double scale : {1.0, 2.0, 4.8, 8.0}) {
-                const auto left = snapVertices(triangulateEdges(a), scale);
-                const auto right = snapVertices(triangulateEdges(b), scale);
+                const auto left = snapVertices(triangulateCoverage(a), scale);
+                const auto right = snapVertices(triangulateCoverage(b), scale);
                 for (int row = int(12 * scale); row < int(228 * scale); row++) {
                     const int edgeColumn = int(std::floor(a.majorX(row / scale) * scale + .5));
                     for (int column = edgeColumn - 1; column <= edgeColumn + 1; column++) {
@@ -248,6 +247,33 @@ int main() {
                               .dxhdy = 0, .dxmdy = 0, .dxldy = 0};
     const auto upperOnly = triangulateEdges(upper);
     require(covers(upperOnly, 5, 5) && !covers(upperOnly, 5, 11) && !covers(upperOnly, 50, 5), "YM beyond YL used the L edge");
+    const auto guarded = triangulateCoverage(upper);
+    require(covers(guarded, -1.0 / 512, 5) && covers(guarded, 10 + 1.0 / 512, 5), "Coverage guard did not reach both boundaries");
+    require(!covers(guarded, -1.0 / 128, 5) && !covers(guarded, 10 + 1.0 / 128, 5), "Coverage guard exceeded its subpixel bound");
+    require(!covers(guarded, 5, -.001) && !covers(guarded, 5, 10.001), "Coverage guard changed Y endpoints");
+    auto empty = upper;
+    empty.xm = empty.xh;
+    require(triangulateCoverage(empty).vertexCount == 0, "Coverage guard created geometry from an empty span");
+    // An interior YM takes the combined-fan path, which can emit vertices
+    // even when every triangle is collinear. Do not expand that into a line.
+    empty.ym = 5;
+    empty.xl = empty.xh;
+    require(triangulateCoverage(empty).vertexCount == 0, "Coverage guard expanded a collinear fan");
+    empty.dxhdy = empty.dxmdy = empty.dxldy = 2;
+    empty.xl = empty.majorX(empty.ym);
+    require(triangulateCoverage(empty).vertexCount == 0, "Coverage guard expanded a sloped collinear fan");
+    const TriangleEdges emptyUpper{.leftMajor = true, .yh = 0, .ym = 5, .yl = 10,
+        .xh = 0, .xm = -.001, .xl = 10, .dxhdy = 0, .dxmdy = 0, .dxldy = 0};
+    const auto lowerGuard = triangulateCoverage(emptyUpper);
+    for (unsigned i = 0; i < lowerGuard.vertexCount; ++i)
+        require(lowerGuard.vertices[i].y >= 5, "Coverage guard revived an empty upper span");
+    const auto guardedCut = triangulateCoverage(crossing);
+    for (unsigned i = 0; i < guardedCut.vertexCount; ++i)
+        require(guardedCut.vertices[i].y <= 10, "Coverage guard moved the original intersection cut");
+    // The geometry is guarded, but the decoder evaluates attributes against
+    // the original command's H edge. An added vertex must retain that offset.
+    const auto guardOffset = planeOffset(upper, guarded.vertices[0]);
+    require(guardOffset.dx == -1.0f / 256, "Coverage guard moved the attribute plane");
     const TriangleEdges lower{.leftMajor = true, .yh = 4, .ym = 0, .yl = 10, .xh = 0, .xm = 99, .xl = 10,
                               .dxhdy = 0, .dxmdy = 0, .dxldy = 0};
     const auto lowerOnly = triangulateEdges(lower);

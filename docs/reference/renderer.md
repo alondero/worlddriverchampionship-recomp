@@ -40,15 +40,12 @@ eight coverage samples per pixel hide such gaps; GPU sample centres expose
 them as dotted seams that worsen with resolution.
 
 Patch 0016 submits the walked area instead: H against M from YH to YM and H
-against L from YM to YL. When both spans remain on the valid side of H, it
-triangulates their combined polygon with H as one unbroken boundary edge.
-The fan starts at whichever minor-edge point at YM is nearer H; this also
-preserves a discontinuity between M and L without overlapping triangles.
-Inverted spans retain independent trapezoids: rows where the minor edge has
-crossed H are dropped, following the edge walker's empty spans. Shade,
-texture, W and depth come from the unchanged coefficient planes, offset from
-floor(YH) and from H on the vertex's row. Each triangle still passes through
-patch 0014's screen clip.
+against L from YM to YL. Each span is cut using its original widths, so rows
+where the minor edge has crossed H stay empty. A small outer-edge coverage
+guard is applied after these cuts, as described below. Shade, texture, W and
+depth still come from the original coefficient planes, offset from floor(YH)
+and from H on the vertex's row. Each triangle passes through patch 0014's
+screen clip.
 
 `WDC_RDP_CAPTURE` and `tools/rdp/analyze_seams.py` measure complete BOSS
 tasks, pairing neighbours under both geometries. On captured Hawaii frames
@@ -63,19 +60,40 @@ snapping could move it off a neighbour's unsplit M/L edge, opening intermittent
 pinholes even with identical edge coefficients. The ROM-free regression now
 reproduces this with the half-output-pixel offset and D3D's
 [8-bit subpixel coordinate rounding](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#3.4.1%20Coordinate%20Snapping).
-Keeping H unbroken passes that regression at 1x, 2x, 4.8x and 8x with single,
+Keeping H unbroken passed the earlier fixture at 1x, 2x, 4.8x and 8x with single,
 two- and four-sample positions, including mirrored and translated geometry.
 The pinned upstream three-corner decoder has no YM split on H; this particular
 crack was introduced by our trapezoid reconstruction, not upstream.
 
-Known limits: gaps present in BOSS's own edges remain. Inverted-span cuts,
-off-screen clipping and pre-existing mesh T-junctions can still give neighbours
-different edge endpoints; this fix does not weld or expand geometry. The
-inverted-span cut follows edge-walker semantics
-but is not checked against a reference. Earlier live checks of the original
-edge reconstruction covered Hawaii practice at automatic scale, native 1x with
-4x MSAA, and 6x. The unbroken-H change has host regression coverage, but no
-new visual acceptance or reference-console/emulator comparison.
+Keeping H unbroken was insufficient when rounded slopes inverted a corner:
+those commands still selected the split fallback. Even a connected polygon
+can have different endpoints after an intersection cut or scissor clipping.
+The earlier snapping fixture biased its slopes to avoid inverted corners and
+therefore missed this racing failure. It now retains the rounded slopes.
+
+The production decoder adds a coverage guard to the three outer edge lines
+after calculating each span's original valid Y interval: H moves outward
+and M/L move outward by
+`(1 + abs(dx/dy)) / 256` native X pixels. This bounds the relative error from
+independently rounding X and Y to D3D's 8-bit subpixel grid at the supported
+1x-or-higher scales. Y endpoints, scissor and original attribute planes are
+unchanged, including intersection cuts. Internal diagonals are not expanded;
+empty spans and collinear commands remain empty. The correction intentionally adds a very thin boundary
+band; it is not exact RDP coverage emulation. The revised regression checks
+inverted corners, mirrored/translated geometry, multiple scales and MSAA
+positions, plus bounded expansion and unchanged attribute-plane offsets.
+
+A local replay of the same 1,163-command Hawaii capture measured roughly
+4.3 ms per frame before and 4.4 ms after the guard in command processing;
+these are local replay measurements, not whole-game frame-rate guarantees.
+An alternative that subdivided every edge into quarter-pixel rows was
+rejected after replay cost rose to about 19.6 ms per frame. It is not shipped.
+
+Known limits: gaps present in BOSS's own edges larger than the guard remain.
+The change does not weld geometry, reproduce N64 coverage blending or prove
+coverage on GPUs with fewer than eight subpixel precision bits. Reference
+console/emulator comparison and visual acceptance at the exact location of
+the reported screenshot remain unverified.
 
 ## Window aspect and border-free racing
 

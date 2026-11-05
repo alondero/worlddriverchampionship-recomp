@@ -1,5 +1,4 @@
 diff --git a/src/gbi/rt64_gbi_rdp.cpp b/src/gbi/rt64_gbi_rdp.cpp
-index 9621677..558d91f 100644
 --- a/src/gbi/rt64_gbi_rdp.cpp
 +++ b/src/gbi/rt64_gbi_rdp.cpp
 @@ -4,6 +4,7 @@
@@ -10,7 +9,7 @@ index 9621677..558d91f 100644
  
  #include "../include/rt64_extended_gbi.h"
  
-@@ -325,7 +326,9 @@ namespace RT64 {
+@@ -325,7 +326,9 @@
              const bool texturePerspective = (state->rdp->otherMode.textPersp() == G_TP_PERSP);
              std::vector<const DisplayList *> &triangles = state->rdp->triPointerBuffer;
              getTrianglePointers(triangleData, array_length, trianglesEnd, triangles, overrun);
@@ -21,7 +20,7 @@ index 9621677..558d91f 100644
  
              std::vector<interop::float4> &posWorkBuffer = state->rdp->triPosWorkBuffer;
              std::vector<interop::float4> &colorWorkBuffer = state->rdp->triColWorkBuffer;
-@@ -334,7 +337,6 @@ namespace RT64 {
+@@ -334,7 +337,6 @@
              setMinSize(colorWorkBuffer, vertexCount);
              setMinSize(texcoordWorkBuffer, vertexCount);
  
@@ -29,7 +28,7 @@ index 9621677..558d91f 100644
              uint32_t tile = -1;
              uint32_t level = -1;
  
-@@ -352,75 +354,28 @@ namespace RT64 {
+@@ -352,74 +354,27 @@
                  bool textured = (commandId & (uint32_t)RDPTriangle::Textured) != 0;
                  bool shaded = (commandId & (uint32_t)RDPTriangle::Shaded) != 0;
  
@@ -95,7 +94,7 @@ index 9621677..558d91f 100644
 +                    edgeWords[i * 2 + 1] = curData[i].w1;
 +                }
 +                const TriangleEdges edges = decodeTriangleEdges(edgeWords);
-+                const EdgeTriangles edgeArea = triangulateEdges(edges);
++                const EdgeTriangles edgeArea = triangulateCoverage(edges);
 +                areaVertexCount = edgeArea.vertexCount;
 +
 +                std::array<float, MaxEdgeVertices> dy, dx;
@@ -109,7 +108,7 @@ index 9621677..558d91f 100644
 +                }
  
                  curData += triangleBaseWords;
- 
+-
 -                // Calculate y distance from each vertex to the start of the major edge which is used for other coefficients.
 -                float dy_1 = y1 - yFloor;
 -                float dy_2 = y2 - yFloor;
@@ -120,11 +119,10 @@ index 9621677..558d91f 100644
 -
 -                // Calculate x distance from the point opposite vertex 3 to vertex 3 itself.
 -                float dx_3 = x3 - x3_opposite;
--
+ 
                  if (shaded) {
                      hlslpp::int4 baseColorFixed{
-                         ((curData[0].w0 >> 16) << 16) | (curData[2].w0 >> 16),
-@@ -443,39 +398,22 @@ namespace RT64 {
+@@ -443,39 +398,22 @@
                          ((curData[4].w1 & 0xFFFF) << 16) | (curData[6].w1 & 0xFFFF),
                      };
  
@@ -150,10 +148,11 @@ index 9621677..558d91f 100644
 -                    hlslpp::float4 v3OppositeColor = baseColor + colorDe * dy_3;
 -                    // Use the x derivative to calculate the color at the last vertex, starting from its opposite point
 -                    hlslpp::float4 v3Color = v3OppositeColor + colorDx * dx_3;
- 
+-
 -                    colorWorkBuffer[workBufferIndex + 0] = v1Color * (1/255.0f);
 -                    colorWorkBuffer[workBufferIndex + 1] = v2Color * (1/255.0f);
 -                    colorWorkBuffer[workBufferIndex + 2] = v3Color * (1/255.0f);
++
 +                    for (uint32_t i = 0; i < areaVertexCount; i++) {
 +                        colorWorkBuffer[i] = (baseColor + colorDe * dy[i] + colorDx * dx[i]) * (1/255.0f);
 +                    }
@@ -171,7 +170,7 @@ index 9621677..558d91f 100644
                  }
  
                  if (textured) {
-@@ -497,115 +435,87 @@ namespace RT64 {
+@@ -497,115 +435,87 @@
                          ((curData[4].w1 >> 16) << 16) | (curData[6].w1 >> 16)
                      };
  
@@ -256,7 +255,7 @@ index 9621677..558d91f 100644
                      float depthDx = depthDxFixed * (1.0f / 65536.0f / 32768.0f);
                      float depthDe = depthDeFixed * (1.0f / 65536.0f / 32768.0f);
 -                    float depthDy = depthDyFixed * (1.0f / 65536.0f / 32768.0f);
- 
+-
 -                    // Same calculations as shade color and texcoords
 -                    float v1Depth = baseDepth + depthDe * dy_1;
 -                    float v2Depth = baseDepth + depthDe * dy_2;
@@ -266,6 +265,7 @@ index 9621677..558d91f 100644
 -                    posWorkBuffer[workBufferIndex + 0].z = v1Depth;
 -                    posWorkBuffer[workBufferIndex + 1].z = v2Depth;
 -                    posWorkBuffer[workBufferIndex + 2].z = v3Depth;
++
 +                    for (uint32_t i = 0; i < areaVertexCount; i++) {
 +                        posWorkBuffer[i].z = baseDepth + depthDe * dy[i] + depthDx * dx[i];
 +                    }
@@ -293,15 +293,7 @@ index 9621677..558d91f 100644
 -                    triangle[i].color[c] = colorWorkBuffer[i][c];
 -                }
 -                for (uint32_t c = 0; c < 2; c++) triangle[i].uv[c] = texcoordWorkBuffer[i][c];
--            }
-             const auto& scissor = state->rdp->scissorRectStack[state->rdp->scissorStackSize - 1];
--            const auto clipped = clipTriangle(triangle, rasterClipBounds({scissor.ulx / 4.0f, scissor.uly / 4.0f, scissor.lrx / 4.0f, scissor.lry / 4.0f}));
--            std::array<interop::float4, 15> clippedPositions, clippedColors;
--            std::array<interop::float2, 15> clippedUVs;
--            for (uint32_t i = 0; i < clipped.vertexCount; i++) {
--                for (uint32_t c = 0; c < 4; c++) {
--                    clippedPositions[i][c] = clipped.vertices[i].position[c];
--                    clippedColors[i][c] = clipped.vertices[i].color[c];
++            const auto& scissor = state->rdp->scissorRectStack[state->rdp->scissorStackSize - 1];
 +            const TriangleScissor clipBounds = rasterClipBounds({scissor.ulx / 4.0f, scissor.uly / 4.0f, scissor.lrx / 4.0f, scissor.lry / 4.0f});
 +            // Each edge-area triangle can clip into a polygon of several triangles.
 +            constexpr size_t maxClippedVertices = (MaxEdgeVertices / 3) * std::tuple_size_v<decltype(ClippedTriangle::vertices)>;
@@ -324,9 +316,19 @@ index 9621677..558d91f 100644
 +                        clippedColors[clippedCount][c] = clipped.vertices[i].color[c];
 +                    }
 +                    for (uint32_t c = 0; c < 2; c++) clippedUVs[clippedCount][c] = clipped.vertices[i].uv[c];
-                 }
--                for (uint32_t c = 0; c < 2; c++) clippedUVs[i][c] = clipped.vertices[i].uv[c];
++                }
              }
+-            const auto& scissor = state->rdp->scissorRectStack[state->rdp->scissorStackSize - 1];
+-            const auto clipped = clipTriangle(triangle, rasterClipBounds({scissor.ulx / 4.0f, scissor.uly / 4.0f, scissor.lrx / 4.0f, scissor.lry / 4.0f}));
+-            std::array<interop::float4, 15> clippedPositions, clippedColors;
+-            std::array<interop::float2, 15> clippedUVs;
+-            for (uint32_t i = 0; i < clipped.vertexCount; i++) {
+-                for (uint32_t c = 0; c < 4; c++) {
+-                    clippedPositions[i][c] = clipped.vertices[i].position[c];
+-                    clippedColors[i][c] = clipped.vertices[i].color[c];
+-                }
+-                for (uint32_t c = 0; c < 2; c++) clippedUVs[i][c] = clipped.vertices[i].uv[c];
+-            }
 -            if (clipped.vertexCount != 0) {
 -                state->rdp->drawTris(clipped.vertexCount / 3, &clippedPositions[0][0], &clippedUVs[0][0], &clippedColors[0][0], tile, level);
 +            if (clippedCount != 0) {
@@ -336,10 +338,9 @@ index 9621677..558d91f 100644
              return trianglesEnd;
 diff --git a/src/gbi/rt64_rdp_triangle_edges.h b/src/gbi/rt64_rdp_triangle_edges.h
 new file mode 100644
-index 0000000..4c6f784
 --- /dev/null
 +++ b/src/gbi/rt64_rdp_triangle_edges.h
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,131 @@
 +//
 +// RT64
 +//
@@ -388,7 +389,7 @@ index 0000000..4c6f784
 +    // corners disagree (slopes rounded by the microcode). Extrapolating
 +    // corners along H instead opens sub-pixel seams that the RDP's
 +    // multi-sample coverage hides but GPU centre sampling exposes.
-+    inline EdgeTriangles triangulateEdges(const TriangleEdges& e) {
++    inline EdgeTriangles triangulateEdges(const TriangleEdges& e, double guard = 0.0) {
 +        EdgeTriangles result;
 +        if (!(e.yl > e.yh)) return result;
 +        const double side = e.leftMajor ? 1.0 : -1.0;
@@ -402,7 +403,7 @@ index 0000000..4c6f784
 +        // snapping moves the inserted vertex off that line and opens cracks.
 +        // The nearer minor-edge point at YM can see the whole walked polygon,
 +        // including a discontinuity between M(YM) and L(YM). Fan from it.
-+        if (ym > e.yh && ym < e.yl &&
++        if (guard == 0.0 && ym > e.yh && ym < e.yl &&
 +            side * (e.middleX(e.yh) - e.majorX(e.yh)) >= 0 &&
 +            side * (e.middleX(ym) - e.majorX(ym)) >= 0 &&
 +            side * (e.lowX(ym) - e.majorX(ym)) >= 0 &&
@@ -429,7 +430,7 @@ index 0000000..4c6f784
 +        }
 +        // Inverted spans can disconnect the polygon at YM. Retain the
 +        // independent span cuts for those commands and for a single span.
-+        auto trapezoid = [&](double y0, double y1, auto minorX) {
++        auto trapezoid = [&](double y0, double y1, auto minorX, double minorSlope) {
 +            if (!(y1 > y0)) return;
 +            // Span width is linear in y. The RDP draws nothing where the
 +            // minor edge has crossed to the wrong side of H.
@@ -438,13 +439,30 @@ index 0000000..4c6f784
 +            if (!(width0 > 0) && !(width1 > 0)) return;
 +            if (width0 < 0) y0 += (y1 - y0) * width0 / (width0 - width1);
 +            else if (width1 < 0) y1 = y0 + (y1 - y0) * width0 / (width0 - width1);
-+            const EdgeVertex a{float(e.majorX(y0)), float(y0)}, b{float(minorX(y0)), float(y0)};
-+            const EdgeVertex c{float(minorX(y1)), float(y1)}, d{float(e.majorX(y1)), float(y1)};
++            // Cut using the original widths above. Padding first could
++            // revive an entirely inverted span or move the crossing's Y.
++            const double majorGuard = side * guard * (1.0 + std::abs(e.dxhdy));
++            const double minorGuard = side * guard * (1.0 + std::abs(minorSlope));
++            const EdgeVertex a{float(e.majorX(y0) - majorGuard), float(y0)}, b{float(minorX(y0) + minorGuard), float(y0)};
++            const EdgeVertex c{float(minorX(y1) + minorGuard), float(y1)}, d{float(e.majorX(y1) - majorGuard), float(y1)};
 +            for (const auto& v : {a, b, c, a, c, d}) result.vertices[result.vertexCount++] = v;
 +        };
-+        trapezoid(e.yh, ym, [&](double y) { return e.middleX(y); });
-+        trapezoid(ym, e.yl, [&](double y) { return e.lowX(y); });
++        trapezoid(e.yh, ym, [&](double y) { return e.middleX(y); }, e.dxmdy);
++        trapezoid(ym, e.yl, [&](double y) { return e.lowX(y); }, e.dxldy);
 +        return result;
++    }
++
++    // GPU setup rounds both coordinates independently to a subpixel grid.
++    // An inserted/cut endpoint can therefore move off a neighbour's longer
++    // edge even when the RDP coefficients describe exactly the same line.
++    // A one-subpixel L-infinity guard at native resolution covers the sum
++    // of their rounding errors. It stays conservative at scales >= 1.
++    // Only the outside H/M/L boundaries move; internal fan edges do not
++    // overlap. Keep Y endpoints, scissors and the attribute planes unchanged.
++    inline EdgeTriangles triangulateCoverage(const TriangleEdges& e) {
++        // Guard each originally valid span after its intersection cuts.
++        // This retains empty spans and the exact original Y intervals.
++        return triangulateEdges(e, 1.0 / 256.0);
 +    }
 +
 +    // Shade, texture and depth coefficients are planes anchored on H: DE

@@ -125,10 +125,13 @@ Patch 0016 has a ROM-free coverage reproducer in
 builds each triangle from three corners extrapolated along H, ignoring the M
 and L slopes, so neighbours rebuild a shared edge as two different lines. The
 patch adds `rt64_rdp_triangle_edges.h` to emit the area the RDP edge
-walker fills. Valid spans share one unbroken H boundary: splitting it at YM
-introduced a T-junction that GPU vertex rounding could turn into a crack.
-The regression models that rounding and fails with the earlier trapezoids.
-Inverted spans retain separate cuts. Each output triangle is clipped by patch 0014, so 0016 applies
+walker fills. Keeping H unbroken did not cover inverted corners and cuts that
+give neighbours different endpoints. The production path keeps each span's
+original valid Y interval, then adds a tiny conservative guard on the outer
+edge lines covers D3D subpixel rounding even when cuts leave neighbours with
+different endpoints. Y endpoints and original attribute planes stay unchanged;
+internal diagonals are not expanded. The regression retains the rounded
+inverted corners excluded by the previous fixture. Each output triangle is clipped by patch 0014, so 0016 applies
 after it. The mechanism, measurements and limits are in the
 [renderer reference](../docs/reference/renderer.md#raw-triangle-edge-reconstruction).
 
