@@ -340,7 +340,7 @@ diff --git a/src/gbi/rt64_rdp_triangle_edges.h b/src/gbi/rt64_rdp_triangle_edges
 new file mode 100644
 --- /dev/null
 +++ b/src/gbi/rt64_rdp_triangle_edges.h
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,89 @@
 +//
 +// RT64
 +//
@@ -383,54 +383,27 @@ new file mode 100644
 +        uint32_t vertexCount = 0;
 +    };
 +
-+    // Rebuild the area the RDP edge walker fills: H against M from YH to YM,
-+    // then H against L from YM to YL. Each edge keeps its own coefficients, so
-+    // neighbours that share an edge share its line even when their implied
-+    // corners disagree (slopes rounded by the microcode). Extrapolating
-+    // corners along H instead opens sub-pixel seams that the RDP's
-+    // multi-sample coverage hides but GPU centre sampling exposes.
-+    inline EdgeTriangles triangulateEdges(const TriangleEdges& e, double guard = 0.0) {
++    // One production path: at most two guarded trapezoids, H against M and L.
++    // Cut empty/inverted rows using the original coefficients before padding.
++    // Splitting H can give neighbours different GPU-rounded endpoints; the
++    // guard covers that error instead of relying on an unbroken-H fan that
++    // cannot handle all inverted/cut cases.
++    inline EdgeTriangles triangulateCoverage(const TriangleEdges& e) {
 +        EdgeTriangles result;
 +        if (!(e.yl > e.yh)) return result;
 +        const double side = e.leftMajor ? 1.0 : -1.0;
 +        const double ym = std::clamp(e.ym, e.yh, e.yl);
-+        auto vertex = [](double x, double y) { return EdgeVertex{float(x), float(y)}; };
-+        auto emit = [&](EdgeVertex a, EdgeVertex b, EdgeVertex c) {
-+            for (const auto& v : {a, b, c}) result.vertices[result.vertexCount++] = v;
-+        };
-+        // Keep H as one boundary edge. Splitting it at YM creates a
-+        // T-junction against a neighbour's unsplit M/L edge: GPU subpixel
-+        // snapping moves the inserted vertex off that line and opens cracks.
-+        // The nearer minor-edge point at YM can see the whole walked polygon,
-+        // including a discontinuity between M(YM) and L(YM). Fan from it.
-+        if (guard == 0.0 && ym > e.yh && ym < e.yl &&
-+            side * (e.middleX(e.yh) - e.majorX(e.yh)) >= 0 &&
-+            side * (e.middleX(ym) - e.majorX(ym)) >= 0 &&
-+            side * (e.lowX(ym) - e.majorX(ym)) >= 0 &&
-+            side * (e.lowX(e.yl) - e.majorX(e.yl)) >= 0) {
-+            const auto top = vertex(e.majorX(e.yh), e.yh);
-+            const auto topMinor = vertex(e.middleX(e.yh), e.yh);
-+            const auto midM = vertex(e.middleX(ym), ym);
-+            const auto midL = vertex(e.lowX(ym), ym);
-+            const auto bottomMinor = vertex(e.lowX(e.yl), e.yl);
-+            const auto bottom = vertex(e.majorX(e.yl), e.yl);
-+            if (side * (e.middleX(ym) - e.lowX(ym)) <= 0) {
-+                emit(top, topMinor, midM);
-+                emit(top, midM, bottom);
-+                emit(midM, midL, bottomMinor);
-+                emit(midM, bottomMinor, bottom);
-+            }
-+            else {
-+                emit(top, topMinor, midL);
-+                emit(topMinor, midM, midL);
-+                emit(top, midL, bottom);
-+                emit(midL, bottomMinor, bottom);
-+            }
-+            return result;
-+        }
-+        // Inverted spans can disconnect the polygon at YM. Retain the
-+        // independent span cuts for those commands and for a single span.
-+        auto trapezoid = [&](double y0, double y1, auto minorX, double minorSlope) {
++        // D3D rounds X and Y to an 8-bit subpixel grid. At >=1x, this
++        // horizontal guard bounds their combined error along either edge.
++        constexpr double guard = 1.0 / 256.0;
++        const double majorGuard = side * guard * (1.0 + std::abs(e.dxhdy));
++        // Use one translation for both minor lines. Separate slope-dependent
++        // offsets would tear an originally continuous vertex apart at YM.
++        // Slopes outside the command's Y interval do not contribute.
++        const double minorSlope = std::max(ym > e.yh ? std::abs(e.dxmdy) : 0.0,
++                                          ym < e.yl ? std::abs(e.dxldy) : 0.0);
++        const double minorGuard = side * guard * (1.0 + minorSlope);
++        auto trapezoid = [&](double y0, double y1, auto minorX) {
 +            if (!(y1 > y0)) return;
 +            // Span width is linear in y. The RDP draws nothing where the
 +            // minor edge has crossed to the wrong side of H.
@@ -441,28 +414,13 @@ new file mode 100644
 +            else if (width1 < 0) y1 = y0 + (y1 - y0) * width0 / (width0 - width1);
 +            // Cut using the original widths above. Padding first could
 +            // revive an entirely inverted span or move the crossing's Y.
-+            const double majorGuard = side * guard * (1.0 + std::abs(e.dxhdy));
-+            const double minorGuard = side * guard * (1.0 + std::abs(minorSlope));
 +            const EdgeVertex a{float(e.majorX(y0) - majorGuard), float(y0)}, b{float(minorX(y0) + minorGuard), float(y0)};
 +            const EdgeVertex c{float(minorX(y1) + minorGuard), float(y1)}, d{float(e.majorX(y1) - majorGuard), float(y1)};
 +            for (const auto& v : {a, b, c, a, c, d}) result.vertices[result.vertexCount++] = v;
 +        };
-+        trapezoid(e.yh, ym, [&](double y) { return e.middleX(y); }, e.dxmdy);
-+        trapezoid(ym, e.yl, [&](double y) { return e.lowX(y); }, e.dxldy);
++        trapezoid(e.yh, ym, [&](double y) { return e.middleX(y); });
++        trapezoid(ym, e.yl, [&](double y) { return e.lowX(y); });
 +        return result;
-+    }
-+
-+    // GPU setup rounds both coordinates independently to a subpixel grid.
-+    // An inserted/cut endpoint can therefore move off a neighbour's longer
-+    // edge even when the RDP coefficients describe exactly the same line.
-+    // A one-subpixel L-infinity guard at native resolution covers the sum
-+    // of their rounding errors. It stays conservative at scales >= 1.
-+    // Only the outside H/M/L boundaries move; internal fan edges do not
-+    // overlap. Keep Y endpoints, scissors and the attribute planes unchanged.
-+    inline EdgeTriangles triangulateCoverage(const TriangleEdges& e) {
-+        // Guard each originally valid span after its intersection cuts.
-+        // This retains empty spans and the exact original Y intervals.
-+        return triangulateEdges(e, 1.0 / 256.0);
 +    }
 +
 +    // Shade, texture and depth coefficients are planes anchored on H: DE

@@ -71,20 +71,38 @@ can have different endpoints after an intersection cut or scissor clipping.
 The earlier snapping fixture biased its slopes to avoid inverted corners and
 therefore missed this racing failure. It now retains the rounded slopes.
 
-The production decoder adds a coverage guard to the three outer edge lines
-after calculating each span's original valid Y interval: H moves outward
-and M/L move outward by
-`(1 + abs(dx/dy)) / 256` native X pixels. This bounds the relative error from
-independently rounding X and Y to D3D's 8-bit subpixel grid at the supported
-1x-or-higher scales. Y endpoints, scissor and original attribute planes are
-unchanged, including intersection cuts. Internal diagonals are not expanded;
-empty spans and collinear commands remain empty. The correction intentionally adds a very thin boundary
-band; it is not exact RDP coverage emulation. The revised regression checks
-inverted corners, mirrored/translated geometry, multiple scales and MSAA
-positions, plus bounded expansion and unchanged attribute-plane offsets.
+The production decoder uses one triangulation path: two independently cut,
+guarded trapezoids. The earlier unbroken-H fan is removed, rather than kept
+as a zero-guard path used only by tests. Its topology fix did not address all
+intersection-cut and inverted-corner cases. The guard now covers rounding at
+both the H split and other differing endpoints; H is not claimed to remain
+unbroken.
 
-A local replay of the same 1,163-command Hawaii capture measured roughly
-4.3 ms per frame before and 4.4 ms after the guard in command processing;
+After calculating each span's original valid Y interval, H moves outward by
+`(1 + abs(dxhdy)) / 256` native X pixels. M and L use the **same** outward X
+translation, `(1 + max(abs(dxmdy), abs(dxldy))) / 256`, considering only minor
+edges whose Y interval is used by the command. Using the larger slope covers
+both edges' rounding error without separating a continuous minor vertex at
+YM. Any pre-existing M/L discontinuity is preserved, not welded.
+
+These guards bound the relative error from independently rounding X and Y to
+D3D's 8-bit subpixel grid at the supported 1x-or-higher scales. Y endpoints,
+scissor and original attribute planes are unchanged, including intersection
+cuts. Empty spans and collinear commands remain empty. Each guarded
+trapezoid is triangulated once; the two spans occupy separate Y intervals.
+The correction intentionally adds a thin boundary band and is not exact RDP
+coverage emulation.
+
+Every geometry fixture calls the production function, including the measured
+Hawaii pair, exact-coefficient coverage, original minor-edge jogs, inverted
+spans and attribute-plane checks. Exact-coefficient tests require preservation
+of original MSAA samples and bound newly covered samples, rather than demand
+unguarded coverage. Additional regressions check identical YM endpoints for
+continuous M/L edges with unequal slopes, preservation of source jogs, and
+exclusion of unused slopes from the shared guard.
+
+An earlier local replay of the same 1,163-command Hawaii capture measured roughly
+4.3 ms per frame before and 4.4 ms after the initial guard in command processing;
 these are local replay measurements, not whole-game frame-rate guarantees.
 An alternative that subdivided every edge into quarter-pixel rows was
 rejected after replay cost rose to about 19.6 ms per frame. It is not shipped.

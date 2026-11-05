@@ -75,7 +75,7 @@ unsigned holes(const std::vector<EdgeTriangles>& tris, const std::array<Point, 4
 }
 
 EdgeTriangles reconstruct(const std::array<Point, 3>& v, int slopeBits) {
-    return triangulateEdges(decodeTriangleEdges(encode(v, slopeBits)));
+    return triangulateCoverage(decodeTriangleEdges(encode(v, slopeBits)));
 }
 
 // RasterVS adds half an output pixel. D3D then rounds vertex coordinates to
@@ -91,6 +91,26 @@ EdgeTriangles snapVertices(EdgeTriangles t, double scale) {
 }
 
 int main() {
+    // Continuous M/L edges must keep one minor vertex at YM even when their
+    // slopes need different guards. Also preserve an intentional source jog.
+    for (double side : {-1.0, 1.0}) {
+        for (double jog : {0.0, 0.25, -0.25}) {
+            const TriangleEdges join{.leftMajor = side > 0, .yh = 0, .ym = 4, .yl = 8,
+                .xh = 20, .xm = 20 + side * 2, .xl = 20 + side * 10 + jog,
+                .dxhdy = 0, .dxmdy = side * 2, .dxldy = -side * .5};
+            const auto mesh = triangulateCoverage(join);
+            require(mesh.vertexCount == 12, "YM fixture did not emit both spans");
+            // Upper minor bottom and lower minor top are repeated along each
+            // trapezoid's diagonal. Check all occurrences, not just coverage.
+            require(mesh.vertices[2].x == mesh.vertices[4].x, "Upper shared endpoint differs");
+            require(mesh.vertices[2].y == 4 && mesh.vertices[7].y == 4, "YM endpoints moved");
+            require(mesh.vertices[5].x == mesh.vertices[6].x && mesh.vertices[5].y == mesh.vertices[6].y,
+                    "Major-edge endpoints do not meet at YM");
+            require(double(mesh.vertices[7].x) - mesh.vertices[2].x == jog,
+                    "Coverage guard introduced a new minor-edge step at YM");
+        }
+    }
+
     // Exactly coincident H/L coefficients, but splitting H at YM=87 moves
     // its new vertex off the neighbour's unsplit L after GPU snapping.
     // Before the fix, standard 4x MSAA sample (43.625,108.875), with a .75px
@@ -138,7 +158,7 @@ int main() {
             const TriangleEdges jog{.leftMajor = leftMajor, .yh = 0, .ym = 4, .yl = 8,
                 .xh = 16, .xm = 16 + side * 6, .xl = 17 + side * (outward ? 8 : 2),
                 .dxhdy = .25, .dxmdy = .25, .dxldy = .25};
-            const auto polygon = triangulateEdges(jog);
+            const auto polygon = triangulateCoverage(jog);
             require(polygon.vertexCount <= MaxEdgeVertices, "Edge polygon exceeded vertex storage");
             for (int iy = -4; iy < 36; iy++) {
                 const double y = (iy + .5) / 4;
@@ -175,7 +195,7 @@ int main() {
     const TriangleEdges left{.leftMajor = true, .yh = -39.75, .ym = 39.75, .yl = 45.75,
         .xh = 208.8828125, .xm = 208.716796875, .xl = 299.0,
         .dxhdy = 0.470703125, .dxmdy = 1.1318359375, .dxldy = -8.291015625};
-    const std::vector<EdgeTriangles> measured{triangulateEdges(left), triangulateEdges(right)};
+    const std::vector<EdgeTriangles> measured{triangulateCoverage(left), triangulateCoverage(right)};
     // The right triangle's own H ends at x=299.62; keep 0.75px from the jog
     // at its bottom corner, where both RDP edges legitimately disagree.
     const std::array<Point, 4> measuredQuad{{{209, -39.75}, {494.25, -179.5}, {right.majorX(39.75), 39.75}, {249.25, 45.75}}};
@@ -183,11 +203,11 @@ int main() {
         require(holes(measured, measuredQuad, scale, 0.75) == 0, "Measured BOSS pair leaves uncovered samples");
     }
 
-    // Exact coefficients: the trapezoids cover exactly the original triangle's
-    // standard four-sample MSAA positions at 1x-3x.
+    // Exact coefficients: production keeps all original MSAA coverage and
+    // adds samples only within its documented horizontal guard band.
     const std::array<Point, 3> exact{{{8, 4}, {40, 36}, {2, 20}}};
     const auto edges = decodeTriangleEdges(encode(exact, 16));
-    const auto split = triangulateEdges(edges);
+    const auto split = triangulateCoverage(edges);
     EdgeTriangles original;
     for (unsigned i = 0; i < 3; i++) original.vertices[i] = {float(exact[i][0]), float(exact[i][1])};
     original.vertexCount = 3;
@@ -197,7 +217,14 @@ int main() {
             for (int column = 0; column < 48 * scale; column++) {
                 for (const auto& s : msaa) {
                     const double x = (column + s[0]) / scale, y = (row + s[1]) / scale;
-                    require(covers(split, x, y) == covers(original, x, y), "Exact triangle changed MSAA sample coverage");
+                    const bool wasCovered = covers(original, x, y);
+                    const bool isCovered = covers(split, x, y);
+                    require(!wasCovered || isCovered, "Guard removed original MSAA coverage");
+                    const double nearest = std::min({distance({x, y}, exact[0], exact[1]),
+                        distance({x, y}, exact[1], exact[2]), distance({x, y}, exact[2], exact[0])});
+                    const double maxGuard = (1 + std::max({std::abs(edges.dxhdy), std::abs(edges.dxmdy), std::abs(edges.dxldy)})) / 256;
+                    if (!wasCovered && nearest > maxGuard + 1e-4)
+                        require(!isCovered, "Guard added coverage beyond its boundary band");
                 }
             }
         }
@@ -224,44 +251,52 @@ int main() {
         require(std::abs(interpolated - shade(x, y)) < 1e-5, "Shade gradient changed inside the edge area");
     }
 
-    // Vertices lie on the walked edges.
+    // Production vertices stay within the guard band of the walked edges.
     for (uint32_t i = 0; i < split.vertexCount; i++) {
         const auto& v = split.vertices[i];
         require(v.y >= edges.yh && v.y <= edges.yl, "Vertex left the YH..YL span");
         const double h = edges.majorX(v.y), m = edges.middleX(v.y), l = edges.lowX(v.y);
-        require(std::abs(v.x - h) < 1e-4 || (v.y <= edges.ym && std::abs(v.x - m) < 1e-4) ||
-                (v.y >= edges.ym && std::abs(v.x - l) < 1e-4), "Vertex is not on an RDP edge");
+        const double bound = (1 + std::max({std::abs(edges.dxhdy), std::abs(edges.dxmdy), std::abs(edges.dxldy)})) / 256 + 1e-4;
+        require(std::abs(v.x - h) <= bound || (v.y <= edges.ym && std::abs(v.x - m) <= bound) ||
+                (v.y >= edges.ym && std::abs(v.x - l) <= bound), "Vertex exceeded the guarded edge band");
     }
 
     // The RDP draws no span where the minor edge crosses to the wrong side of
     // H. Left-major H at x=10; M crosses it at y=10 and is inverted below.
     const TriangleEdges crossing{.leftMajor = true, .yh = 0, .ym = 20, .yl = 20, .xh = 10, .xm = 20, .xl = 0,
                                  .dxhdy = 0, .dxmdy = -1, .dxldy = 0};
-    const auto cut = triangulateEdges(crossing);
+    const auto cut = triangulateCoverage(crossing);
     require(covers(cut, 15, 2) && !covers(cut, 9, 15) && !covers(cut, 10.5, 12), "Inverted span was rasterized");
 
     // YM outside YH..YL uses only the edge pair the walker reaches.
-    require(triangulateEdges({.leftMajor = true, .yh = 5, .ym = 5, .yl = 5, .xh = 0, .xm = 0, .xl = 0,
+    require(triangulateCoverage({.leftMajor = true, .yh = 5, .ym = 5, .yl = 5, .xh = 0, .xm = 0, .xl = 0,
                               .dxhdy = 1, .dxmdy = 1, .dxldy = 1}).vertexCount == 0, "Zero-height triangle emitted geometry");
     const TriangleEdges upper{.leftMajor = true, .yh = 0, .ym = 30, .yl = 10, .xh = 0, .xm = 10, .xl = 99,
                               .dxhdy = 0, .dxmdy = 0, .dxldy = 0};
-    const auto upperOnly = triangulateEdges(upper);
+    const auto upperOnly = triangulateCoverage(upper);
     require(covers(upperOnly, 5, 5) && !covers(upperOnly, 5, 11) && !covers(upperOnly, 50, 5), "YM beyond YL used the L edge");
-    const auto guarded = triangulateCoverage(upper);
+    const auto& guarded = upperOnly;
     require(covers(guarded, -1.0 / 512, 5) && covers(guarded, 10 + 1.0 / 512, 5), "Coverage guard did not reach both boundaries");
     require(!covers(guarded, -1.0 / 128, 5) && !covers(guarded, 10 + 1.0 / 128, 5), "Coverage guard exceeded its subpixel bound");
     require(!covers(guarded, 5, -.001) && !covers(guarded, 5, 10.001), "Coverage guard changed Y endpoints");
+    auto inactiveSlope = upper;
+    inactiveSlope.dxldy = 1000000;
+    const auto inactiveGuard = triangulateCoverage(inactiveSlope);
+    require(inactiveGuard.vertexCount == guarded.vertexCount, "Inactive L slope changed geometry count");
+    for (unsigned i = 0; i < guarded.vertexCount; ++i)
+        require(inactiveGuard.vertices[i].x == guarded.vertices[i].x && inactiveGuard.vertices[i].y == guarded.vertices[i].y,
+                "Inactive L slope enlarged the guard");
     auto empty = upper;
     empty.xm = empty.xh;
     require(triangulateCoverage(empty).vertexCount == 0, "Coverage guard created geometry from an empty span");
-    // An interior YM takes the combined-fan path, which can emit vertices
-    // even when every triangle is collinear. Do not expand that into a line.
+    // With an interior YM both production spans are collinear and empty.
+    // Neither span may be expanded into visible geometry.
     empty.ym = 5;
     empty.xl = empty.xh;
-    require(triangulateCoverage(empty).vertexCount == 0, "Coverage guard expanded a collinear fan");
+    require(triangulateCoverage(empty).vertexCount == 0, "Coverage guard expanded collinear spans");
     empty.dxhdy = empty.dxmdy = empty.dxldy = 2;
     empty.xl = empty.majorX(empty.ym);
-    require(triangulateCoverage(empty).vertexCount == 0, "Coverage guard expanded a sloped collinear fan");
+    require(triangulateCoverage(empty).vertexCount == 0, "Coverage guard expanded sloped collinear spans");
     const TriangleEdges emptyUpper{.leftMajor = true, .yh = 0, .ym = 5, .yl = 10,
         .xh = 0, .xm = -.001, .xl = 10, .dxhdy = 0, .dxmdy = 0, .dxldy = 0};
     const auto lowerGuard = triangulateCoverage(emptyUpper);
@@ -276,7 +311,7 @@ int main() {
     require(guardOffset.dx == -1.0f / 256, "Coverage guard moved the attribute plane");
     const TriangleEdges lower{.leftMajor = true, .yh = 4, .ym = 0, .yl = 10, .xh = 0, .xm = 99, .xl = 10,
                               .dxhdy = 0, .dxmdy = 0, .dxldy = 0};
-    const auto lowerOnly = triangulateEdges(lower);
+    const auto lowerOnly = triangulateCoverage(lower);
     require(covers(lowerOnly, 5, 5) && !covers(lowerOnly, 5, 3) && !covers(lowerOnly, 50, 5), "YM above YH used the M edge");
 
     std::puts("RDP triangle edge reconstruction regression passed");
