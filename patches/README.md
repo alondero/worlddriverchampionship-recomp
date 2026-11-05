@@ -94,7 +94,7 @@ that range against this patch's helper.
 Patch 0014 has a ROM-free perspective/coverage reproducer in
 `tests/test_rdp_triangle_clip.cpp`. A triangle with a negative W vertex beyond
 the scissor loses its visible trapezoid when the GPU clips it in homogeneous
-space. The pinned and current upstream
+space. The pinned upstream
 [raw RDP decoder](https://github.com/rt64/rt64/blob/main/src/gbi/rt64_gbi_rdp.cpp)
 submit reconstructed vertices directly; the
 [vertex shader](https://github.com/rt64/rt64/blob/main/src/shaders/RasterVS.hlsl)
@@ -120,16 +120,20 @@ camera's inverse aspect scale to their scissor clips both wide edges. The
 a minimal numeric reproducer, and the live GPU acceptance evidence.
 
 Patch 0016 has a ROM-free coverage reproducer in
-`tests/test_rdp_triangle_edges.cpp`. The pinned and current upstream
+`tests/test_rdp_triangle_edges.cpp`. The pinned upstream
 [raw RDP decoder](https://github.com/rt64/rt64/blob/main/src/gbi/rt64_gbi_rdp.cpp)
 builds each triangle from three corners extrapolated along H, ignoring the M
 and L slopes, so neighbours rebuild a shared edge as two different lines. The
 patch adds `rt64_rdp_triangle_edges.h` to emit the area the RDP edge
-walker fills. Valid spans share one unbroken H boundary: splitting it at YM
-introduced a T-junction that GPU vertex rounding could turn into a crack.
-The regression models that rounding and fails with the earlier trapezoids.
-Inverted spans retain separate cuts. Each output triangle is clipped by patch 0014, so 0016 applies
-after it. The mechanism, measurements and limits are in the
+walker fills. The decoder and all geometry tests use one guarded-trapezoid
+path; the earlier unbroken-H fan is removed because its topology fix did not
+cover inverted/cut cases. Original widths determine each span's valid Y
+interval before the guard covers D3D subpixel rounding. Both minor lines use
+one offset based on their maximum used slope, preserving a continuous vertex
+at YM and any original minor-edge jog. Y endpoints and attribute planes stay
+unchanged. Tests include rounded inverted corners, shared YM endpoints,
+bounded added coverage, empty spans and collinear commands. Each output
+triangle is clipped by patch 0014, so 0016 applies after it. The mechanism, measurements and limits are in the
 [renderer reference](../docs/reference/renderer.md#raw-triangle-edge-reconstruction).
 
 The overlay patches are shared host UI behavior, copied from the Lamborghini
