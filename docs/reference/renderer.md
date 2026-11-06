@@ -466,6 +466,40 @@ unchanged. Hawaii practice HUD and pause panel were also unchanged. The
 seam where a fill meets the art showed no gap. Other menu screens built
 from the same builders have not been inspected individually.
 
+## Opaque subpixel coverage
+
+Patch 0020 mitigates thin background slivers visible between distant surfaces
+when raw RDP geometry is enlarged. In a Hawaii bridge scene, pixel tracing
+found only the earlier background triangles at several bright road-edge
+pixels. The opaque road palette was present. Changing draw distance, texture
+filtering, mip selection and the small GPU-rounding guard did not close the
+slivers. A software RDP replay of the captured command stream made them much
+less apparent at native resolution; this was a frame replay, not a full-game
+reference-emulator comparison.
+
+The RDP encodes Y at quarter-pixel precision. The patch expands each valid
+opaque span by half that step, 1/8 framebuffer pixel. Corner displacement is
+limited to 1/4 pixel, avoiding the long spikes an unbounded miter produces on
+nearly horizontal triangles. The original inverted-span rejection, GPU
+rounding guard, attribute planes and screen clipping remain in use. This is
+a coverage enhancement: it slightly enlarges opaque silhouettes and does not
+recover higher-precision source vertices or emulate exact RDP coverage.
+
+The mode gate requires AA and coverage-selected alpha, and excludes alpha
+comparison, coverage-times-alpha and forced blending. In particular,
+alpha-tested car surfaces and blended reflections do not receive the new
+expansion. No claim is made that this resolves every reported distant-car
+transparency artifact. Larger gaps and missing submitted geometry are also
+outside this mitigation.
+
+`tests/test_rdp_triangle_edges.cpp` exercises the production mode gate and
+geometry helper with a ROM-free separated-neighbour seam. It fails with
+expansion disabled, passes with it enabled, and bounds acute-corner movement.
+Existing edge-walker tests retain zero expansion. Windows/D3D12 visual checks
+covered the Hawaii bridge approach and starting-grid opponents at 4x MSAA.
+The marked bridge slivers closed with bounded expansion; Vulkan has not been
+runtime-tested.
+
 ## Gauge triangle alignment
 
 The two gauge layouts in `func_8002E13C` call `func_8002D99C` to build

@@ -1,0 +1,70 @@
+diff --git a/src/gbi/rt64_gbi_rdp.cpp b/src/gbi/rt64_gbi_rdp.cpp
+--- a/src/gbi/rt64_gbi_rdp.cpp
++++ b/src/gbi/rt64_gbi_rdp.cpp
+@@ -361,7 +361,7 @@
+                     edgeWords[i * 2 + 1] = curData[i].w1;
+                 }
+                 const TriangleEdges edges = decodeTriangleEdges(edgeWords);
+-                const EdgeTriangles edgeArea = triangulateCoverage(edges);
++                const EdgeTriangles edgeArea = triangulateCoverage(edges, opaqueCoverageRadius(state->rdp->otherMode.L));
+                 areaVertexCount = edgeArea.vertexCount;
+ 
+                 std::array<float, MaxEdgeVertices> dy, dx;
+diff --git a/src/gbi/rt64_rdp_triangle_edges.h b/src/gbi/rt64_rdp_triangle_edges.h
+--- a/src/gbi/rt64_rdp_triangle_edges.h
++++ b/src/gbi/rt64_rdp_triangle_edges.h
+@@ -40,12 +40,21 @@
+         uint32_t vertexCount = 0;
+     };
+ 
++    // Half of the RDP's quarter-pixel Y step. Upscaling exposes subpixel
++    // background slivers between separately rounded opaque surfaces. Do not
++    // expand alpha-tested, coverage-masked or blended layers (e.g. reflections).
++    inline double opaqueCoverageRadius(uint32_t otherMode) {
++        constexpr uint32_t required = 0x2008; // ALPHA_CVG_SEL | AA_EN
++        constexpr uint32_t excluded = 0x5003; // FORCE_BL | CVG_X_ALPHA | ALPHACOMPARE
++        return (otherMode & required) == required && !(otherMode & excluded) ? 0.125 : 0.0;
++    }
++
+     // One production path: at most two guarded trapezoids, H against M and L.
+     // Cut empty/inverted rows using the original coefficients before padding.
+     // Splitting H can give neighbours different GPU-rounded endpoints; the
+     // guard covers that error instead of relying on an unbroken-H fan that
+     // cannot handle all inverted/cut cases.
+-    inline EdgeTriangles triangulateCoverage(const TriangleEdges& e) {
++    inline EdgeTriangles triangulateCoverage(const TriangleEdges& e, double radius = 0.0) {
+         EdgeTriangles result;
+         if (!(e.yl > e.yh)) return result;
+         const double side = e.leftMajor ? 1.0 : -1.0;
+@@ -73,7 +82,30 @@
+             // revive an entirely inverted span or move the crossing's Y.
+             const EdgeVertex a{float(e.majorX(y0) - majorGuard), float(y0)}, b{float(minorX(y0) + minorGuard), float(y0)};
+             const EdgeVertex c{float(minorX(y1) + minorGuard), float(y1)}, d{float(e.majorX(y1) - majorGuard), float(y1)};
+-            for (const auto& v : {a, b, c, a, c, d}) result.vertices[result.vertexCount++] = v;
++            // Offset the exterior of each span, retaining the same attribute
++            // planes. Limit each corner's displacement to twice the radius:
++            // unbounded miters on distant, thin triangles produce long spikes.
++            const std::array<EdgeVertex, 4> corners{a, b, c, d};
++            auto expanded = corners;
++            for (int i = 0; radius > 0 && i < 4; i++) {
++                const auto previous = corners[(i + 3) % 4], here = corners[i], next = corners[(i + 1) % 4];
++                const double ax = here.x - previous.x, ay = here.y - previous.y;
++                const double bx = next.x - here.x, by = next.y - here.y;
++                const double aLength = std::hypot(ax, ay), bLength = std::hypot(bx, by);
++                if (aLength == 0 || bLength == 0) continue;
++                const double nx = side * (ay / aLength + by / bLength);
++                const double ny = -side * (ax / aLength + bx / bLength);
++                const double denominator = 1 + (ax * bx + ay * by) / (aLength * bLength);
++                if (denominator <= 0) continue;
++                double ox = radius * nx / denominator, oy = radius * ny / denominator;
++                const double length = std::hypot(ox, oy);
++                if (length > radius * 2) {
++                    ox *= radius * 2 / length;
++                    oy *= radius * 2 / length;
++                }
++                expanded[i] = {float(here.x + ox), float(here.y + oy)};
++            }
++            for (int i : {0, 1, 2, 0, 2, 3}) result.vertices[result.vertexCount++] = expanded[i];
+         };
+         trapezoid(e.yh, ym, [&](double y) { return e.middleX(y); });
+         trapezoid(ym, e.yl, [&](double y) { return e.lowX(y); });
