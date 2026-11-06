@@ -23,7 +23,7 @@ void func_800720B0(uint8_t*, recomp_context*); // osPfsFileState
 void osCreateMesgQueue_recomp(uint8_t*, recomp_context*) {}
 void osRecvMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
 void osSendMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
-void osGetCount_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 123456; }
+void wdc_get_count(uint8_t*, recomp_context* ctx) { ctx->r2 = 123456; }
 }
 
 int main(int argc, char** argv) {

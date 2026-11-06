@@ -50,6 +50,17 @@ The bridge and its ROM addresses are documented in
 [`src/game_warp.cpp`](../src/game_warp.cpp). Native setup comparisons cover all
 course/model/mode combinations; see [testing](testing.md).
 
+## Developer save states
+
+**F7** saves a settled RAM checkpoint and **F8** restores it. The default slot
+is `build/user-data/wdc_savestate.wstate`. Set `WDC_STATE_FILE` to select a
+different slot, or use `WDC_STATE_SAVE` / `WDC_STATE_LOAD` for one-shot scripted
+race checkpoints. After restarting, enter the same race setup before loading.
+These development checkpoints do not capture native stacks or renderer work;
+see [usage, environment controls and limits](debugging.md#development-save-states).
+
+## Host settings
+
 Graphics settings are stored in `build/user-data/graphics.json`. The SDL main
 thread loads and saves settings; the graphics thread takes a mutex-protected
 copy at display-list/VI boundaries. SDL window operations stay on the main

@@ -14,6 +14,7 @@
 #include "boss_rsp.h"
 #include "controller_pak.h"
 #include "game_warp.h"
+#include "savestate.h"
 #ifdef WDC_PLAYER
 #include <SDL.h>
 #include <SDL_syswm.h>
@@ -110,6 +111,7 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(config_path);
     recomp::register_config_path(config_path);
     wdc::pak::configure(config_path / "saves" / "worlddriverchampionship.us.mpk");
+    if (!wdc::state::configure(config_path / "wdc_savestate.wstate")) return 1;
 #ifdef WDC_PLAYER
     wdc::graphics::load(config_path / "graphics.json");
 #endif
@@ -168,6 +170,12 @@ int main(int argc, char** argv) {
         bool captured = wdc::ui::captures_input();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_KEYDOWN && !event.key.repeat && !captured &&
+                (event.key.keysym.sym == SDLK_F7 || event.key.keysym.sym == SDLK_F8)) {
+                if (event.key.keysym.sym == SDLK_F7) wdc::state::request_save();
+                else wdc::state::request_load();
+                continue;
+            }
             if (event.type == SDL_KEYDOWN && !event.key.repeat &&
                 (event.key.keysym.mod & KMOD_CTRL) && (event.key.keysym.mod & KMOD_SHIFT)) {
                 const auto key = event.key.keysym.sym;

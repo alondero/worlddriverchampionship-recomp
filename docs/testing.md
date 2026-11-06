@@ -26,9 +26,9 @@ that no ignored files are tracked and scans Git history for credentials with
 
 ## ROM-free host tests
 
-This mode builds the same twenty C++ host-test targets used by the player build,
+This mode builds the same C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
-headers from pinned public dependencies and five of the normal dependency
+headers from pinned public dependencies and six of the normal dependency
 patches. From a fresh checkout:
 
 ```bash
@@ -37,7 +37,8 @@ git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
 python3 -B scripts/patch_series.py --submodule lib/N64ModernRuntime \
     --patch patches/0008-runtime-controller-pak-kind.patch \
     --patch patches/0013-runtime-rsp-unsigned-packed-loads.patch \
-    --patch patches/0018-runtime-rsp-dma-rounding.patch
+    --patch patches/0018-runtime-rsp-dma-rounding.patch \
+    --patch patches/0019-runtime-developer-thread-snapshots.patch
 python3 -B scripts/patch_series.py --submodule lib/rt64 \
     --patch patches/0014-rt64-rdp-screen-clipping.patch \
     --patch patches/0016-rt64-rdp-edge-trapezoids.patch
@@ -58,6 +59,15 @@ state for patch 0014, because patch 0016 rewrites the context it matched.
 `tests/test_patch_series.py` covers the helper on a synthetic repository.
 
 ## ROM-backed and player checks
+
+`wdc_savestate`, `wdc_savestate_automatic`, `wdc_savestate_automatic_load`
+and `wdc_savestate_invalid_config`
+exercise real slot I/O and the patched runtime thread registry over synthetic
+RDRAM: deferred requests, settle/fade gating, byte-exact restoration, context
+replacement, stale thread cleanup, count-clock wrap/rebasing, malformed files,
+scene/race/queue/frame-rate mismatch rejection, and preservation of the previous slot
+after write failure. These do not establish live renderer or race reliability;
+see [development checkpoints](debugging.md#development-save-states).
 
 Once the ROM and generated image exist:
 

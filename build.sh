@@ -57,6 +57,7 @@ runtime_patches=(
     "$ROOT/patches/0009-runtime-host-config-storage.patch"
     "$ROOT/patches/0013-runtime-rsp-unsigned-packed-loads.patch"
     "$ROOT/patches/0018-runtime-rsp-dma-rounding.patch"
+    "$ROOT/patches/0019-runtime-developer-thread-snapshots.patch"
 )
 frontend_patches=(
     "$ROOT/patches/0010-frontend-enum-wrap.patch"

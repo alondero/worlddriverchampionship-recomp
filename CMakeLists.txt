@@ -105,7 +105,7 @@ endif()
 
 set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp src/game_framerate.cpp src/game_audio.cpp src/game_driving.cpp src/game_cheats.cpp src/game_cheat_camera.cpp src/game_warp.cpp
     src/boss_rsp.cpp src/boss_events.cpp src/boss_capture.cpp
-    src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp src/rumble.cpp)
+    src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp src/rumble.cpp src/savestate.cpp)
 # Generated BOSS is one object library shared by the player and the offline
 # wdc_boss_bench replay tool. boss_dma.h routes its RDRAM writes through the
 # capture journal in boss_rsp.cpp.
