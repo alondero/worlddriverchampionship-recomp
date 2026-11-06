@@ -58,6 +58,7 @@ jobs:
           git -C lib/N64ModernRuntime apply ../../patches/0019-runtime-developer-thread-snapshots.patch
           git -C lib/rt64 apply ../../patches/0014-rt64-rdp-screen-clipping.patch
           git -C lib/rt64 apply ../../patches/0016-rt64-rdp-edge-trapezoids.patch
+          git -C lib/rt64 apply ../../patches/0020-rt64-opaque-subpixel-coverage.patch
       - name: Configure ROM-free host tests
         run: cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
       - run: cmake --build build-host-tests --parallel 2

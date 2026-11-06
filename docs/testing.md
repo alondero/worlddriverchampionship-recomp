@@ -28,7 +28,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 This mode builds the same C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
-headers from pinned public dependencies and six of the normal dependency
+headers from pinned public dependencies and seven of the normal dependency
 patches. From a fresh checkout:
 
 ```bash
@@ -41,7 +41,8 @@ python3 -B scripts/patch_series.py --submodule lib/N64ModernRuntime \
     --patch patches/0019-runtime-developer-thread-snapshots.patch
 python3 -B scripts/patch_series.py --submodule lib/rt64 \
     --patch patches/0014-rt64-rdp-screen-clipping.patch \
-    --patch patches/0016-rt64-rdp-edge-trapezoids.patch
+    --patch patches/0016-rt64-rdp-edge-trapezoids.patch \
+    --patch patches/0020-rt64-opaque-subpixel-coverage.patch
 cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
 cmake --build build-host-tests --parallel 2
 ctest --test-dir build-host-tests --output-on-failure --no-tests=error

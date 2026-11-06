@@ -54,6 +54,7 @@ the WDC runtime demonstrates the same need.
 | `0014-rt64-rdp-screen-clipping.patch` | RT64 | All | Clip reconstructed off-screen vertices in RDP screen space before GPU submission. |
 | `0015-rt64-raw-triangle-scissor.patch` | RT64 | All | Scale raw-triangle scissors in the same framebuffer space as their vertices. |
 | `0016-rt64-rdp-edge-trapezoids.patch` | RT64 | All | Rebuild raw RDP triangles from their H/M/L edges instead of three extrapolated corners. |
+| `0020-rt64-opaque-subpixel-coverage.patch` | RT64 | All | Bound opaque-surface coverage expansion to conceal subpixel background slivers when upscaling. |
 | `0017-frontend-host-input.patch` | RecompFrontend | Desktop | Expose single-event/batch handling for the host SDL loop; handle failed opens/disconnects, use the controller profile for binding cancellation and bound deadzone. |
 | `0018-runtime-rsp-dma-rounding.patch` | N64ModernRuntime | All | Round inclusive RSP DMA lengths to eight-byte words; prevents stale stereo frames at BOSS audio block boundaries. |
 | `0019-runtime-developer-thread-snapshots.patch` | N64ModernRuntime | All | Validate the live thread roster and remove/repair native context pointers for developer RAM checkpoints. |
@@ -62,8 +63,8 @@ the WDC runtime demonstrates the same need.
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0014, 0015, 0016, 0017 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0014, 0015, 0016, 0017 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0014, 0015, 0016, 0020, 0017 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0014, 0015, 0016, 0020, 0017 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
@@ -136,6 +137,16 @@ unchanged. Tests include rounded inverted corners, shared YM endpoints,
 bounded added coverage, empty spans and collinear commands. Each output
 triangle is clipped by patch 0014, so 0016 applies after it. The mechanism, measurements and limits are in the
 [renderer reference](../docs/reference/renderer.md#raw-triangle-edge-reconstruction).
+
+Patch 0020 applies after 0016. It adds a bounded 1/8-framebuffer-pixel
+coverage expansion for opaque antialiased raw triangles, with a maximum
+corner displacement of 1/4 pixel. Alpha-tested, coverage-masked and blended
+layers retain 0016's geometry. This is an upscaling mitigation for subpixel
+background slivers, not a change to visibility or texture loading. The same
+edge test covers a separated-neighbour seam, material-mode exclusions and
+acute-corner displacement bounds. See the
+[renderer reference](../docs/reference/renderer.md#opaque-subpixel-coverage)
+for visual evidence and limits.
 
 The overlay patches are shared host UI behavior, copied from the Lamborghini
 peer's storage and enum-layout patches at the same dependency pins. The WDC

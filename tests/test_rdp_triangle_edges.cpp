@@ -91,6 +91,30 @@ EdgeTriangles snapVertices(EdgeTriangles t, double scale) {
 }
 
 int main() {
+    // Separately rounded neighbouring surfaces can leave a subpixel strip of
+    // background exposed when enlarged. Preserve the exact mode gate used by
+    // decodeTriangles: reflections and alpha-tested car surfaces must not grow.
+    const double radius = opaqueCoverageRadius(0xc811204c);
+    require(radius == 0.125, "Opaque AA surfaces did not request seam coverage");
+    for (uint32_t mode : {0xc811204du, 0xc811304cu, 0xc811604cu, 0xc8112044u, 0xc811004cu})
+        require(opaqueCoverageRadius(mode) == 0, "Non-opaque mode requested seam coverage");
+    const auto seamA = decodeTriangleEdges(encode({Point{10, 10}, Point{30, 30}, Point{10, 30}}, 16));
+    const auto seamB = decodeTriangleEdges(encode({Point{10.125, 10}, Point{30.125, 10}, Point{30.125, 30}}, 16));
+    require(!covers(triangulateCoverage(seamA), 20.0625, 20) &&
+            !covers(triangulateCoverage(seamB), 20.0625, 20), "Seam fixture no longer exposes background");
+    for (int y = 12; y < 28; y++)
+        require(covers(triangulateCoverage(seamA, radius), y + .0625, y) ||
+                covers(triangulateCoverage(seamB, radius), y + .0625, y), "Opaque subpixel seam remains open");
+    // Acute triangles must not turn a small coverage radius into long spikes.
+    for (const auto& edge : {seamA, seamB,
+            decodeTriangleEdges(encode({Point{5, 5}, Point{6, 5.25}, Point{50, 5.5}}, 16))}) {
+        const auto before = triangulateCoverage(edge), after = triangulateCoverage(edge, radius);
+        require(before.vertexCount == after.vertexCount, "Coverage expansion changed span topology");
+        for (unsigned i = 0; i < before.vertexCount; i++)
+            require(std::hypot(after.vertices[i].x - before.vertices[i].x,
+                               after.vertices[i].y - before.vertices[i].y) <= .25001,
+                    "Coverage expansion exceeded its displacement bound");
+    }
     // Continuous M/L edges must keep one minor vertex at YM even when their
     // slopes need different guards. Also preserve an intentional source jog.
     for (double side : {-1.0, 1.0}) {
