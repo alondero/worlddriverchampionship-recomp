@@ -4,6 +4,28 @@ This project is the next member of the same N64Recomp port family. The
 AeroGauge and Automobili Lamborghini repositories were compared before this
 scaffold was created.
 
+## Development RAM checkpoints
+
+Reviewed [Automobili Lamborghini's checkpoint](https://github.com/alondero/automobililamborghini-recomp/blob/39a7188dc5847baa4bb63caeac679995f55ccbab/src/lambo_savestate.c)
+and [AeroGauge's checkpoint](https://github.com/alondero/aerogauge-recomp/blob/9d9cba7c0b7ac3136cb660a4d3096677c30f089a/src/aero_savestate.c)
+in local source checkouts.
+Both publish F7/F8 requests atomically, copy RAM on a game frame hook, provide
+environment-driven save/load, and relink native OSThread contexts. Lamborghini
+also saves relocated race tables and reapplies host patches. AeroGauge gates
+on scene stability and rebases a RAM clock anchor. Their native stacks and
+native renderer/background work remain outside the snapshot; neither is a
+general resumable save-state implementation. These were source reviews, not
+sibling playthroughs.
+
+WDC uses its own dispatcher at `80001D90`, scene/configuration guards, a
+validated thread roster with stripped pointers, atomic replacement on Windows,
+and a virtual `osGetCount` epoch. No peer ROM addresses or extension allocations
+are imported. The pinned runtime stores `UltraThreadContext*` directly in guest
+OSThread structures and has no RAM-restore interface; patch 0019 adds only
+roster validation and pointer preparation. It does not serialize native stacks
+or quiesce asynchronous readers. See [development save states](debugging.md#development-save-states)
+for use and limits.
+
 ## Retained conventions
 
 - recursive submodules pin N64ModernRuntime, RT64, and RecompFrontend;

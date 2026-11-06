@@ -4,6 +4,39 @@ The intended runtime path is the shared N64ModernRuntime implementation:
 translated guest threads and RDRAM are owned by librecomp/ultramodern, with
 RT64 receiving graphics work and the host owning SDL presentation.
 
+## Developer checkpoint boundary
+
+`func_80001D88` owns the render/game dispatcher loop. At `80001D90` it reloads
+the u32 callback at `8007D848`, then calls it indirectly at `80001D98`. The
+save-state hook runs before that reload on every loop iteration. Recognized
+callbacks are `8004E950` (menu) and `8000C560` (race); loaders are excluded.
+`800923E4` is the u32 scene ID, and `80092360..800923FF` is the race setup.
+The hook copies the low 8 MiB allocation without changing its word-swapped
+layout. See [save-state workflow and limits](../debugging.md#development-save-states).
+
+Race identity checks compare configuration offsets `00..27` (participant
+counts/model grid) and `70..87` (course/layout/mirror/variant/laps/mode), as
+constructed by `80068AA8`. The full `0xA0`-byte structure is live race state:
+for example, `8004CC00/14` stores `+68` during play. Comparing every byte
+rejected a measured F8 load three seconds after F7 in the same practice race.
+Live fields are restored from the checkpoint without requiring equality.
+
+Pinned ultramodern stores a native `UltraThreadContext*` in each guest
+OSThread. Patch 0019 registers live contexts on creation, removes them on
+destruction/termination, validates the complete roster and its queue metadata,
+and prepares a scratch snapshot. Saves zero those pointers; loads reconnect
+them to the current process before publishing RAM. Roster addresses must be
+8-byte aligned and the runtime's full OSThread must fit in the snapshot.
+No guest scheduling call may occur between preparation and publication.
+This is pointer repair, not native stack or scheduler serialization.
+
+All translated calls to the measured `osGetCount` entry at `80071930` route
+through `wdc_get_count`. Its host-owned atomic bias initially equals zero.
+A successful checkpoint load resets that bias to the difference between the
+current native count and the saved guest count, modulo 2^32. This preserves
+RAM clock-anchor ages without rebasing the host timer thread or guessing a
+list of game clock fields. It does not restore native register-held samples.
+
 ## Input-worker startup ordering
 
 The USA initializer `func_8002CB0C` creates thread 9 (entry `0x8002C500`,

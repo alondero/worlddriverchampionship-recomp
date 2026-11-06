@@ -50,6 +50,8 @@ the CPU symbol/configuration TOMLs. Edit `rom-symbols.toml`,
 The script carries two Windows compatibility patches, four BOSS/runtime
 patches, a Controller Pak device-kind patch, five frontend/input patches,
 and raw RDP screen-clipping, scissor-scaling and edge-reconstruction patches.
+The developer save-state tool also needs patch 0019 for native thread-context
+validation and repair; both build scripts apply it automatically.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 

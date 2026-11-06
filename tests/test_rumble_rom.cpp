@@ -38,7 +38,7 @@ void func_800742D0(uint8_t*, recomp_context*); // osPfsDeleteFile, reached from 
 void osCreateMesgQueue_recomp(uint8_t*, recomp_context*) {}
 void osRecvMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
 void osSendMesg_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 0; }
-void osGetCount_recomp(uint8_t*, recomp_context* ctx) { ctx->r2 = 123456; }
+void wdc_get_count(uint8_t*, recomp_context* ctx) { ctx->r2 = 123456; }
 // A Controller Pak echoes the FE bank probe; the original initializer must
 // reject it as a memory accessory after performing its observable OSPfs writes.
 void wdc_reference_probe_write(uint8_t* rdram, recomp_context* ctx) {

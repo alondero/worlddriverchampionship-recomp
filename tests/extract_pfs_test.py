@@ -19,7 +19,7 @@ pending = ["wdc_pfs_init", "wdc_pfs_allocate_file", "wdc_pfs_find_file",
            "func_800720B0", "func_800734D0", "func_800742D0"]
 natives = {"wdc_pak_read", "wdc_pak_write", "wdc_pak_status",
            "osCreateMesgQueue_recomp", "osRecvMesg_recomp", "osSendMesg_recomp",
-           "osGetCount_recomp"}
+           "wdc_get_count"}
 seen = set()
 while pending:
     name = pending.pop()

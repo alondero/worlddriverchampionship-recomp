@@ -89,6 +89,7 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x8001A280 = 0xA0
 
 [native]
+0x80071930 = "wdc_get_count"
 0x80073BEC = "wdc_motor_init"
 0x80073730 = "wdc_motor_stop"
 0x800738D0 = "wdc_motor_start"
@@ -111,6 +112,12 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x800779A0 = "wdc_pak_status"
 0x80078940 = "wdc_pak_read"
 0x80079700 = "wdc_pak_write"
+
+# Run before the dispatcher reloads its callback, including loop iterations.
+[[hooks]]
+func = "func_80001D88"
+before_vram = 0x80001D90
+text = "{ extern void wdc_savestate_tick(uint8_t*, recomp_context*); wdc_savestate_tick(rdram, ctx); }"
 
 # Developer warp boundaries; guest-memory contracts live in src/game_warp.cpp.
 [[hooks]]

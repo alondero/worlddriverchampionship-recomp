@@ -1,4 +1,13 @@
 if(BUILD_TESTING)
+    add_executable(wdc_savestate_tests tests/test_savestate.cpp src/savestate.cpp)
+    target_include_directories(wdc_savestate_tests PRIVATE src
+        "${N64MR}/N64Recomp/include" "${N64MR}/ultramodern/include")
+    target_compile_options(wdc_savestate_tests PRIVATE -fno-strict-aliasing)
+    target_link_libraries(wdc_savestate_tests PRIVATE Threads::Threads)
+    add_test(NAME wdc_savestate COMMAND wdc_savestate_tests)
+    add_test(NAME wdc_savestate_automatic COMMAND wdc_savestate_tests automatic)
+    add_test(NAME wdc_savestate_automatic_load COMMAND wdc_savestate_tests load)
+    add_test(NAME wdc_savestate_invalid_config COMMAND wdc_savestate_tests invalid)
     add_executable(wdc_warp_tests tests/test_warp.cpp src/game_warp.cpp)
     target_include_directories(wdc_warp_tests PRIVATE src "${N64MR}/N64Recomp/include")
     add_test(NAME wdc_warp COMMAND wdc_warp_tests)

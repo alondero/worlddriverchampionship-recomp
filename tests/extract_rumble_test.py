@@ -16,7 +16,7 @@ pending = ["func_8004D450", "func_8004D79C", "func_8004D9B0", "func_8004D854", "
 # File initialization, allocation, note I/O and effect timers remain translated.
 natives = {"wdc_motor_init", "wdc_motor_start", "wdc_motor_stop",
            "wdc_rumble_tick", "wdc_pak_read", "wdc_pak_write", "wdc_pak_status",
-           "osCreateMesgQueue_recomp", "osRecvMesg_recomp", "osSendMesg_recomp", "osGetCount_recomp"}
+           "osCreateMesgQueue_recomp", "osRecvMesg_recomp", "osSendMesg_recomp", "wdc_get_count"}
 seen = set()
 while pending:
     name = pending.pop()

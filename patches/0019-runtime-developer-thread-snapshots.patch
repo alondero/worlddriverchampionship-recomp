@@ -1,0 +1,104 @@
+diff --git a/ultramodern/include/ultramodern/thread_snapshot.hpp b/ultramodern/include/ultramodern/thread_snapshot.hpp
+new file mode 100644
+index 0000000..0ba1614
+--- /dev/null
++++ b/ultramodern/include/ultramodern/thread_snapshot.hpp
+@@ -0,0 +1,55 @@
++#pragma once
++#include "ultra64.h"
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#include <map>
++#include <mutex>
++
++namespace ultramodern {
++// Developer RAM snapshots cannot serialize native stacks. This registry only
++// removes native pointers on save and reconnects an equivalent live roster on
++// load. Call prepare on the running guest thread without yielding until the
++// caller has copied the prepared image. Native readers require separate care.
++class ThreadSnapshotRegistry {
++    std::mutex mutex;
++    std::map<uint32_t, UltraThreadContext*> contexts;
++public:
++    void add(uint32_t address, UltraThreadContext* context) {
++        std::lock_guard lock(mutex);
++        contexts[address] = context;
++    }
++    void remove(uint32_t address, UltraThreadContext* context) {
++        std::lock_guard lock(mutex);
++        auto it = contexts.find(address);
++        if (it != contexts.end() && it->second == context) contexts.erase(it);
++    }
++    bool prepare(uint8_t* rdram, uint8_t* image, uint32_t size,
++            uint32_t* addresses, uint32_t* count, bool restore) {
++        std::lock_guard lock(mutex);
++        if (!rdram || !image || !addresses || !count || contexts.empty() ||
++            (restore ? *count != contexts.size() : *count < contexts.size())) return false;
++        size_t index = 0;
++        // Validate everything before changing even the scratch image.
++        for (const auto& [address, context] : contexts) {
++            if (address < 0x80000000u || size < sizeof(OSThread) ||
++                address - 0x80000000u > size - sizeof(OSThread) || (address & 7)) return false;
++            const uint32_t offset = address - 0x80000000u;
++            const auto* live = reinterpret_cast<const OSThread*>(rdram + offset);
++            const auto* saved = reinterpret_cast<const OSThread*>(image + offset);
++            if (live->context != context || (restore && (addresses[index] != address ||
++                    saved->context != nullptr || saved->sp != live->sp ||
++                    std::memcmp(saved, live, offsetof(OSThread, context)) != 0))) return false;
++            ++index;
++        }
++        index = 0;
++        for (const auto& [address, context] : contexts) {
++            addresses[index++] = address;
++            auto* saved = reinterpret_cast<OSThread*>(image + address - 0x80000000u);
++            saved->context = restore ? context : nullptr;
++        }
++        *count = static_cast<uint32_t>(contexts.size());
++        return true;
++    }
++};
++}
+diff --git a/ultramodern/src/threads.cpp b/ultramodern/src/threads.cpp
+index 6e3ed18..39b050a 100644
+--- a/ultramodern/src/threads.cpp
++++ b/ultramodern/src/threads.cpp
+@@ -8,6 +8,14 @@
+ #include "blockingconcurrentqueue.h"
+ 
+ #include "ultramodern/threads.hpp"
++#include "ultramodern/thread_snapshot.hpp"
++
++static ultramodern::ThreadSnapshotRegistry snapshot_threads;
++
++extern "C" bool ultramodern_prepare_thread_snapshot(uint8_t* rdram, uint8_t* image,
++        uint32_t size, uint32_t* addresses, uint32_t* count, bool restore) {
++    return snapshot_threads.prepare(rdram, image, size, addresses, count, restore);
++}
+ 
+ // Native APIs only used to set thread names for easier debugging
+ #ifdef _WIN32
+@@ -224,6 +232,7 @@ static void _thread_func(RDRAM_ARG PTR(OSThread) self_, PTR(thread_func_t) entry
+     // so mark this thread as destroyed and run the next queued thread.
+     if (self->context == thread_context) {
+         self->context = nullptr;
++        snapshot_threads.remove(uint32_t(self_), thread_context);
+         run_next_thread(PASS_RDRAM1);
+     }
+ 
+@@ -263,6 +272,7 @@ extern "C" void osCreateThread(RDRAM_ARG PTR(OSThread) t_, OSId id, PTR(thread_f
+     // Pass the context as an argument to the thread function to ensure that it can't get cleared before the thread captures its value.
+     UltraThreadContext* context = new UltraThreadContext{};
+     t->context = context;
++    snapshot_threads.add(uint32_t(t_), context);
+     context->host_thread = std::thread{_thread_func, PASS_RDRAM t_, entrypoint, arg, t->context};
+ 
+     // Wait until the thread is initialized to indicate that it's ready to be started.
+@@ -301,6 +311,7 @@ extern "C" void osDestroyThread(RDRAM_ARG PTR(OSThread) t_) {
+     if (cur_context != nullptr) {
+         // Mark the target thread as destroyed and resume it. When it starts it'll check this and terminate itself instead of resuming.
+         t->context = nullptr;
++        snapshot_threads.remove(uint32_t(t_), cur_context);
+         cur_context->running.signal();
+     }
+ }
