@@ -234,6 +234,14 @@ func = "func_8002E13C"
 before_vram = 0x8002E530
 text = "{ extern void wdc_hud_normal_shift(uint8_t*, recomp_context*); wdc_hud_normal_shift(rdram, ctx); }"
 
+# Results use native text coordinates when the H-RES picture fills the window.
+# The small team/car font doubles only its origin, so correcting doubled-height
+# packets in the renderer cannot keep the results columns scrolling together.
+[[hooks]]
+func = "func_80046D40"
+before_vram = 0x80047474
+text = "{ extern void wdc_results_normal_text(uint8_t*, recomp_context*); wdc_results_normal_text(rdram, ctx); }"
+
 # Instrument/timing portion only: the preceding wrong-way message stays centered.
 # FA78 is the common cleanup for all paths that reach E51C (early exits bypass both).
 [[hooks]]

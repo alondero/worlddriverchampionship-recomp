@@ -313,7 +313,7 @@ height. A bad descriptor pointer keeps the ROM's layout. Mode 8's wider X
 still uses the scene's X shift and the wide flag at `sp+0x1F4`. Mode 8 and
 two-player H-RES have not been seen live.
 
-Every other doubled sprite measured grows about the picture's centre line.
+Pause sprites and countdown digits grow about the picture's centre line.
 The in-race pause drawer reaches `func_8006DA18` (text), `func_8006D22C`
 (panel) and `func_8006CA7C` (the flipped panel edges, opcode 37). With the
 H-RES flag set and sprite byte `+0x1C` clear, these emit step `0x02000100`.
@@ -374,6 +374,31 @@ draws the same 41 HUD rectangles as NORM, at the same screen positions and
 with the same steps. Only the digit glyphs (clock and speed values) and the
 map marker's position differ. The big dial, needle, map and timing font match
 the NORM screenshot, and the H-RES pause menu is centred.
+
+## Results text layout
+
+Results are different from the centred pause panel: `func_80046D40` lays out
+its title and scrolling rows from row zero, with clipping at logical rows 35
+through height minus 35. Before `0x80047474`, `wdc_results_normal_text` clears
+register `t9` when the active buffer is twice the logical picture height.
+The following ROM store writes the text-resolution flag at `0x80099C60`,
+so all results text uses native coordinates and bypasses the renderer's
+doubled-height correction. This includes the small team/car font:
+`func_80050EC4` sets sprite byte `+0x1C` through `func_8006CA58`, making
+`func_8006DA18` double only its Y origin and keep step `0x02000200`.
+Correcting only the other fields about the picture centre left these lines
+misplaced and scrolling twice as fast. The hook changes one register on the
+game thread, reading only the existing validated display descriptor. Normal
+pictures, true 480-line menus and invalid descriptors retain the ROM's flag.
+It does not change sprite data, HUD pinning or the shared blitter.
+
+`wdc_results_rom` executes the translated results drawer, text blit and raw
+packet allocator with prebuilt text objects and stubbed texture loading.
+The title and all four fields in eight rows must match normal-resolution
+Y coordinates, sizes and texture steps at five scroll offsets, including
+partly clipped rows. True 480-line menu packets must keep their original
+double-coordinate behaviour. This verifies packet geometry, not live GPU
+output or a completed race.
 
 ## Race HUD placement
 
