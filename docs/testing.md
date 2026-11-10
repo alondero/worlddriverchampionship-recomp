@@ -119,6 +119,14 @@ and rejects missing generated hooks. The frontend tests also cover Driving
 defaults/persistence/reset and virtual-gamepad pedal release gating. These
 checks do not validate physical pedal compatibility or racing feel.
 
+`wdc_results_rom` runs the translated results drawer, text blitter and frame
+packet allocator with prebuilt text objects; texture loading and unrelated
+menu branches are stubbed. It compares the title and every field of eight
+results rows between normal and H-RES pictures at five scroll offsets,
+including partially clipped rows, and checks that true 480-line menus keep
+the ROM's geometry. It also checks invalid-descriptor fallback and requires
+the generated results hook. It does not run a race or validate GPU output.
+
 Headless runs must have a bounded frame/VI budget and a machine-readable result
 when they are used in CI. A passing process exit alone is not proof that the
 game reached the intended scene or submitted a graphics/audio task.

@@ -93,6 +93,22 @@ bool tall_picture(uint8_t* rdram) {
     return logical_h > 0 && int64_t(buffer_h) == int64_t(logical_h) * 2;
 }
 }
+// USA results drawer func_80046D40 before 0x80047474: t9 is the s32 text
+// resolution flag about to be stored at 0x80099C60. Unlike the centred pause
+// panel, results double Y about row zero. Small team/car text (sprite +0x1C
+// set by func_80050EC4) doubles only its origin, so the renderer's height-based
+// correction cannot recognise it and the columns scroll at different speeds.
+// Select native text coordinates for the whole results drawer when a 240-line
+// picture fills the window from a doubled buffer. This also preserves the
+// title and row clipping, rather than shifting ordinary text about row 120.
+// Game-thread register hook; the only guest read is the validated ROM-owned
+// display descriptor through tall_picture. A bad descriptor keeps the ROM's
+// flag, as do real 480-line menus. No guest object or pointer is retained.
+// Remove with a guest results drawer that owns the port's H-RES layout.
+extern "C" void wdc_results_normal_text(uint8_t* rdram, recomp_context* ctx) {
+    if (tall_picture(rdram)) ctx->r25 = 0;
+}
+
 extern "C" void wdc_hud_normal_layout(uint8_t* rdram, recomp_context* ctx) {
     if (!tall_picture(rdram)) return;
     wdc_require_guest_range(ctx->r29 + 0x1F0, 4, 4);
