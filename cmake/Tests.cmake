@@ -134,6 +134,17 @@ if(BUILD_TESTING)
             target_include_directories(wdc_audio_voice_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_audio_voice_rom_tests PRIVATE -fno-strict-aliasing)
             add_test(NAME wdc_audio_voice_rom COMMAND wdc_audio_voice_rom_tests)
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_render_boundary_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c"
+                DEPENDS tests/extract_render_boundary_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_render_boundary_rom_tests tests/test_render_boundary_rom.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c")
+            target_include_directories(wdc_render_boundary_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_render_boundary_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_render_boundary_rom COMMAND wdc_render_boundary_rom_tests)
+            set_tests_properties(wdc_render_boundary_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_framerate_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c"
