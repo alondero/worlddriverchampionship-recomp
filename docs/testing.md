@@ -146,6 +146,14 @@ synthetic stream for 60 VIs. Intro/demo scenes `0x11..0x13` must consume exactly
 30 recorded inputs, with identical steering and elapsed time whether Native
 60 fps is on or off. It checks that all rate corrections remain stock there,
 and that the following menu and practice race honor the saved 60 fps choice.
+`wdc_render_boundary_rom` exercises the translated race drawing root with
+zero, one and two views. Its actual car-field reset, sound-event rollover and
+cleanup helpers demonstrate why repeated drawing is not yet independent of
+persistent state; drawing, submission and sound consumption are test doubles.
+It checks view addresses, call order, register preservation and repeated-call
+sound-list changes. It does not establish render purity or higher-refresh
+support. See [above 60 Hz](rendering.md#above-60-hz) for the split requirements.
+
 The graphics/frontend checks cover opt-in defaults, persistence, Apply/Discard
 and restoring defaults. These tests do not establish racing frame rate,
 fixed-input lap equivalence or replay compatibility; see the

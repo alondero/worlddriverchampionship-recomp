@@ -450,13 +450,93 @@ Not reachable by replaying BOSS:
   correcting those loads changes nothing.
 - The triangles come from CPU ZSort data written after the camera transform.
 
-The only route left is a **guest render split**: re-run camera build, ZSort CPU
-emission and BOSS from an interpolated copy of simulation state between two
-ticks. That needs reverse engineering to separate simulation from rendering in
-the frame paths. It also needs every piece of render-relevant state found
-(player and AI records, the camera object, particles), and proof that
-rendering has no side effects on simulation. It is deferred until native
-60 fps works.
+For geometry-based interpolation with fixed-rate gameplay, the route is a
+**guest render split**: re-run camera build, ZSort CPU emission and BOSS from
+an interpolated view of two simulation snapshots. Raising simulation/VI rate
+is a different design: it changes integration and sample-counted behavior,
+and does not meet the requirement that display rate leave gameplay unchanged.
+Image-based frame generation would be another approach, but is not implemented
+or evaluated here.
+
+The existing Presentation rate setting selects RT64's output target only.
+It does not implement this split. Neither changing that target nor generalizing
+the four 60 Hz corrections unlocks intermediate geometry.
+
+#### Verified split boundaries and blockers
+
+The race loop `func_8000C560` consumes input at `8000C5B8` and `8000C75C`,
+advances physics at `8000C6E8`, and updates elapsed-time effects at
+`8000C788..8000C798`. Its drawing call is `8000C870 -> func_8000A30C`.
+This is a useful extraction boundary, **not a repeatable pure draw function**:
+
+| Boundary | Existing work | Requirement for intermediate frames |
+| --- | --- | --- |
+| `8000C648 -> 8000FC18` | View/layout and camera setup inside the sample loop | Separate camera evolution from building an interpolated view; rerunning the whole helper is not safe |
+| `8000A324 -> 80011BB8` | Clears car-record words `+9F8/+9FC` through `80011BA0` | Identify the fields' readers and ownership before treating them as render scratch |
+| `8000A32C -> 8001F9CC` | Rolls sound-event lists, clears current counters and toggles the list buffer | Retain event publication on the authoritative path; do not consume it on extra draws |
+| `8000A378/8000A438` | Calls `80010A5C/80010ECC` for each view (`800ABE40`, stride `1418`) | Rebuild transforms and CPU ZSort from a render snapshot for each view |
+| `8000A380/8000A440` | Calls HUD helpers `8004D020/8004D120` per view | Audit persistent HUD writes, including `8004D120`'s writes to `80092D2C` |
+| `8000A520 -> 80024FCC` | Includes audio generation (`80043274/80042FA8`), task submission and the swap wait | Separate audio generation and authoritative buffer/queue transitions from presentation-only submissions |
+| `8000A528 -> 80025350` | Decrements `8007EDBC` and clears `8007ED78` | Classify as submission/clear policy; it is not simulation timing |
+| `8000A530 -> 800214C8` | Processes sound events after submission | Keep event processing at the authoritative cadence |
+
+`wdc_render_boundary_rom` executes the translated draw root, car-field reset,
+sound-list rollover and submission cleanup. Drawing, task submission and the
+sound consumer are observed doubles. With zero, one and two views it checks
+call order, view addresses and saved registers. Calling it twice without
+advancing simulation really does toggle the sound-list buffer twice and replace
+the previous event list with an empty one. This is an executable counterexample
+to treating `8000A30C` as a pure draw function. It is not a complete write audit,
+an audio synthesis test, or proof that repeated rendering is safe.
+
+The pinned runtime's `ultramodern/src/events.cpp::vi_thread_func` also couples
+the 60 Hz clock to screen updates, framebuffer landing, VI messages and AI
+messages. Presentation-only frames need their own scheduling and buffer
+ownership; changing this loop's rate would also change guest event delivery.
+The existing renderer's `get_display_framerate()` already reads RT64's display
+rate, but that does not provide an independent game render clock.
+
+#### Implementation sequence
+
+1. Recover the draw root and separate sound-event publication/consumption,
+   audio generation and authoritative frame bookkeeping from repeatable
+   geometry construction. Preserve the original ordering at 30/60 Hz against
+   the translated reference. Audit transitive writes, including HUD and
+   per-view helpers; a top-level separation alone is insufficient.
+2. Define render snapshots for player/AI transforms, camera, wheels and effects.
+   Keep interpolation out of authoritative RDRAM. Handle rotations, object
+   creation/destruction, camera cuts, scene changes and save-state loads by
+   resetting history where appropriate. Recompute culling and ZSort from the
+   same interpolated view that draws the frame.
+3. Schedule presentation independently of guest VI, input and audio clocks.
+   Rebuild CPU geometry and BOSS for intermediate frames, with explicit arena,
+   framebuffer and completion ownership. Preserve the CPU/RSP write-back
+   handshake; do not replay a finished task with a different camera matrix.
+   Bound catch-up work when rendering cannot keep up.
+4. Connect the existing Display/Custom target to this scheduler. Support
+   non-integer ratios (for example 60 Hz simulation to 144 Hz output), display
+   changes and targets below the simulation rate. Do not add a second competing
+   FPS setting before there is a working independent render path.
+
+Acceptance requires identical authoritative state for the same input samples
+at several presentation rates, plus unchanged replay consumption, timers and
+audio event counts. Test 60, 75, 120, 144, 165 and 240 Hz, stalls, pause/resume,
+scene transitions and split-screen. Visual checks must additionally establish
+that intermediate frames contain new motion without geometry/HUD artifacts.
+Interpolation between completed ticks normally adds one simulation tick of
+visual latency (16.7 ms at 60 Hz or 33.3 ms at 30 Hz); extrapolation has different
+prediction and correction trade-offs. Fixed-rate rendering does not by itself
+fix the pre-existing incompatibility between 30 Hz and 60 Hz recordings.
+
+Arbitrary-rate motion is **not implemented**. The boundary fixture establishes
+a prerequisite for the refactor, not a new player-facing capability.
+
+A [throwaway native prototype](../tools/render_split_prototype/README.md)
+now exercises extra draws in the real player, gates the two sound-list calls,
+and compares emitted triangle geometry. Its one-VI experiment retains 30 Hz
+sampling, but consecutive extra draws still differ without simulation
+advancing. This narrows the next investigation to render state and geometry
+construction; it does not yet establish a repeatable interpolated frame.
 
 ## Tools and methods
 
