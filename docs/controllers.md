@@ -69,3 +69,60 @@ adapter. The desktop build scripts enable the frontend by default.
 
 Developer ownership, peer comparisons and test limits are recorded in the
 [input reference](reference/input.md).
+
+## Optional generic N64 USB profile (Windows)
+
+For the measured generic Chinese N64 USB layout below, download the
+[optional SDL mapping](controller-profiles/generic-n64-windows.txt), then launch
+from PowerShell in the game's directory (adjust the two relative paths):
+
+```powershell
+$previousMapping = $env:SDL_GAMECONTROLLERCONFIG_FILE
+try {
+    $env:SDL_GAMECONTROLLERCONFIG_FILE = (Resolve-Path './generic-n64-windows.txt').Path
+    & './worlddriverchampionship_modern.exe'
+} finally {
+    $env:SDL_GAMECONTROLLERCONFIG_FILE = $previousMapping
+}
+```
+
+Use the actual executable filename in your release. This affects the launched
+process and restores the shell's previous setting afterward. Nothing is installed
+or added to a global controller database. Close the game before applying it.
+
+Use the default controller bindings in **Settings > Controls**. This profile
+maps physical B to SDL B and physical R to SDL right trigger, matching WDC's
+defaults. Other ports' N64 presets may instead map B to SDL X or R to right
+shoulder, which would select different actions here. Keep **Driving** throttle
+and brake in their default **Digital** modes: this unit has button triggers,
+not analog pedals. If desired, try **General > Joystick Deadzone = 2%** as a
+starting point from the unit's center measurements, then check steering; the
+SDL mapping itself does not set a deadzone.
+
+| Physical control | Raw SDL input (zero-based) | Profile output |
+| --- | --- | --- |
+| A / B | buttons 5 / 4 | A / B |
+| Start | button 9 | Start |
+| L / R / Z | buttons 6 / 7 / 8 | Left shoulder / right trigger / left trigger |
+| C up / right / down / left | buttons 0 / 1 / 2 / 3 | Right stick up / right / down / left |
+| Stick X / Y | axes 0 / 1 | Left stick X / Y |
+| D-pad | hat 0 | D-pad |
+
+There is no measured Select/Back button. Open settings with **Escape or F1**;
+Z remains the N64 Z trigger. Buttons 10 and 11 are unconfirmed and unbound.
+Use keyboard/mouse for settings actions without a corresponding physical button.
+
+Only opt in if your device has this layout. The measured unit reports USB
+VID/PID `0079:0006`, four axes, twelve declared buttons and one hat. The file
+contains the observed Windows CRC variants `8630` (SDL 2.32.10), `8e4f`
+(SDL 2.26.3) and `79be` (SDL 3.4.18). SDL2 called it `USB Joystick`; SDL3
+called it `Microntek USB Joystick`. Matching IDs or CRCs do **not** identify a
+layout uniquely, and older SDL versions can fall back to a broader match.
+Incompatible clones can share them; check every physical control before racing.
+
+The raw assignments were provided by MatyMeatBoy from a controller measurement
+record, with permission to reuse them with attribution: eighteen controls,
+206 samples over 10.005 seconds. Native SDL virtual-device checks verify the mapping translation;
+physical gameplay in WDC has not been verified. If controls differ, remove the
+environment setting and use the normal binding editor rather than applying this
+profile to an unidentified clone.
