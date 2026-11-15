@@ -21,7 +21,7 @@ framebuffer RAM changes (or its early-present path is used); new GPU contents
 alone do not satisfy that condition. With readback enabled, a separate run
 produced 142 callbacks and 139 swaps: three identical initial poses were still
 deduplicated. These are failed audit controls, not high-refresh acceptance.
-Explicit presentation of each selected render remains required.
+The optional explicit-submission experiment below addresses this omission.
 
 `--audit-present` requires an owned-RAM independent-presentation mode. It builds
 a copied RT64 present-queue object and records `present-audit-source.json`,
@@ -32,6 +32,32 @@ waits up to ten seconds for the last bound present event's entire swap loop,
 not merely its first swap. This final diagnostic drain does not pace individual
 frames. The audit adds logging overhead; swap completion still does not measure
 physical scanout or prove pixel identity. It does not capture images.
+
+Use `--explicit-present --audit-present` to submit every prototype screen
+update even when RT64 sees unchanged VI/framebuffer RAM. The copied state
+object adds a graphics-thread-local request to `State::updateScreen`'s enqueue
+condition; ordinary VI callbacks retain deduplication. It preserves VI history,
+framebuffer handling, workload/present IDs and queue fences. The audit and all
+retained state/geometry checks are mandatory, and the measured swap rate must
+pass the target timing band as well as the callback rate. This option can be
+combined with `--profile-rt64`; `rt64-profile-source.json` records both flags,
+even when profiling is disabled and only explicit submission is enabled.
+
+A 30-group 144 Hz practice run with wheel/shadow interpolation and sample/deadline
+scheduling produced 67 selected frames and 67 successful ordered swaps. All
+retained correctness checks passed, but timing failed at 15.5 swaps/s with
+18.32..206.84 ms intervals. This establishes that the requested frames reach
+the swap API, not high-refresh performance or pixel identity. The timing of
+earlier runs that silently omitted swaps is not a valid performance baseline.
+
+A six-group frozen 144 Hz control with profiling matched 28 callbacks to 28
+swaps at 98.1 swaps/s (0.96..25.53 ms), also failing timing. Mean full sync was
+4.735 ms, including 3.956 ms framebuffer GPU wait. A separate 30-group combined
+interpolation run at 75 Hz passed all retained gates with 75 callbacks and 75
+swaps at 75.0 swaps/s (5.67..35.10 ms); callbacks averaged 74.9/s over 60 VI
+ticks. All three runs disabled owned readback and whole-RAM scans. Short-run
+variation and long intervals still prevent sustained performance or smoothness
+claims. Pixel/readback equivalence remains unverified.
 
 ## Run
 

@@ -43,6 +43,7 @@ def main():
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop collecting palette indices once the set is full")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
+    parser.add_argument("--explicit-present", action="store_true", help="Submit every explicit prototype screen update to RT64; requires --audit-present")
     parser.add_argument("--audit-present", action="store_true", help="Observe actual RT64 swap calls and bind presentation IDs to prototype labels")
     parser.add_argument("--profile-rt64", action="store_true", help="Compile copied RT64 full-sync phase timers")
     parser.add_argument("--no-owned-readback", action="store_true", help="Experiment: disable RT64 RAM readback only for owned tasks")
@@ -77,6 +78,10 @@ def main():
         args.require_repeatable = True
     owned_ram = args.mode in ("shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "motion-samples", "endpoint120")
     independent_present = args.mode in ("present120", "shadow120", "shadow-rate", "motion120", "motion-rate", "motion-samples", "endpoint120")
+    if args.explicit_present and not args.audit_present:
+        parser.error("--explicit-present requires --audit-present")
+    if args.audit_present:
+        args.require_repeatable = True
     if args.audit_present and not (owned_ram and independent_present):
         parser.error("--audit-present requires owned RAM and independent presentation")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
@@ -122,8 +127,8 @@ def main():
         objects.append(build_fast_hash(reference, output, compiler))
     if args.audit_present:
         objects.append(build_present_audit(reference, output, compiler))
-    if args.profile_rt64:
-        objects.append(build_rt64_profile(reference, output, compiler))
+    if args.profile_rt64 or args.explicit_present:
+        objects.append(build_rt64_profile(reference, output, compiler, profile=args.profile_rt64, explicit_present=args.explicit_present))
     runtime = [str(build_runtime(reference, output, compiler))] if independent_present else []
     if owned_ram:
         replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler, args.audit_present)
@@ -163,7 +168,7 @@ def main():
         shutil.copy2(output / "draw-boundary-source.json", run_dir / "draw-boundary-source.json")
     if args.audit_present:
         shutil.copy2(output / "present-audit-source.json", run_dir / "present-audit-source.json")
-    if args.profile_rt64:
+    if args.profile_rt64 or args.explicit_present:
         shutil.copy2(output / "rt64-profile-source.json", run_dir / "rt64-profile-source.json")
     if runtime:
         shutil.copy2(output / "runtime-source.json", run_dir / "runtime-source.json")
@@ -203,6 +208,7 @@ def main():
                                                   "shadow_inputs": args.shadow_inputs,
                                                   "profile_rt64": args.profile_rt64,
                                                   "audit_present": args.audit_present,
+                                                  "explicit_present": args.explicit_present,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
@@ -282,8 +288,9 @@ def main():
         (run_dir / "swaps.json").write_text(json.dumps(swaps, indent=2))
         selected = validate_swaps(bindings, swaps, presents)
         intervals = [(b["us"]-a["us"])/1000 for a, b in zip(selected, selected[1:])]
+        swap_rate = 1000/statistics.mean(intervals)
         print(f"RT64 swap audit: {len(selected)} successful ordered swaps; "
-              f"{1000/statistics.mean(intervals):.1f}/s; "
+              f"{swap_rate:.1f}/s; "
               f"intervals {min(intervals):.2f}..{max(intervals):.2f} ms (not physical scanout)")
 
     queue_tests = [json.loads(line.split("[prototype-queue-test] ", 1)[1])
@@ -567,6 +574,8 @@ def main():
         expected_vi_ticks = sum(intervals) * 60 / 1000
         if not args.present_hz * .875 <= rate <= args.present_hz * 1.125 or abs(vi_ticks - expected_vi_ticks) > 2:
             raise SystemExit(f"{args.present_hz} Hz presentation / 60 Hz VI timing gate failed")
+        if args.audit_present and not args.present_hz * .875 <= swap_rate <= args.present_hz * 1.125:
+            raise SystemExit(f"{args.present_hz} Hz actual RT64 swap timing gate failed")
 
 
 if __name__ == "__main__":

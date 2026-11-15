@@ -4,13 +4,10 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
+from explicit_present import patch_explicit_present
 
 
-def build_rt64_profile(reference, output, compiler):
-    entries = json.loads((reference / "compile_commands.json").read_text())
-    entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/hle/rt64_state.cpp"))
-    original = Path(entry["file"]).read_bytes()
-    source = original.decode().replace("\r\n", "\n")
+def instrument_profile(source):
     start = source.index("    void State::fullSync() {")
     end = source.index("\n    void State::", start + 1)
     body = source[start:end]
@@ -94,6 +91,18 @@ struct PrototypeRT64Timer {
     }
 };
 ''' + source
+    return source
+
+
+def build_rt64_profile(reference, output, compiler, *, profile=True, explicit_present=False):
+    entries = json.loads((reference / "compile_commands.json").read_text())
+    entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/hle/rt64_state.cpp"))
+    original = Path(entry["file"]).read_bytes()
+    source = original.decode().replace("\r\n", "\n")
+    if profile:
+        source = instrument_profile(source)
+    if explicit_present:
+        source = patch_explicit_present(source)
     copied = output / "profile_rt64_state.cpp"
     copied.write_text(source)
     obj = output / "profile_rt64_state.o"
@@ -108,6 +117,7 @@ struct PrototypeRT64Timer {
     if result.returncode:
         raise RuntimeError("Copied RT64 compilation failed; inspect rt64-profile-build.log")
     (output / "rt64-profile-source.json").write_text(json.dumps({
+        "profile": profile, "explicit_present": explicit_present,
         "source": entry["file"], "source_sha256": hashlib.sha256(original).hexdigest(),
         "copied_sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
         "compile_command": command,

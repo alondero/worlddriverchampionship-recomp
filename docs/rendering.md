@@ -12,8 +12,11 @@ RAM cause `State::updateScreen` to omit a presentation even after a new GPU
 draw. With owned readback disabled, a 144 Hz practice experiment produced 143
 callbacks but only 30 swap calls; readback enabled still omitted three initial
 identical poses. The prototype now has an opt-in strict presentation-ID/swap
-audit. Explicit submission of each selected frame remains unresolved, and
-earlier callback timing results must not be read as achieved display rates.
+audit. Optional explicit submission now produced one successful swap per
+selected frame in a bounded run, but failed the high-rate timing gate. Earlier
+callback timing results must not be read as achieved display rates. See the
+[prototype instructions](../tools/render_split_prototype/README.md) for both
+the failed controls and the explicit-submission experiment.
 
 All addresses are for the USA ROM (SHA-256
 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`).

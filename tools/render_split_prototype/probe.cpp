@@ -317,6 +317,7 @@ void prototype_vi_observed() { ++prototype_vi_ticks; }
 // to its queued label. RT64's present worker reports after swapChain->present.
 // No guest access. Separate locks avoid holding label state during log writes.
 void prototype_screen_begin(bool enabled) { binding_screen = enabled; }
+bool prototype_explicit_present() { return binding_screen; }
 void prototype_present_bound(uint64_t previous, uint64_t id) {
     if (!binding_screen) return;
     Label label;
