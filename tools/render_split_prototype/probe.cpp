@@ -785,6 +785,8 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 func_800252D0(drawing_ram, &draw_context);
                 drain_renderer(rdram);
             }
+        }
+        if (shadow_mode() && !std::getenv("WDC_RENDER_PROTOTYPE_NO_AUTHORITY_SCAN")) {
             // Observe all authoritative words, without restoring any of them.
             // Runtime queue/input workers legitimately advance during waits;
             // these ranges are attribution evidence, not an equivalence gate.

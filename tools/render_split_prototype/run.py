@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
+    parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--profile-rt64", action="store_true", help="Compile copied RT64 full-sync phase timers")
     parser.add_argument("--no-owned-readback", action="store_true", help="Experiment: disable RT64 RAM readback only for owned tasks")
     parser.add_argument("--shadow-eye-offset", type=float, default=0,
@@ -44,11 +45,13 @@ def main():
     endpoint_mode = args.mode == "endpoint120"
     motion_mode = args.mode == "motion120" or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
-    if pose_mode:
+    if pose_mode or args.no_authority_scan:
         args.require_repeatable = True
     owned_ram = args.mode in ("shadow-snapshot", "shadow120", "pose-snapshot", "motion120", "endpoint120")
     independent_present = args.mode in ("present120", "shadow120", "motion120", "endpoint120")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
+    if args.no_authority_scan and not owned_ram:
+        parser.error("--no-authority-scan requires an owned-RAM mode")
     if args.no_owned_readback and not owned_ram:
         parser.error("--no-owned-readback requires an owned-RAM mode")
     if not math.isfinite(args.shadow_eye_offset) or abs(args.shadow_eye_offset) > 10 or (
@@ -136,12 +139,15 @@ def main():
                WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames),
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
+    if args.no_authority_scan:
+        env["WDC_RENDER_PROTOTYPE_NO_AUTHORITY_SCAN"] = "1"
     if args.no_owned_readback:
         env["WDC_RENDER_PROTOTYPE_NO_READBACK"] = "1"
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
                                                   "settle_frames": args.settle_frames,
                                                   "trials": args.trials,
                                                   "profile_rt64": args.profile_rt64,
+                                                  "authority_scan": not args.no_authority_scan,
                                                   "no_owned_readback": args.no_owned_readback,
                                                   "shadow_eye_offset": args.shadow_eye_offset}, indent=2))
     log = run_dir / "run.log"
@@ -181,7 +187,11 @@ def main():
     authority = [json.loads(line.split("[prototype-authority] ", 1)[1])
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-authority] " in line]
     (run_dir / "authority.json").write_text(json.dumps(authority, indent=2))
-    if owned_ram and {(a['frame'], a['draw']) for a in authority} != {
+    if args.no_authority_scan and authority:
+        raise SystemExit("Full-RAM scan unexpectedly ran in the timing experiment")
+    if args.no_authority_scan:
+        print("TIMING EXPERIMENT: whole-RAM diagnostics omitted; targeted state/ownership checks retained")
+    if owned_ram and not args.no_authority_scan and {(a['frame'], a['draw']) for a in authority} != {
             (s['frame'], s['draw']) for s in snapshots}:
         raise SystemExit("Missing full-RAM changed-range observations")
     projections = [json.loads(line.split("[prototype-projection] ", 1)[1])

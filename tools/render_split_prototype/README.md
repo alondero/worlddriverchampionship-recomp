@@ -57,6 +57,12 @@ Use `--warp '1:0:arcade:3' --settle-frames 180` to audit the eight-car Hawaii
 grid later in the race. `--warp` follows the player's existing race setup
 syntax; `--settle-frames` accepts 60..1800 (increase `--timeout` as needed).
 Each run retains `setup.json` alongside its evidence.
+Use `--no-authority-scan` in owned-RAM modes to isolate the cost of whole-RAM
+diagnostics. This timing experiment omits `authority.json` observations (the file
+is an empty array), records `authority_scan: false` in `setup.json`, and retains
+the camera/car/context/sample, pose, queue and task-owner gates. It does not
+provide full-RAM changed-range evidence. The default still scans every extra.
+
 Use `--trials 120` for a longer bounded run (6..300, default 6); increase
 `--timeout` for workloads that need more than 60 seconds including startup.
 
