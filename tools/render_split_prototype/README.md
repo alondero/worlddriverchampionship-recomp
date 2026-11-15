@@ -496,6 +496,60 @@ the different selected workloads and broader timing spikes prevent attributing
 the difference to a single cause. A regression in this path is not ruled out.
 Keep this option experimental; it does not qualify general high-refresh pacing.
 
+### Write-tracked bank reset experiment
+
+`--write-watch-reset` uses a Windows `MEM_WRITE_WATCH` allocation for the owned
+8 MiB bank. The first restore copies the complete snapshot. At each subsequent
+new simulation snapshot, every page is compared with the new source and unequal
+pages are copied; source changes must not be inferred from renderer writes.
+Further draws of the same snapshot use `GetWriteWatch` to restore only pages
+written since the preceding restore. Default runs retain ordinary allocation
+and a full copy for every draw.
+
+The existing pipeline drain and renderer-memory mutex exclude writers while
+the page list is read, pages are restored, and tracking is reset. Tracking is
+reset after the restore so those copies do not pollute the next draw's list.
+This exclusion is required by the [Windows write-watch contract](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-getwritewatch).
+The storage retains raw guest byte order, stays host-owned and never replaces
+authoritative RAM. API failure, unsupported page size or an out-of-bank page
+aborts the probe. This is Windows-only experimental tooling.
+
+The option forces strict checks. `bank-resets.json` records copied/compared
+bytes, page size and verification for each owned draw; coverage must exactly
+match snapshot records. Every group's first draw must seed or compare all
+8 MiB. `--verify-write-watch` additionally compares the entire restored bank
+with the frozen source before applying interpolated inputs. It requires
+`--write-watch-reset`; its comparison cost is included in reset timing, so omit
+verification for performance measurements.
+
+```powershell
+python tools/render_split_prototype/test_render_bank.py --reference-build build
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode pose-snapshot --warp '1:0:arcade:3' --settle-frames 240 --hold-accelerator --wheel-poses --shadow-inputs --write-watch-reset --verify-write-watch
+```
+
+Host checks cover same-value stores, first/last bytes, page boundaries, writes
+from another thread, clean-page changes in a new source and the full-copy
+fallback. Native driving verification matched all 8 MiB after all 18 restores,
+repeated midpoint geometry exactly and matched every current endpoint, with
+wheel/shadow interpolation and renderer readback enabled.
+An earlier variant copied all 8 MiB on each new snapshot; it reduced later
+restores to 0.12..0.13 ms but cost 2.626 ms for each reseed. Its 120-group driving
+run retained all 480 swaps but failed timing at 96.9/s. The current new-snapshot
+comparison addresses that reseed cost; it is distinct from the rejected
+experiment that compared every page before every draw.
+A 120-group driving run of the revised implementation retained all 480 ordered
+swaps and passed correctness checks, but failed timing at 75.9 swaps/s. Restore
+work averaged 0.974 ms: 2.530 ms for first draws and about 0.195..0.199 ms for
+subsequent draws. A full-copy control retained all 480 swaps and correctness
+checks but reached only 60.2/s, with 2.027 ms mean restore cost. Both used fast
+hashing and profiling, with notifications, owned readback and full-RAM scans
+disabled. Normal tasks also slowed relative to earlier runs, and host CPU load
+measured after the control was 74%, versus 22% earlier. These are contended
+measurements, not isolated throughput comparisons or sustained high-refresh
+qualification. The new-snapshot comparison did not materially reduce its own
+measured first-draw cost; further work is needed before enabling tracking by
+default or combining it with other experimental scheduling policies.
+
 ## Full-sync profiling and owned readback experiment
 
 ```powershell
@@ -855,7 +909,7 @@ A page-comparison restore experiment compared every 4 KiB page and copied only
 unequal pages. It retained correctness and all 114 swaps, but averaged 1.823 ms
 for restoration versus 1.236 and 1.333 ms in two full-copy controls. It reached
 68.0 swaps/s and failed the 144 Hz timing gate. The comparison implementation
-was rejected; full-bank copying remains. This bounded result does not establish
+was rejected; full-bank copying remains the default. This bounded result does not establish
 that every form of selective restoration would be slower.
 `shadow-inputs.json` records input counts/changes and observed native rebuilds.
 The original `3062C` still rebuilds cached matrices and vertices after `11BA0`

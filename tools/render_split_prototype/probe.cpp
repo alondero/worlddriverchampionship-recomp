@@ -8,6 +8,7 @@
 #include "pose.h"
 #include "vectors.h"
 #include "cadence.h"
+#include "render_bank.h"
 #include <array>
 #include <atomic>
 #include <bit>
@@ -63,7 +64,8 @@ void finish_present_audit() {
 }
 std::mutex render_memory_mutex;
 uint8_t* authoritative_memory = nullptr;
-std::vector<uint8_t> frozen_ram, render_ram;
+std::vector<uint8_t> frozen_ram;
+prototype::RenderBank render_ram;
 enum class PoseKind { Camera, Body, Wheel };
 std::vector<prototype::Pose> previous_poses;
 std::vector<prototype::Vector3> previous_shadow_inputs;
@@ -177,6 +179,14 @@ uint8_t* queue_memory(uint8_t* memory) {
 }
 bool notify_renderer_completion() {
     static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_NOTIFY_COMPLETION") != nullptr;
+    return enabled;
+}
+bool write_watch_reset() {
+    static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_WRITE_WATCH") != nullptr;
+    return enabled;
+}
+bool verify_write_watch() {
+    static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_VERIFY_WRITE_WATCH") != nullptr;
     return enabled;
 }
 void drain_renderer(uint8_t* memory) {
@@ -892,7 +902,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         // Never restore this image into authoritative RAM. Refreshing it is
         // serialized with renderer send_dl/update_screen, including VI reads.
         frozen_ram.assign(rdram, rdram + 0x800000);
-        render_ram.resize(0x800000);
+        render_ram.initialize(write_watch_reset());
     }
     if (shadow_mode()) verify_shadow_receive(rdram, ctx);
     // 11BB8 iterates u32 car count 80080D90 over BA7F0 with stride 18A0.
@@ -1093,7 +1103,8 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             reset_times[0] = std::chrono::steady_clock::now();
             std::unique_lock memory_lock(render_memory_mutex);
             reset_times[1] = std::chrono::steady_clock::now();
-            std::memcpy(render_ram.data(), frozen_ram.data(), frozen_ram.size());
+            const auto bank_reset = render_ram.restore(frozen_ram.data(), draw_number == 1);
+            if (verify_write_watch() && std::memcmp(render_ram.data(), frozen_ram.data(), frozen_ram.size())) std::_Exit(25);
             reset_times[2] = std::chrono::steady_clock::now();
             drawing_ram = render_ram.data();
             if (pose_mode()) {
@@ -1136,6 +1147,12 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             memory_lock.unlock();
             const char* names[] = {"owned_reset_lock", "owned_reset_copy", "owned_reset_inputs"};
             std::lock_guard output_lock(output_mutex);
+            if (write_watch_reset()) {
+                log_record("[prototype-bank-reset] {\"frame\":%u,\"draw\":%u,\"copied_bytes\":%llu,\"compared_bytes\":%llu,\"page_size\":%llu,\"verified\":%s}\n",
+                    race_frame, draw_number, (unsigned long long)bank_reset.copied_bytes,
+                    (unsigned long long)bank_reset.compared_bytes,
+                    (unsigned long long)render_ram.page_size(), verify_write_watch() ? "true" : "false");
+            }
             for (unsigned i = 0; i < 3; ++i) {
                 log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"%s\",\"ms\":%.3f}\n",
                     race_frame, draw_number, names[i],

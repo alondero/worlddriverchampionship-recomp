@@ -42,6 +42,8 @@ def main():
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--notify-renderer-completion", action="store_true", help="Experiment: wake the owned-bank fence when renderer task/callback completion advances")
+    parser.add_argument("--write-watch-reset", action="store_true", help="Windows experiment: restore tracked dirty pages between draws of one snapshot")
+    parser.add_argument("--verify-write-watch", action="store_true", help="Compare every restored byte with the frozen bank; requires --write-watch-reset")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop saturated palette scans and group contiguous palette hash updates")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
     parser.add_argument("--hold-accelerator", action="store_true", help="Input fixture: hold port-0 A with neutral steering during the race")
@@ -98,6 +100,12 @@ def main():
         args.require_repeatable = True
         if not owned_ram:
             parser.error("--notify-renderer-completion requires an owned-RAM mode")
+    if args.verify_write_watch and not args.write_watch_reset:
+        parser.error("--verify-write-watch requires --write-watch-reset")
+    if args.write_watch_reset:
+        args.require_repeatable = True
+        if not owned_ram:
+            parser.error("--write-watch-reset requires an owned-RAM mode")
     if not math.isfinite(args.shadow_eye_offset) or abs(args.shadow_eye_offset) > 10 or (
             args.shadow_eye_offset and (not owned_ram or pose_mode)):
         parser.error("--shadow-eye-offset requires shadow-snapshot or shadow120 and a finite value within +/-10")
@@ -211,6 +219,10 @@ def main():
         env["WDC_RENDER_PROTOTYPE_NO_AUTHORITY_SCAN"] = "1"
     if args.notify_renderer_completion:
         env["WDC_RENDER_PROTOTYPE_NOTIFY_COMPLETION"] = "1"
+    if args.write_watch_reset:
+        env["WDC_RENDER_PROTOTYPE_WRITE_WATCH"] = "1"
+    if args.verify_write_watch:
+        env["WDC_RENDER_PROTOTYPE_VERIFY_WRITE_WATCH"] = "1"
     if args.no_owned_readback:
         env["WDC_RENDER_PROTOTYPE_NO_READBACK"] = "1"
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
@@ -229,6 +241,8 @@ def main():
                                                   "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
                                                   "notify_renderer_completion": args.notify_renderer_completion,
+                                                  "write_watch_reset": args.write_watch_reset,
+                                                  "verify_write_watch": args.verify_write_watch,
                                                   "no_owned_readback": args.no_owned_readback,
                                                   "shadow_eye_offset": args.shadow_eye_offset}, indent=2))
     log = run_dir / "run.log"
@@ -305,6 +319,21 @@ def main():
     snapshots = [json.loads(line.split("[prototype-snapshot] ", 1)[1])
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-snapshot] " in line]
     (run_dir / "snapshots.json").write_text(json.dumps(snapshots, indent=2))
+    if args.write_watch_reset:
+        resets = [json.loads(line.split("[prototype-bank-reset] ", 1)[1])
+                  for line in log.read_text(errors="replace").splitlines() if "[prototype-bank-reset] " in line]
+        (run_dir / "bank-resets.json").write_text(json.dumps(resets, indent=2))
+        if sorted((r['frame'], r['draw']) for r in resets) != sorted((s['frame'], s['draw']) for s in snapshots):
+            raise SystemExit("Missing or duplicate write-watch resets")
+        for r in resets:
+            page = r['page_size']
+            if (not 0 < page <= 0x800000 or 0x800000 % page or
+                not 0 <= r['copied_bytes'] <= 0x800000 or r['copied_bytes'] % page or
+                r['compared_bytes'] not in (0, 0x800000) or
+                (r['draw'] == 1 and r['copied_bytes'] != 0x800000 and r['compared_bytes'] != 0x800000) or
+                (r['draw'] > 1 and r['compared_bytes'] != 0) or
+                r['verified'] != args.verify_write_watch):
+                raise SystemExit("Invalid write-watch reset evidence")
     if owned_ram and not endpoint_mode:
         if sorted((n["frame"], n["draw"]) for n in needles) != sorted((s["frame"], s["draw"]) for s in snapshots):
             raise SystemExit("Missing or duplicate single-view HUD needle snapshots")
