@@ -635,6 +635,10 @@ and a bit-exact current endpoint must reproduce normal geometry. `motion120` pre
 suppressing the normal-draw presentation. Callback labels verify their order,
 and the endpoint still matches normal geometry. Wheel/shadow/effect
 interpolation, full discontinuity handling and sustained performance remain open.
+The prototype can also instrument a copied RT64 full-sync path and optionally
+disable framebuffer readback for disposable owned tasks. Normal task readback
+is retained. This remains an opt-in performance experiment because geometry
+checks cannot establish framebuffer-feedback or pixel equivalence.
 The prototype README records the car-list, per-view and arena ownership evidence.
 
 ## Tools and methods

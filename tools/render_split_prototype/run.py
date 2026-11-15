@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 from runtime import build_runtime
 from shadow import build_shadow_renderer
+from rt64_profile import build_rt64_profile
 
 
 def main():
@@ -32,6 +33,8 @@ def main():
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
+    parser.add_argument("--profile-rt64", action="store_true", help="Compile copied RT64 full-sync phase timers")
+    parser.add_argument("--no-owned-readback", action="store_true", help="Experiment: disable RT64 RAM readback only for owned tasks")
     parser.add_argument("--shadow-eye-offset", type=float, default=0,
                         help="Controlled eye-X perturbation in owned RAM only (shadow-snapshot or shadow120)")
     args = parser.parse_args()
@@ -44,6 +47,8 @@ def main():
     owned_ram = args.mode in ("shadow-snapshot", "shadow120", "pose-snapshot", "motion120")
     independent_present = args.mode in ("present120", "shadow120", "motion120")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
+    if args.no_owned_readback and not owned_ram:
+        parser.error("--no-owned-readback requires an owned-RAM mode")
     if not math.isfinite(args.shadow_eye_offset) or abs(args.shadow_eye_offset) > 10 or (
             args.shadow_eye_offset and (not owned_ram or pose_mode)):
         parser.error("--shadow-eye-offset requires shadow-snapshot or shadow120 and a finite value within +/-10")
@@ -78,6 +83,8 @@ def main():
                     "-I", str(source / "src"),
                     "-c", str(here / "probe.cpp"), "-o", str(probe)], check=True)
     exe = output / "render_split_prototype.exe"
+    if args.profile_rt64:
+        objects.append(build_rt64_profile(reference, output, compiler))
     runtime = [str(build_runtime(reference, output, compiler))] if independent_present else []
     if owned_ram:
         replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler)
@@ -105,6 +112,8 @@ def main():
     mode_dir = output / args.mode
     mode_dir.mkdir(exist_ok=True)
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=mode_dir))
+    if args.profile_rt64:
+        shutil.copy2(output / "rt64-profile-source.json", run_dir / "rt64-profile-source.json")
     if runtime:
         shutil.copy2(output / "runtime-source.json", run_dir / "runtime-source.json")
     if owned_ram:
@@ -117,9 +126,13 @@ def main():
                WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames),
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
+    if args.no_owned_readback:
+        env["WDC_RENDER_PROTOTYPE_NO_READBACK"] = "1"
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
                                                   "settle_frames": args.settle_frames,
                                                   "trials": args.trials,
+                                                  "profile_rt64": args.profile_rt64,
+                                                  "no_owned_readback": args.no_owned_readback,
                                                   "shadow_eye_offset": args.shadow_eye_offset}, indent=2))
     log = run_dir / "run.log"
     print(f"Running {args.mode} probe; local evidence: {log}", flush=True)
@@ -136,6 +149,15 @@ def main():
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-rdp] " in line]
     (run_dir / "geometry.json").write_text(json.dumps(geometry, indent=2))
     all_geometry = geometry
+    if args.no_owned_readback:
+        readbacks = [json.loads(line.split("[prototype-readback] ", 1)[1])
+                     for line in log.read_text(errors="replace").splitlines() if "[prototype-readback] " in line]
+        (run_dir / "readbacks.json").write_text(json.dumps(readbacks, indent=2))
+        trial_frames = {r['frame'] for r in rows}
+        expected = [(g['frame'], g['draw'], g['owned_memory']) for g in geometry if g['frame'] in trial_frames]
+        observed = [(r['frame'], r['draw'], r['disabled']) for r in readbacks if r['frame'] in trial_frames]
+        if not expected or observed != expected:
+            raise SystemExit("Readback policy must disable only owned tasks and preserve every normal task")
     if owned_ram:
         # 252D0 drains each bank; 2523C then bootstraps the next bank with a
         # zero-geometry task. Retain those records in evidence, but compare the
@@ -166,6 +188,11 @@ def main():
     phases = [json.loads(line.split("[prototype-phase] ", 1)[1])
               for line in log.read_text(errors="replace").splitlines() if "[prototype-phase] " in line]
     (run_dir / "phases.json").write_text(json.dumps(phases, indent=2))
+    if args.profile_rt64:
+        expected_syncs = sorted((g['frame'], g['draw']) for g in geometry if g['draw'] and g['triangles'])
+        observed_syncs = sorted((p['frame'], p['draw']) for p in phases if p['phase'] == 'rt64_full_sync')
+        if not expected_syncs or observed_syncs != expected_syncs:
+            raise SystemExit("Expected one measured RT64 full sync per complete extra frame")
     if phases:
         for name in sorted({p['phase'] for p in phases}):
             values = [p['ms'] for p in phases if p['phase'] == name]

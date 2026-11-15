@@ -270,6 +270,38 @@ expected to differ. The alpha-1 endpoint must still match normal geometry.
 Wheel/shadow/effect interpolation, robust cut handling, arbitrary display rates,
 and sustained performance remain incomplete; run evidence is in draft PR #61.
 
+## Full-sync profiling and owned readback experiment
+
+```powershell
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode motion120 --warp '1:0:arcade:3' --settle-frames 180 --profile-rt64
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode motion120 --warp '1:0:arcade:3' --settle-frames 180 --profile-rt64 --no-owned-readback
+```
+
+`--profile-rt64` compiles a copied `rt64_state.cpp` ahead of the reference RT64
+archive. Guarded substitutions time full-sync and its framebuffer/upload waits.
+`rt64-profile-source.json` records current-source/copy hashes and the compiler
+command; current reference-source edits affect this optional path. Compiler
+output stays in local `rt64-profile-build.log`. The launcher requires a full-sync
+observation for every complete extra-frame task. Nested timings overlap;
+they are instrumented wall times, not CPU utilization measurements. Nested
+measurements accumulate on the graphics thread and are written after BOSS
+returns, keeping file output outside the full-sync interval. Clock calls and
+record collection still add measurement overhead.
+
+RT64 defaults to rendering framebuffer data back into guest RAM.
+`--no-owned-readback` temporarily sets its per-state readback override to zero
+for owned-bank tasks, restoring the prior override after all task processing.
+Normal tasks retain the original readback policy. The flag requires an
+owned-RAM mode; `readbacks.json` checks the policy against every submitted task's
+memory identity. Reference sources and production settings remain unchanged.
+
+Owned-bank output is discarded after its presentation fence, so this is a
+candidate for avoiding work on intermediate frames. It remains opt-in: geometry,
+original-state and presentation-order checks do not establish pixel equivalence
+or correct behavior for every framebuffer feedback effect. This option does not
+remove the existing task/presentation ownership fences. Profiling results and
+performance failures are recorded in draft PR #61.
+
 ## Ownership recovered
 
 ROM reads with `tools/rom/inspect_code.py` and unchanged generated bodies

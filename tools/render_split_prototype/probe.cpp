@@ -17,6 +17,7 @@
 #include <deque>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ultramodern { void wait_for_external_message_timed(uint8_t*, uint32_t); }
@@ -51,6 +52,8 @@ std::array<uint32_t, 32> frozen_camera{};
 uint32_t redirected_camera = 0;
 unsigned camera_copies = 0;
 struct Label { unsigned frame; unsigned draw; uint8_t* memory; };
+thread_local Label active_rsp_label{};
+thread_local std::vector<std::pair<const char*, double>> rt64_phase_records;
 std::mutex label_mutex;
 std::mutex output_mutex;
 // Callers hold output_mutex across each complete record. Keep fragments in
@@ -122,6 +125,25 @@ unsigned rdp_words(unsigned op) {
 }
 }
 extern "C" {
+bool prototype_disable_readback(uint8_t* memory) {
+    if (!std::getenv("WDC_RENDER_PROTOTYPE_NO_READBACK")) return false;
+    std::lock_guard label_lock(label_mutex);
+    if (labels.empty() || labels.front().memory != memory) std::_Exit(17);
+    const auto label = labels.front();
+    const bool disabled = !render_ram.empty() && memory == render_ram.data();
+    if (label.frame >= settle_frames()) {
+        std::lock_guard output_lock(output_mutex);
+        log_record("[prototype-readback] {\"frame\":%u,\"draw\":%u,\"disabled\":%s}\n",
+            label.frame, label.draw, disabled ? "true" : "false");
+    }
+    return disabled;
+}
+void prototype_rt64_phase(const char* name, double ms) {
+    if (!active_rsp_label.draw) return;
+    // Names are static literals in the copied RT64 object. Defer file output
+    // until BOSS returns, so nested wait logging cannot inflate full-sync time.
+    rt64_phase_records.emplace_back(name, ms);
+}
 bool prototype_store_message(uint8_t* runtime_ram, int32_t destination, uint32_t value) {
     if (!receive_destination_memory) return false;
     const auto address = uint32_t(destination);
@@ -411,6 +433,9 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         label = labels.front(); labels.pop_front();
     }
     if (label.memory != rdram) std::_Exit(12);
+    active_rsp_label = label;
+    rt64_phase_records.clear();
+    rt64_phase_records.reserve(32);
     struct Collector {
         wdc::rsp::RdpSink sink;
         void* context;
@@ -443,6 +468,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         c.sink_ms += ms;
         if (full_sync) c.sync_sink_ms += ms;
     }, &capture);
+    active_rsp_label = {};
     const auto task_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - task_start).count();
     if (label.frame < 60) return;
     uint64_t hash = 14695981039346656037ull;
@@ -466,6 +492,9 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         i += length;
     }
     std::lock_guard output_lock(output_mutex);
+    for (const auto& [name, ms] : rt64_phase_records)
+        log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"rt64_%s\",\"ms\":%.3f}\n",
+            label.frame, label.draw, name, ms);
     // Compare owned vectors, not just hashes. BOSS tasks execute serially on
     // the graphics worker; the mutex also protects this bounded reference.
     static unsigned normal_frame = 0;

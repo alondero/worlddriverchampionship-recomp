@@ -21,13 +21,18 @@ def build_shadow_renderer(reference, output, compiler):
     source = ('#include <mutex>\n#include <cstdint>\n'
               'extern "C" uint8_t* prototype_task_memory();\n'
               'extern "C" void prototype_renderer_finished();\n'
+              'extern "C" bool prototype_disable_readback(uint8_t*);\n'
               'extern "C" std::mutex& prototype_memory_mutex();\n' + source)
     replace('    void send_dl(const OSTask* task) override {', '''    void send_dl(const OSTask* task) override {
         std::lock_guard memory_lock(prototype_memory_mutex());
         rdram = prototype_task_memory();
         app->core.RDRAM = rdram;
-        app->state->RDRAM = rdram;''')
+        app->state->RDRAM = rdram;
+        const auto saved_render_to_ram = app->state->extended.renderToRAM;
+        const bool override_readback = prototype_disable_readback(rdram);
+        if (override_readback) app->state->setRenderToRAM(0);''')
     replace('        wdc::rdp_capture::end_task();', '''        wdc::rdp_capture::end_task();
+        if (override_readback) app->state->setRenderToRAM(saved_render_to_ram);
         prototype_renderer_finished();''')
     replace('    void update_screen() override {', '''    void update_screen() override {
         std::lock_guard memory_lock(prototype_memory_mutex());''')
