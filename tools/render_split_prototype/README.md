@@ -220,6 +220,10 @@ preparing interpolated inputs. Their timestamps precede diagnostic output;
 input preparation includes its existing pose log, and the enclosing reset
 timer includes all reset logs. The three subphases are nested within reset,
 not additional independent work.
+`owned_pipeline_drain` measures the original `252D0` call;
+`owned_renderer_fence` measures the subsequent wait for task cleanup and queued
+screen callbacks. These intervals are nested within `owned_drain`; their logs
+are emitted after both measurements.
 The scan skips byte-identical 4 KiB pages and batches its output while retaining
 the complete contiguous changed-word ranges. Geometry records also include BOSS task wall time and time spent
 inside the downstream RDP sink. These overlap across CPU/graphics threads;
@@ -445,6 +449,52 @@ instead of about 1459. All 120 swaps and retained correctness checks passed,
 but delivery remained 92.7/s and owned task time was 6.340 ms versus 6.343 ms
 in the prior control (RDP sink 4.327 versus 4.320 ms). The experiment was removed:
 this workload provided no measured benefit from reducing yield frequency.
+
+### Renderer completion notification experiment
+
+`--notify-renderer-completion` is opt-in for owned-RAM modes and forces strict
+checks. Task cleanup and screen-callback completion still both have to reach
+their submitted/requested counts before bank reuse. The game thread services
+one pending external runtime message without blocking, then waits on a host
+condition variable. Completion publishers increment their existing atomic
+counters under the same mutex used by the wait predicate, then notify the
+waiter. This prevents a missed completion wake. Runtime message processing
+occurs outside that mutex, so it cannot hold the completion lock across guest
+scheduling. The original polling path remains the default.
+
+External runtime messages do not notify this condition variable. A nominal
+one-millisecond timeout keeps servicing them while completion remains pending;
+this is not an identical message-delivery schedule or a hard latency bound.
+VI/AI clocks and renderer memory locking are unchanged. The option does not
+relax task/callback readiness or wait for physical scanout.
+
+A 30-group driving endpoint control measured 6.799 ms in pipeline drain and
+0.898 ms in the following renderer fence, at 99.7 successful ordered swaps/s.
+Notification reduced the fence to 0.101 ms and retained all 120 swaps and
+correctness checks, but its 104.7 callbacks/s still failed the broad 120 Hz
+timing band. A 120-group notification run retained all 480 swaps and passed
+that broad band at 107.7 swaps/s (3.66..49.67 ms intervals) and 107.8 callbacks/s.
+Its fence averaged 0.093 ms and pipeline drain 6.799 ms. This is reduced waiting,
+not steady 120 Hz delivery or general visual/audio qualification. All three
+runs used held accelerator, wheel/shadow interpolation, fast texture hashing,
+explicit audited presentation and RT64 profiling, with owned readback and
+full-RAM diagnostics disabled.
+A frozen driving capture with notifications enabled then retained all 24
+images and ordered swaps across six groups. Normal and extra triangle headers
+and per-group RGB hashes matched exactly; full-RAM diagnostics were enabled.
+Capture serialization makes its timing diagnostic and does not qualify the
+non-capture scheduling path.
+Two 120-group `motion-samples` runs at a 144 Hz target passed retained correctness
+and swap-order checks but failed timing. With notifications, all 492 selected
+swaps arrived at 66.9/s (4.04..115.51 ms intervals); the fence averaged 0.357 ms,
+reset 1.756 ms and pipeline drain 7.499 ms. The polling control retained all
+543 selected swaps at 86.9/s (6.67..56.44 ms); its fence averaged 0.958 ms, reset
+1.035 ms and pipeline drain 6.063 ms. Both used the same requested features,
+including deadline skipping, wheel/shadow interpolation and fast hashing.
+The notification run was slower overall despite its lower average fence cost;
+the different selected workloads and broader timing spikes prevent attributing
+the difference to a single cause. A regression in this path is not ruled out.
+Keep this option experimental; it does not qualify general high-refresh pacing.
 
 ## Full-sync profiling and owned readback experiment
 

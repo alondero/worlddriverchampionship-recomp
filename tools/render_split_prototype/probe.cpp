@@ -12,6 +12,7 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -46,6 +47,8 @@ bool hold_accelerator() {
 }
 std::atomic_uint submitted_tasks{0}, completed_tasks{0};
 std::atomic_uint requested_presents{0}, completed_presents{0};
+std::mutex completion_mutex;
+std::condition_variable completion_changed;
 std::atomic_uint64_t last_bound_present{0}, last_finished_present{0};
 thread_local bool binding_screen = false;
 std::atomic_bool capture_started{false};
@@ -172,12 +175,37 @@ bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strc
 uint8_t* queue_memory(uint8_t* memory) {
     return !render_ram.empty() && memory == render_ram.data() ? authoritative_memory : memory;
 }
+bool notify_renderer_completion() {
+    static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_NOTIFY_COMPLETION") != nullptr;
+    return enabled;
+}
 void drain_renderer(uint8_t* memory) {
     // A queued screen update can still read RAM after its graphics task ends.
     // Retain the bank through that callback as well as BOSS/RT64 task cleanup.
-    while (completed_tasks.load() < submitted_tasks.load() ||
-           completed_presents.load() < requested_presents.load())
-        ultramodern::wait_for_external_message_timed(memory, 1);
+    auto ready = [] {
+        return completed_tasks.load() >= submitted_tasks.load() &&
+               completed_presents.load() >= requested_presents.load();
+    };
+    while (!ready()) {
+        if (notify_renderer_completion()) {
+            // Service runtime queues outside the completion lock. Completion
+            // publication uses the same lock as wait's predicate, preventing
+            // a lost wake between the readiness check and blocking.
+            ultramodern::wait_for_external_message_timed(memory, 0);
+            std::unique_lock lock(completion_mutex);
+            completion_changed.wait_for(lock, std::chrono::milliseconds(1), ready);
+        } else {
+            ultramodern::wait_for_external_message_timed(memory, 1);
+        }
+    }
+}
+void mark_renderer_completion(std::atomic_uint& counter) {
+    if (!notify_renderer_completion()) { ++counter; return; }
+    {
+        std::lock_guard lock(completion_mutex);
+        ++counter;
+    }
+    completion_changed.notify_one();
 }
 uint32_t word(uint8_t* rdram, uint32_t address) {
     return uint32_t(MEM_W(0, int32_t(address)));
@@ -301,7 +329,7 @@ uint8_t* prototype_task_memory() {
     if (labels.empty() || !labels.front().memory) std::_Exit(10);
     return labels.front().memory;
 }
-void prototype_renderer_finished() { ++completed_tasks; }
+void prototype_renderer_finished() { mark_renderer_completion(completed_tasks); }
 // Bounded diagnostic timings include scheduler/graphics waits, not CPU time.
 #define TIME_DRAW_PHASE(name) \
 void __real_##name(uint8_t*, recomp_context*); \
@@ -415,7 +443,7 @@ void prototype_present_observed(uint32_t origin) {
     std::lock_guard lock(output_mutex);
     log_record("[prototype-present] {\"us\":%lld,\"origin\":%u,\"vi_ticks\":%u,\"frame\":%u,\"draw\":%u}\n",
         (long long)std::chrono::duration_cast<std::chrono::microseconds>(now).count(), origin, prototype_vi_ticks.load(), label.frame, label.draw);
-    ++completed_presents;
+    mark_renderer_completion(completed_presents);
 }
 void __real_func_800013DC(uint8_t*, recomp_context*);
 void __wrap_func_800013DC(uint8_t* rdram, recomp_context* ctx) {
@@ -1118,8 +1146,16 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         if (shadow_mode()) {
             {
                 PhaseTimer timer{"owned_drain"};
+                const auto drain_start = std::chrono::steady_clock::now();
                 func_800252D0(drawing_ram, &draw_context);
+                const auto pipeline_done = std::chrono::steady_clock::now();
                 drain_renderer(rdram);
+                const auto renderer_done = std::chrono::steady_clock::now();
+                std::lock_guard output_lock(output_mutex);
+                log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"owned_pipeline_drain\",\"ms\":%.3f}\n",
+                    race_frame, draw_number, std::chrono::duration<double, std::milli>(pipeline_done - drain_start).count());
+                log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"owned_renderer_fence\",\"ms\":%.3f}\n",
+                    race_frame, draw_number, std::chrono::duration<double, std::milli>(renderer_done - pipeline_done).count());
             }
         }
         if (shadow_mode() && !std::getenv("WDC_RENDER_PROTOTYPE_NO_AUTHORITY_SCAN")) {

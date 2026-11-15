@@ -41,6 +41,7 @@ def main():
     parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for cadence modes; other modes retain 120")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
+    parser.add_argument("--notify-renderer-completion", action="store_true", help="Experiment: wake the owned-bank fence when renderer task/callback completion advances")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop saturated palette scans and group contiguous palette hash updates")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
     parser.add_argument("--hold-accelerator", action="store_true", help="Input fixture: hold port-0 A with neutral steering during the race")
@@ -93,6 +94,10 @@ def main():
         parser.error("--no-authority-scan requires an owned-RAM mode")
     if args.no_owned_readback and not owned_ram:
         parser.error("--no-owned-readback requires an owned-RAM mode")
+    if args.notify_renderer_completion:
+        args.require_repeatable = True
+        if not owned_ram:
+            parser.error("--notify-renderer-completion requires an owned-RAM mode")
     if not math.isfinite(args.shadow_eye_offset) or abs(args.shadow_eye_offset) > 10 or (
             args.shadow_eye_offset and (not owned_ram or pose_mode)):
         parser.error("--shadow-eye-offset requires shadow-snapshot or shadow120 and a finite value within +/-10")
@@ -204,6 +209,8 @@ def main():
         env["WDC_RENDER_PROTOTYPE_VERIFY_TEXTURE_HASH"] = "1"
     if args.no_authority_scan:
         env["WDC_RENDER_PROTOTYPE_NO_AUTHORITY_SCAN"] = "1"
+    if args.notify_renderer_completion:
+        env["WDC_RENDER_PROTOTYPE_NOTIFY_COMPLETION"] = "1"
     if args.no_owned_readback:
         env["WDC_RENDER_PROTOTYPE_NO_READBACK"] = "1"
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
@@ -221,6 +228,7 @@ def main():
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
+                                                  "notify_renderer_completion": args.notify_renderer_completion,
                                                   "no_owned_readback": args.no_owned_readback,
                                                   "shadow_eye_offset": args.shadow_eye_offset}, indent=2))
     log = run_dir / "run.log"
