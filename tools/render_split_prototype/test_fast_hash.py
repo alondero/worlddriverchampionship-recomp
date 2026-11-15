@@ -28,6 +28,10 @@ def main():
         .replace("PrototypeFastTMEMHasher", "PrototypeCollisionTMEMHasher")
         .replace("prototypeBitScanForward64", "collisionBitScanForward64")
         .replace("key = XXH3_64bits(tmemBytes, byteCount);", "key = 0;"))
+    for cache_palette, name in [(False, "Batched"), (True, "CachedBatched")]:
+        (output / f"{name}_tmem_hasher.h").write_text(make_fast_hasher(original, cache_palette, True)
+            .replace("PrototypeFastTMEMHasher", f"Prototype{name}TMEMHasher")
+            .replace("prototypeBitScanForward64", f"{name}BitScanForward64"))
     fixture = output / "fast_hash_test.cpp"
     fixture.write_text(r'''#include <algorithm>
 #include <array>
@@ -42,6 +46,8 @@ struct LoadTile { uint16_t line, tmem; uint8_t siz, fmt, palette; };
 #include "fast_tmem_hasher.h"
 #include "cached_tmem_hasher.h"
 #include "collision_tmem_hasher.h"
+#include "Batched_tmem_hasher.h"
+#include "CachedBatched_tmem_hasher.h"
 int main() {
     std::array<uint8_t,4096> tmem;
     uint32_t random=1234567;
@@ -55,13 +61,16 @@ int main() {
         auto b=RT64::PrototypeFastTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
         auto c=RT64::PrototypeCachedTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
         auto d=RT64::PrototypeCollisionTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
-        if (a!=b || a!=c || a!=d) { std::printf("Mismatch at trial %u\n", trial); return 1; }
+        auto e=RT64::PrototypeBatchedTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
+        auto f=RT64::PrototypeCachedBatchedTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
+        if (a!=b || a!=c || a!=d || a!=e || a!=f) { std::printf("Mismatch at trial %u\n", trial); return 1; }
         // Reuse identical index bytes with changed palette values; membership
         // may hit, but the final hash must always include the current palette.
         for (unsigned i=2048;i<4096;++i) tmem[i]=uint8_t(next());
         a=RT64::TMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
         c=RT64::PrototypeCachedTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
-        if (a!=c) { std::printf("Palette mutation mismatch %u\n",trial); return 1; }
+        f=RT64::PrototypeCachedBatchedTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
+        if (a!=c || a!=f) { std::printf("Palette mutation mismatch %u\n",trial); return 1; }
     }
     // Same key, size and format with changing index bytes must never reuse
     // stale membership, even when all fingerprints are forced to zero.
@@ -82,7 +91,8 @@ int main() {
             auto a=RT64::TMEMHasher::hash(tmem.data(),tile,64,32,2,5);
             auto b=RT64::PrototypeFastTMEMHasher::hash(tmem.data(),tile,64,32,2,5);
             auto c=RT64::PrototypeCachedTMEMHasher::hash(tmem.data(),tile,64,32,2,5);
-            if(a!=b || a!=c) { std::printf("Range mismatch %u/%u\n",first,count); return 1; }
+            auto d=RT64::PrototypeBatchedTMEMHasher::hash(tmem.data(),tile,64,32,2,5);
+            if(a!=b || a!=c || a!=d) { std::printf("Range mismatch %u/%u\n",first,count); return 1; }
         }
     }
     puts("PASS: 20000 original/optimized hash comparisons across formats, palettes, strides and versions");
@@ -90,10 +100,37 @@ int main() {
     if (!RT64::PrototypeCachedTMEMHasher::paletteHits) return 1;
     puts("PASS: cached index membership matches original with changing palette bytes");
     puts("PASS: forced cache fingerprint collisions retain original hashes");
+    // Exercise one-shot and streaming boundaries, including a first append
+    // larger than the buffer and a transition caused only by the final byte.
+    std::array<uint8_t,20000> data;
+    for(auto& b:data) b=uint8_t(next());
+    for(size_t length: {size_t(0),size_t(1),size_t(63),size_t(64),size_t(239),size_t(240),size_t(241),
+                       size_t(8191),size_t(8192),size_t(8193),size_t(16384),size_t(20000)}) {
+        for(size_t chunk: {size_t(1),size_t(8),size_t(63),size_t(240),size_t(1024),size_t(8192),size_t(20000)}) {
+            prototype::BufferedHash<> batched;
+            XXH3_state_t streaming;
+            XXH3_64bits_reset(&streaming);
+            for(size_t offset=0;offset<length;) {
+                auto bytes=std::min(chunk,length-offset);
+                batched.append(data.data()+offset,bytes);
+                XXH3_64bits_update(&streaming,data.data()+offset,bytes);
+                offset+=bytes;
+            }
+            if(batched.digest()!=XXH3_64bits_digest(&streaming) || batched.streamed()!=(length>8192)) return 1;
+        }
+    }
+    for(uint16_t height: {127,128,129,256,257,512,1024}) {
+        LoadTile tile{16,0,1,2,0};
+        auto a=RT64::TMEMHasher::hash(tmem.data(),tile,64,height,2,5);
+        auto b=RT64::PrototypeBatchedTMEMHasher::hash(tmem.data(),tile,64,height,2,5);
+        if(a!=b) return 1;
+    }
+    puts("PASS: buffered and streaming-fallback hash boundaries preserve exact results");
 }
 ''')
     exe=output / "fast_hash_test.exe"
-    subprocess.run([compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror","-I",str(rt64 / "contrib"),str(fixture),"-o",str(exe)],check=True)
+    subprocess.run([compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror","-I",str(rt64 / "contrib"),
+                    "-I",str(Path(__file__).resolve().parent),str(fixture),"-o",str(exe)],check=True)
     env=dict(os.environ)
     env["PATH"]=str(Path(compiler).parent)+os.pathsep+env.get("PATH", "")
     subprocess.run([str(exe)],env=env,check=True)

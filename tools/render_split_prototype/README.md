@@ -800,6 +800,18 @@ compares cached results after palette changes and forces fingerprint collisions
 with changing texture bytes. Performance must be measured without differential
 verification; cache hits alone do not establish a throughput improvement.
 
+`--batch-texture-hash` requires `--fast-texture-hash` and concatenates the exact
+texture, palette and metadata byte stream into an 8 KiB stack buffer before
+one XXH3 call. If the stream exceeds that buffer, it initializes the original
+streaming hasher, feeds the buffered prefix once, and streams the remainder.
+It does not change the seed, secret, byte order or which bytes participate.
+The buffer belongs to one hash invocation, allocates no heap memory and retains
+no input pointers. It can be combined with the independent palette-index cache.
+The host fixture compares both combinations with the original and checks empty,
+capacity-edge, oversized-first-chunk and multi-row fallback cases. Native
+`--verify-texture-hash` compares every result with the original implementation;
+timing comparisons must omit that differential verification.
+
 `--verify-texture-hash` additionally recomputes every result with the original
 hasher and aborts on a mismatch. `texture-hash.json` records task-level call and
 comparison counts; the runner requires evidence for every complete trial task.

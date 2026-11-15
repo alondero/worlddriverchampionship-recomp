@@ -7,7 +7,7 @@ import subprocess
 from fast_hash import make_fast_hasher
 
 
-def build_fast_hash(reference, output, compiler, cache_palette=False):
+def build_fast_hash(reference, output, compiler, cache_palette=False, batch_hash=False):
     entries = json.loads((reference / "compile_commands.json").read_text())
     entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/hle/rt64_rdp_tmem.cpp"))
     original = Path(entry["file"]).read_bytes()
@@ -17,7 +17,7 @@ def build_fast_hash(reference, output, compiler, cache_palette=False):
         raise RuntimeError("RT64 texture hash seam changed")
     header_path = Path(entry["file"]).parent.parent / "common/rt64_tmem_hasher.h"
     header = header_path.read_bytes()
-    (output / "fast_tmem_hasher.h").write_text(make_fast_hasher(header.decode().replace("\r\n", "\n"), cache_palette))
+    (output / "fast_tmem_hasher.h").write_text(make_fast_hasher(header.decode().replace("\r\n", "\n"), cache_palette, batch_hash))
     if source.count('#include "common/rt64_tmem_hasher.h"') != 1:
         raise RuntimeError("RT64 hasher include seam changed")
     source = source.replace('#include "common/rt64_tmem_hasher.h"', '#include "common/rt64_tmem_hasher.h"\n#include "fast_tmem_hasher.h"')
@@ -48,6 +48,8 @@ def build_fast_hash(reference, output, compiler, cache_palette=False):
         raise RuntimeError("Optimized hasher compilation failed; inspect fast-hash-build.log")
     (output / "fast-hash-source.json").write_text(json.dumps({
         "cache_palette": cache_palette,
+        "batch_hash": batch_hash,
+        "buffered_header_sha256": hashlib.sha256((Path(__file__).parent / "buffered_hash.h").read_bytes()).hexdigest() if batch_hash else None,
         "source": entry["file"], "source_sha256": hashlib.sha256(original).hexdigest(),
         "copied_sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
         "header": str(header_path), "header_sha256": hashlib.sha256(header).hexdigest(),

@@ -1,7 +1,7 @@
 """Experimental palette-index saturation and contiguous palette hash updates."""
 
 
-def make_fast_hasher(original, cache_palette=False):
+def make_fast_hasher(original, cache_palette=False, batch_hash=False):
     source = original.replace("TMEMHasher", "PrototypeFastTMEMHasher").replace("bitScanForward64", "prototypeBitScanForward64")
     ci4 = "for (uint32_t i = 0; i < byteCount; i++) {\n                            tlutBitset[0]"
     if source.count(ci4) != 1:
@@ -70,4 +70,15 @@ def make_fast_hasher(original, cache_palette=False):
             raise RuntimeError("Palette cache counters seam changed")
         source = '#include <cstring>\n' + source.replace(marker,
             '        static inline thread_local uint64_t paletteLookups = 0, paletteHits = 0;\n' + marker)
+    if batch_hash:
+        state = '            XXH3_state_t xxh3;\n            XXH3_64bits_reset(&xxh3);'
+        digest = '            return XXH3_64bits_digest(&xxh3);'
+        if source.count(state) != 1 or source.count(digest) != 1:
+            raise RuntimeError("Buffered texture hash seam changed")
+        source = source.replace(state, '            prototype::BufferedHash<> byteStream;')
+        source = source.replace('XXH3_64bits_update(&xxh3, ', 'byteStream.append(')
+        source = source.replace(digest, '            return byteStream.digest();')
+        if '&xxh3' in source:
+            raise RuntimeError("Unconverted buffered hash state use")
+        source = '#include "buffered_hash.h"\n' + source
     return source
