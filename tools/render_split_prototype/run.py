@@ -28,12 +28,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-build", type=Path, required=True)
     parser.add_argument("--rom", type=Path, required=True)
-    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "pose-snapshot", "motion120", "endpoint120"], default="sound-gated")
+    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "endpoint120"], default="sound-gated")
     parser.add_argument("--require-repeatable", action="store_true",
                         help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
+    parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for shadow-rate; other modes retain 120")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop collecting palette indices once the set is full")
@@ -47,13 +48,16 @@ def main():
         parser.error("--trials must be 6..300; increase --timeout for long runs")
     if args.verify_texture_hash and not args.fast_texture_hash:
         parser.error("--verify-texture-hash requires --fast-texture-hash")
+    cadence_mode = args.mode == "shadow-rate"
+    if not 60 <= args.present_hz <= 240 or (not cadence_mode and args.present_hz != 120):
+        parser.error("--present-hz requires shadow-rate and a rate within 60..240")
     endpoint_mode = args.mode == "endpoint120"
     motion_mode = args.mode == "motion120" or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
-    if pose_mode or args.no_authority_scan or args.fast_texture_hash:
+    if cadence_mode or pose_mode or args.no_authority_scan or args.fast_texture_hash:
         args.require_repeatable = True
-    owned_ram = args.mode in ("shadow-snapshot", "shadow120", "pose-snapshot", "motion120", "endpoint120")
-    independent_present = args.mode in ("present120", "shadow120", "motion120", "endpoint120")
+    owned_ram = args.mode in ("shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "endpoint120")
+    independent_present = args.mode in ("present120", "shadow120", "shadow-rate", "motion120", "endpoint120")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
     if args.no_authority_scan and not owned_ram:
         parser.error("--no-authority-scan requires an owned-RAM mode")
@@ -64,7 +68,7 @@ def main():
         parser.error("--shadow-eye-offset requires shadow-snapshot or shadow120 and a finite value within +/-10")
     if not 60 <= args.settle_frames <= 1800:
         parser.error("--settle-frames must be 60..1800; increase --timeout for long runs")
-    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "pose-snapshot", "motion120", "endpoint120"):
+    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "endpoint120"):
         parser.error("--require-repeatable requires a repeat, render-only, presentation or snapshot mode")
     reference = args.reference_build.resolve()
     rom = args.rom.resolve()
@@ -147,6 +151,7 @@ def main():
     env.update(WDC_WARP=args.warp, WDC_RENDER_PROTOTYPE_MODE=args.mode,
                WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames),
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
+               WDC_RENDER_PROTOTYPE_PRESENT_HZ=str(args.present_hz),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
     if args.verify_texture_hash:
         env["WDC_RENDER_PROTOTYPE_VERIFY_TEXTURE_HASH"] = "1"
@@ -157,6 +162,7 @@ def main():
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
                                                   "settle_frames": args.settle_frames,
                                                   "trials": args.trials,
+                                                  "present_hz": args.present_hz,
                                                   "profile_rt64": args.profile_rt64,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
@@ -263,25 +269,31 @@ def main():
            row['ticks_before'] != 1562500 or row['ticks_after'] != 1562500 for row in rows):
         raise SystemExit("Simulation counter or stock sampling contract changed")
     repeats = 3 if endpoint_mode else 4 if motion_mode else 3 if independent_present or pose_mode else (2 if args.mode in ("repeat", "render-only", "camera-snapshot", "shadow-snapshot") else 1)
-    if args.mode != "raw" and any(row['skipped_publish'] != row['trial'] * repeats or
-                                          row['skipped_consume'] != row['trial'] * repeats for row in rows):
+    def frame_repeats(trial):
+        return (trial * args.present_hz // 30 - (trial - 1) * args.present_hz // 30 - 1) if cadence_mode else repeats
+    def cumulative_repeats(trial):
+        return trial * args.present_hz // 30 - trial if cadence_mode else trial * repeats
+    if args.mode != "raw" and any(row['skipped_publish'] != cumulative_repeats(row['trial']) or
+                                          row['skipped_consume'] != cumulative_repeats(row['trial']) for row in rows):
         raise SystemExit("Sound wrappers did not intercept every extra draw")
-    if render_only and any(row['skipped_audio_build'] != row['trial'] * repeats or
-            row['skipped_audio_retire'] != row['trial'] * repeats or not row['preserved_flare_history'] for row in rows):
+    if render_only and any(row['skipped_audio_build'] != cumulative_repeats(row['trial']) or
+            row['skipped_audio_retire'] != cumulative_repeats(row['trial']) or not row['preserved_flare_history'] for row in rows):
         raise SystemExit("Render-only audio/history wrappers did not intercept")
     for row in rows:
+        count = frame_repeats(row['trial'])
         pair = sorted([g for g in geometry if g['frame'] == row['frame']], key=lambda g: g['draw'])
-        if len(pair) != repeats + 1 or {g['draw'] for g in pair} != set(range(repeats + 1)) or any(not g['complete'] or not g['triangles'] for g in pair):
+        if len(pair) != count + 1 or {g['draw'] for g in pair} != set(range(count + 1)) or any(not g['complete'] or not g['triangles'] for g in pair):
             raise SystemExit(f"Incomplete geometry evidence for frame {row['frame']}")
         print(f"frame {row['frame']}: normal/extra ordered triangle headers " +
               ("identical" if pair[0]['triangle_header_hash'] == pair[1]['triangle_header_hash'] else "DIFFERENT") +
               f"; triangle counts {[g['triangles'] for g in pair]}")
-        if repeats >= 2:
+        if count >= 2:
             print("  consecutive extra draws: " +
                   ("identical" if pair[1]['triangle_header_hash'] == pair[2]['triangle_header_hash'] else "DIFFERENT"))
     if args.require_repeatable:
         frames = {row['frame'] for row in rows}
         for frame in frames:
+            count = frame_repeats(next(r['trial'] for r in rows if r['frame'] == frame))
             group = sorted((g for g in geometry if g['frame'] == frame), key=lambda g: g['draw'])
             if endpoint_mode:
                 if group[0]['owned_memory']:
@@ -298,7 +310,7 @@ def main():
             elif any(not g['same_headers_as_normal'] for g in group[1:]):
                 raise SystemExit("Frozen-sample geometry differs (exact ordered triangle headers)")
             states = [s for s in snapshots if s['frame'] == frame]
-            if len(states) != repeats or {s['draw'] for s in states} != set(range(1, repeats + 1)):
+            if len(states) != count or {s['draw'] for s in states} != set(range(1, count + 1)):
                 raise SystemExit("Missing per-draw snapshot observations")
             if any(not s['context_unchanged'] or not s['camera_unchanged'] or
                    not s['car_nonlink_words_unchanged'] or not s['sample_unchanged'] for s in states):
@@ -311,7 +323,7 @@ def main():
                     any(not s['shadow_receives'] for s in states)):
                 raise SystemExit("Owned RAM / authoritative queue routing was not observed")
             if owned_ram:
-                for draw in range(1, repeats + 1):
+                for draw in range(1, count + 1):
                     tasks = [g for g in all_geometry if g['frame'] == frame and g['draw'] == draw]
                     if len(tasks) != 2 or sum(g['triangles'] == 0 for g in tasks) != 1 or any(not g['owned_memory'] for g in tasks):
                         raise SystemExit("Expected one owned bootstrap and one full-frame task per shadow draw")
@@ -328,7 +340,7 @@ def main():
                     for s in states for change in s['view_word_changes']):
                 raise SystemExit("Render-only draw changed per-view words outside flare render pointers")
             matrices = [p for p in projections if p['frame'] == frame]
-            if len(matrices) != repeats + 1 or {p['draw'] for p in matrices} != set(range(repeats + 1)) or any(
+            if len(matrices) != count + 1 or {p['draw'] for p in matrices} != set(range(count + 1)) or any(
                     p['matrix'] != matrices[0]['matrix'] for p in matrices):
                 raise SystemExit("Missing or unequal single-view projection evidence")
         print("PASS: " +
@@ -379,15 +391,21 @@ def main():
             delta == 8 for delta in skipped_deltas)
         if endpoint_mode:
             valid_waits = 8 <= skipped_deltas[0] <= 11 and all(8 <= d <= 9 for d in skipped_deltas[1:])
-        if len(presents) != 4 * args.trials or not valid_waits:
+        expected_count = args.trials * args.present_hz // 30 if cadence_mode else 4 * args.trials
+        if cadence_mode:
+            valid_waits = all(d == 2 * (frame_repeats(r['trial']) + 1) for d, r in zip(skipped_deltas, rows))
+            expected_order = [(r['frame'], d) for r in rows for d in range(frame_repeats(r['trial']) + 1)]
+            if [(p['frame'], p['draw']) for p in presents] != expected_order:
+                raise SystemExit("Rational cadence presentation order/count mismatch")
+        if len(presents) != expected_count or not valid_waits:
             raise SystemExit("Missing direct presentation callbacks or swap-wait interception")
         intervals = [(b['us'] - a['us']) / 1000 for a, b in zip(presents, presents[1:])]
         rate = 1000 / statistics.mean(intervals)
         vi_ticks = presents[-1]['vi_ticks'] - presents[0]['vi_ticks']
         print(f"Renderer callbacks: {rate:.1f}/s; intervals {min(intervals):.2f}..{max(intervals):.2f} ms; {vi_ticks} VI ticks")
         expected_vi_ticks = sum(intervals) * 60 / 1000
-        if not 105 <= rate <= 135 or abs(vi_ticks - expected_vi_ticks) > 2:
-            raise SystemExit("120 Hz presentation / 60 Hz VI timing gate failed")
+        if not args.present_hz * .875 <= rate <= args.present_hz * 1.125 or abs(vi_ticks - expected_vi_ticks) > 2:
+            raise SystemExit(f"{args.present_hz} Hz presentation / 60 Hz VI timing gate failed")
 
 
 if __name__ == "__main__":

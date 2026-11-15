@@ -6,6 +6,7 @@
 #include "boss_rsp.h"
 #include "context.h"
 #include "pose.h"
+#include "cadence.h"
 #include <array>
 #include <atomic>
 #include <bit>
@@ -107,10 +108,21 @@ bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
+bool cadence_mode() { return std::strcmp(mode(), "shadow-rate") == 0; }
+bool frozen_present_mode() { return std::strcmp(mode(), "shadow120") == 0 || cadence_mode(); }
+unsigned present_hz() {
+    static const unsigned hz = [] {
+        const char* value = std::getenv("WDC_RENDER_PROTOTYPE_PRESENT_HZ");
+        const unsigned rate = value ? unsigned(std::strtoul(value, nullptr, 10)) : 120;
+        if (rate < 60 || rate > 240) std::_Exit(20);
+        return rate;
+    }();
+    return hz;
+}
 bool endpoint_mode() { return std::strcmp(mode(), "endpoint120") == 0; }
 bool motion_mode() { return std::strcmp(mode(), "motion120") == 0 || endpoint_mode(); }
 bool pose_mode() { return std::strcmp(mode(), "pose-snapshot") == 0 || motion_mode(); }
-bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || std::strcmp(mode(), "shadow120") == 0 || pose_mode(); }
+bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || frozen_present_mode() || pose_mode(); }
 bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode() || shadow_mode(); }
 uint8_t* queue_memory(uint8_t* memory) {
     return !render_ram.empty() && memory == render_ram.data() ? authoritative_memory : memory;
@@ -351,7 +363,8 @@ void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
             ultramodern::wait_for_external_message_timed(queue_memory(rdram), 1);
             now = std::chrono::steady_clock::now();
         }
-        deadline += std::chrono::nanoseconds(1000000000 / 120);
+        static prototype::PresentationPeriod period(present_hz());
+        deadline += std::chrono::nanoseconds(period.next_ns());
     }
     if (inside_swap) {
         std::lock_guard lock(label_mutex);
@@ -601,7 +614,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     one_vi = settled + 1 >= settle_frames() && eligible() && std::strcmp(mode(), "split60") == 0;
     direct_present = settled + 1 >= settle_frames() && trials < trial_count() && eligible() &&
-        (std::strcmp(mode(), "present120") == 0 || ((std::strcmp(mode(), "shadow120") == 0 || motion_mode()) && trials > 0));
+        (std::strcmp(mode(), "present120") == 0 || ((frozen_present_mode() || motion_mode()) && trials > 0));
     prototype_set_present(direct_present);
     const auto frame_start = std::chrono::steady_clock::now();
     ++race_frame;
@@ -629,7 +642,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     const auto scene = word(rdram, 0x800923E4);
     if (++settled < settle_frames()) return;
-    if (std::strcmp(mode(), "shadow120") == 0 || motion_mode()) {
+    if (frozen_present_mode() || motion_mode()) {
         // Activate after the first normal draw returns: its earlier swap
         // presents the preceding warm-up frame. shadow120 presents the current
         // normal frame in the drain below; motion120 suppresses that swap and
@@ -743,7 +756,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     }
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
+    const unsigned repeats = cadence_mode() ? prototype::presentations_in_group(trials, present_hz()) - 1 : endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         const auto receives_before = shadow_receives, sends_before = shadow_sends;
         const auto copies_before = camera_copies;

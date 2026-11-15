@@ -34,14 +34,14 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
 in this worktree. Ordinary modes compile only `probe.cpp` and relink into a separate
 executable. It does not perform a full player rebuild.
-The `present120`, `shadow120`, `motion120` and `endpoint120` modes additionally compile a copied `events.cpp` with guarded
+The `present120`, `shadow120`, `shadow-rate`, `motion120` and `endpoint120` modes additionally compile a copied `events.cpp` with guarded
 substitutions from `runtime.py`, linked ahead of the reference runtime archive.
 This copy uses the current source named by the reference compile database;
 unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-`shadow-snapshot`, `shadow120`, `pose-snapshot`, `motion120` and `endpoint120` compile copied renderer and
+`shadow-snapshot`, `shadow120`, `shadow-rate`, `pose-snapshot`, `motion120` and `endpoint120` compile copied renderer and
 runtime message-queue sources via `shadow.py`, replacing the renderer object
 and queue archive member. `shadow-source.json` records both current-source and
 copy hashes and compile commands; unbuilt reference-source edits affect this
@@ -73,6 +73,7 @@ Use `--trials 120` for a longer bounded run (6..300, default 6); increase
 | `repeat` | Two consecutive sound-gated extra draws without simulation between them |
 | `render-only` | Two extra draws also skipping audio command generation/retirement and preserving lens-flare screen-position history |
 | `camera-snapshot` | Two render-only extras using a frozen 128-byte camera copy in owned transform-arena space; restore view/current-camera references after each draw |
+| `shadow-rate` | Frozen owned-RAM repeatability with rational 60..240 Hz presentation counts and pacing; no interpolation |
 | `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
 | `shadow120` | Combine owned RAM with independent presentation; three frozen extras and a native drain per frame, with both copied-source provenance records |
@@ -479,3 +480,28 @@ The host comparison uses 20,000 synthetic TMEM cases against the reference
 header, including sparse and dense palettes, varying formats, stride/wrap cases
 and hash versions. Native verification covers the actual race inputs. Neither
 comparison establishes general renderer pixel equivalence or production readiness.
+
+### Non-integer presentation cadence
+
+`shadow-rate --present-hz 144` extends the frozen `shadow120` experiment with
+rational group counts and nanosecond pacing. For a nominal 30-group/s cadence,
+144 Hz produces 4/5/5/5/5 presentations over five groups; each group includes
+one normal draw plus owned repeats. The period accumulator avoids truncation
+drift at rates whose periods are fractional nanoseconds. VI/AI remain 60 Hz.
+
+This is a presentation/ownership experiment, not interpolated 144 Hz motion.
+Group scheduling is nominal and does not yet adapt to consumed-sample gaps or
+missed deadlines. Wall-clock throughput, motion timing under load, and physical
+scanout require separate validation. The existing lag catch-up policy remains.
+Strict geometry/state gates are mandatory, with variable task counts, cumulative
+audio gating and ordered presentation labels checked independently by the runner.
+Other modes retain their 120 Hz setting. Targets are integer rates from 60..240.
+
+```powershell
+python tools/render_split_prototype/test_cadence.py --reference-build build
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode shadow-rate --present-hz 144 --trials 30
+```
+
+The host test verifies exact presentation totals and accumulated period lengths
+for one simulated hour at 60, 75, 90, 120, 144, 165 and 240 Hz. It does not wait
+an hour or establish native performance.
