@@ -39,7 +39,11 @@ unsigned early_trials = 0, early_settled = 0;
 std::chrono::steady_clock::time_point early_frame_start;
 unsigned normal_publish = 0, normal_consume = 0, normal_audio_build = 0, normal_audio_retire = 0;
 unsigned skipped_vi_waits = 0;
-std::atomic_uint prototype_vi_ticks{0};
+std::atomic_uint prototype_vi_ticks{0}, accelerator_samples{0};
+bool hold_accelerator() {
+    static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_ACCELERATOR") != nullptr;
+    return enabled;
+}
 std::atomic_uint submitted_tasks{0}, completed_tasks{0};
 std::atomic_uint requested_presents{0}, completed_presents{0};
 std::atomic_uint64_t last_bound_present{0}, last_finished_present{0};
@@ -182,6 +186,28 @@ unsigned rdp_words(unsigned op) {
 }
 }
 extern "C" {
+void __real_osContGetReadData_recomp(uint8_t*, recomp_context*);
+void __wrap_osContGetReadData_recomp(uint8_t* rdram, recomp_context* ctx) {
+    __real_osContGetReadData_recomp(rdram, ctx);
+    if (!hold_accelerator()) return;
+    // USA controller worker after runtime sampling: a0 points to four 6-byte
+    // OSContPad records at 800AAAE0, owned until next sample by the game.
+    // Port 0 button u16 (+0), signed sticks (+2/+3), error u8 (+4) use
+    // word-swapped MEM helpers. A=8000 is held; steering is neutral N64 units.
+    // Only the known 24-byte in-bounds array and live race callback (u32 at
+    // 8007D848 == 8000C560) are eligible; replay selector u32 at 8007DF94
+    // equal to 2, nonzero guest error flags and other pointers are
+    // untouched. Guest threads are cooperatively scheduled; no pointer retained.
+    // This is an opt-in input fixture, removable when scripted controller APIs
+    // are available. It does not run at extra-draw or simulation-step boundaries.
+    const uint32_t pad = uint32_t(ctx->r4);
+    if (pad != 0x800AAAE0 || word(rdram, 0x8007D848) != 0x8000C560 ||
+        word(rdram, 0x8007DF94) == 2 || MEM_BU(4, int32_t(pad))) return;
+    MEM_H(0, int32_t(pad)) = uint16_t(MEM_H(0, int32_t(pad))) | 0x8000u;
+    MEM_B(2, int32_t(pad)) = 0;
+    MEM_B(3, int32_t(pad)) = 0;
+    ++accelerator_samples;
+}
 bool prototype_disable_readback(uint8_t* memory) {
     if (!std::getenv("WDC_RENDER_PROTOTYPE_NO_READBACK")) return false;
     std::lock_guard label_lock(label_mutex);
@@ -758,6 +784,10 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
 }
 void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                       std::chrono::steady_clock::time_point frame_start, unsigned& trials) {
+    if (hold_accelerator()) {
+        std::lock_guard lock(output_mutex);
+        log_record("[prototype-input] {\"frame\":%u,\"accelerator_samples\":%u}\n", race_frame, accelerator_samples.load());
+    }
     if (shadow_mode()) {
         authoritative_memory = rdram;
         recomp_context drain_context;
@@ -856,7 +886,11 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             pose_identity.push_back(word(rdram, car));
             if (shadow_inputs()) {
                 const auto active=word(rdram,car+0x2F4);
-                pose_identity.push_back(active);
+                // 17500..17508 copies the current ground-contact reference
+                // from +E40; it changes during ordinary driving. 30644..30648
+                // only tests presence, so identity tracks availability, not the
+                // raw reference. Geometric jump/normal guards remain below.
+                pose_identity.push_back(active != 0);
                 if(active) {
                     // Float32 ground inputs to 3062C, world-space coordinates/
                     // unit normal. 12 bytes each except alternate-path +36C
@@ -888,13 +922,19 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         // identity/scene changes, sample discontinuities or >64 world units.
         pose_reset = previous_pose_identity != pose_identity || previous_poses.size() != current_poses.size() || previous_shadow_inputs.size() != current_shadow_inputs.size() ||
             samples - previous_pose_sample == 0 || samples - previous_pose_sample > 4;
+        const bool identity_changed = previous_pose_identity != pose_identity;
+        bool pose_jump = false, shadow_jump = false;
+        int identity_index = -1;
+        for(unsigned i=0;i<pose_identity.size() && i<previous_pose_identity.size();++i)
+            if(pose_identity[i]!=previous_pose_identity[i]) { identity_index=int(i); break; }
         if (!pose_reset) for (unsigned i = 0; i < current_poses.size(); ++i) {
             double distance2 = 0;
             for (unsigned j = 12; j < 15; ++j) {
                 const double delta = prototype::component(current_poses[i], j) - prototype::component(previous_poses[i], j);
                 distance2 += delta * delta;
             }
-            pose_reset |= distance2 > 64*64;
+            pose_jump |= distance2 > 64*64;
+            pose_reset |= pose_jump;
         }
         if (!pose_reset) for(unsigned i=0;i<shadow_fields.size();++i) {
             double distance2=0, dot=0;
@@ -903,7 +943,16 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 const double b=std::bit_cast<float>(current_shadow_inputs[i][j]);
                 distance2+=(a-b)*(a-b); dot+=a*b;
             }
-            pose_reset |= shadow_fields[i].normal ? dot<=0 : distance2>64*64;
+            shadow_jump |= shadow_fields[i].normal ? dot<=0 : distance2>64*64;
+            pose_reset |= shadow_jump;
+        }
+        {
+            std::lock_guard lock(output_mutex);
+            log_record("[prototype-history] {\"frame\":%u,\"reset\":%s,\"identity_changed\":%s,\"identity_index\":%d,\"previous_word\":%u,\"current_word\":%u,\"sample_gap\":%u,\"pose_count_changed\":%s,\"shadow_count_changed\":%s,\"pose_jump\":%s,\"shadow_jump\":%s}\n",
+                race_frame, pose_reset?"true":"false", identity_changed?"true":"false", identity_index,
+                identity_index<0?0:previous_pose_identity[identity_index], identity_index<0?0:pose_identity[identity_index], samples-previous_pose_sample,
+                previous_poses.size()!=current_poses.size()?"true":"false", previous_shadow_inputs.size()!=current_shadow_inputs.size()?"true":"false",
+                pose_jump?"true":"false", shadow_jump?"true":"false");
         }
         if (pose_reset) { previous_poses = current_poses; previous_shadow_inputs = current_shadow_inputs; }
     }

@@ -43,6 +43,7 @@ def main():
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop collecting palette indices once the set is full")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
+    parser.add_argument("--hold-accelerator", action="store_true", help="Input fixture: hold port-0 A with neutral steering during the race")
     parser.add_argument("--capture-frames", action="store_true", help="Capture swap images; requires explicit present and exactly six trials; timing is diagnostic only")
     parser.add_argument("--explicit-present", action="store_true", help="Submit every explicit prototype screen update to RT64; requires --audit-present")
     parser.add_argument("--audit-present", action="store_true", help="Observe actual RT64 swap calls and bind presentation IDs to prototype labels")
@@ -146,7 +147,7 @@ def main():
         # This translation lives in an archive, unlike the renderer object.
         # The complete copied object satisfies its symbols before extraction.
         objects.append(build_draw_boundary(reference, output))
-    wrapped = ["func_8003062C", "func_8001A97C", "func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
+    wrapped = ["osContGetReadData_recomp", "func_8003062C", "func_8001A97C", "func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
@@ -187,6 +188,8 @@ def main():
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_PRESENT_HZ=str(args.present_hz),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
+    if args.hold_accelerator:
+        env["WDC_RENDER_PROTOTYPE_ACCELERATOR"] = "1"
     if args.shadow_inputs:
         env["WDC_RENDER_PROTOTYPE_SHADOW_INPUTS"] = "1"
     if args.shadow_inputs == "only":
@@ -214,6 +217,7 @@ def main():
                                                   "audit_present": args.audit_present,
                                                   "explicit_present": args.explicit_present,
                                                   "capture_frames": args.capture_frames,
+                                                  "hold_accelerator": args.hold_accelerator,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
@@ -232,6 +236,18 @@ def main():
     rows = [json.loads(line.split("[render-prototype] ", 1)[1])
             for line in log.read_text(errors="replace").splitlines() if "[render-prototype] " in line]
     (run_dir / "report.json").write_text(json.dumps(rows, indent=2))
+    history = [json.loads(line.split("[prototype-history] ", 1)[1])
+               for line in log.read_text(errors="replace").splitlines() if "[prototype-history] " in line]
+    (run_dir / "history.json").write_text(json.dumps(history, indent=2))
+
+    if args.hold_accelerator:
+        inputs = [json.loads(line.split("[prototype-input] ", 1)[1])
+                  for line in log.read_text(errors="replace").splitlines() if "[prototype-input] " in line]
+        (run_dir / "inputs.json").write_text(json.dumps(inputs, indent=2))
+        if [r["frame"] for r in inputs] != [r["frame"] for r in rows] or not inputs or inputs[0]["accelerator_samples"] == 0 or any(
+                a["accelerator_samples"] >= b["accelerator_samples"] for a, b in zip(inputs, inputs[1:])):
+            raise SystemExit("Scripted accelerator samples missing or not advancing")
+
     geometry = [json.loads(line.split("[prototype-rdp] ", 1)[1])
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-rdp] " in line]
     (run_dir / "geometry.json").write_text(json.dumps(geometry, indent=2))

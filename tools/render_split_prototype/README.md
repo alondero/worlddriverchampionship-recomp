@@ -137,6 +137,21 @@ Use `--warp '1:0:arcade:3' --settle-frames 180` to audit the eight-car Hawaii
 grid later in the race. `--warp` follows the player's existing race setup
 syntax; `--settle-frames` accepts 60..1800 (increase `--timeout` as needed).
 Each run retains `setup.json` alongside its evidence.
+`--hold-accelerator` is an opt-in driving fixture: after ordinary controller
+sampling, it holds port-0 A and neutralizes both sticks only for the known pad
+array during the live race, outside replay. It preserves other buttons/ports.
+`inputs.json` records cumulative injected samples per trial and the runner
+requires advancing counts. This changes sampled input, not the simulation clock
+or extra-draw lifecycle. The current port-0 callback always reports success;
+the guest error flag alone would not establish a fresh host response if that
+runtime behavior changed. The fixture does not steer around corners or qualify
+controller disconnect behavior.
+
+Use a later race boundary, such as `--warp '1:0:arcade:3' --settle-frames 240`,
+with this fixture to investigate driving. A captured run showed 37 mph and an
+active race timer. Without the fixture, a later 360-frame capture still showed
+0 mph. Short default captures cover the pre-race camera and cannot establish
+driving quality.
 Use `--no-authority-scan` in owned-RAM modes to isolate the cost of whole-RAM
 diagnostics. This timing experiment omits `authority.json` observations (the file
 is an empty array), records `authority_scan: false` in `setup.json`, and retains
@@ -689,6 +704,23 @@ bounded host tolerance. Invalid inputs abort rather than writing guesses.
 
 Only owned RAM is changed. Path/active-set changes reset history; ground-position
 jumps over 64 world units or normals at least 90 degrees apart also reset it.
+The active-set identity uses `car+2F4 != 0`, not the raw reference. Producer
+`17500..17508` copies the current ground-contact reference from `car+E40`;
+consumer `30644..30648` only checks presence. Driving evidence showed ordinary
+nonzero reference changes resetting history every frame under the former raw
+identity check. Presence tracking retained history for all five post-initial
+groups in a six-group driving capture, restoring intermediate geometry.
+`history.json` records identity/count/gap/jump reset causes before history
+replacement. Later guards are skipped once an earlier reset cause is found, so
+false jump flags do not independently establish continuity.
+Driving validation is still incomplete: the capture failed exact normal-versus-
+current-endpoint geometry checks, including a control before the identity fix.
+Do not treat restored interpolation as a passed driving-render acceptance gate.
+A separate frozen driving control, with interpolation disabled, reproduced the
+mismatch in two of six groups: counts matched (1291 and 1306 triangles), but
+ordered headers differed from the normal draw. Both consecutive owned draws
+matched each other in all six groups. This localizes the remaining discrepancy
+to normal-draw versus post-draw snapshot state, rather than blend arithmetic.
 `shadow-inputs.json` records input counts/changes and observed native rebuilds.
 The original `3062C` still rebuilds cached matrices and vertices after `11BA0`
 clears their flags. Invisible shadows need not invoke the rebuild.

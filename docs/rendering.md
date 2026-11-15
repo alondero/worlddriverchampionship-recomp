@@ -18,6 +18,12 @@ callback timing results must not be read as achieved display rates. See the
 [prototype instructions](../tools/render_split_prototype/README.md) for both
 the failed controls and the explicit-submission experiment.
 
+Driving captures now use an optional held-accelerator fixture. They exposed
+ordinary ground-contact references incorrectly resetting interpolation history;
+tracking contact availability fixes those resets. Driving remains unqualified:
+a frozen driving control still differs from the normal draw in some ordered
+triangle headers, even though consecutive owned draws repeat exactly.
+
 All addresses are for the USA ROM (SHA-256
 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`).
 Functions are named as in the generated `RecompiledFuncs/`.
