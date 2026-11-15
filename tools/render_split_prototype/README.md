@@ -101,6 +101,17 @@ thresholds are diagnostics, not a new smoothness acceptance gate. Existing
 rate/VI checks remain unchanged. Long runs with held accelerator still use
 neutral steering and can hit a wall; they are not full-playthrough evidence.
 
+Audited runs also write `present-latency.json`, joining each selected swap to
+same-clock observations at prototype screen-callback entry, present dequeue
+observation, workload readiness and swap-API entry/return. Each worker's phase
+order is checked, but the worker may dequeue or finish before the callback's
+binding observer returns. Screen-to-dequeue includes admission, enqueue work,
+queueing and pre-observation resize work; dequeue-to-ready includes any injected
+dequeue delay and workload waiting. Ready-to-API includes presentation rendering,
+waits and pacing. API duration includes driver time and thread scheduling.
+These are elapsed phase spans, not CPU time or precise queue-wait measurements.
+No new wait, completion signal, skip decision or timing acceptance rule is added.
+
 `--pace-present-queue --explicit-present --audit-present` experiments with
 admission pacing on the graphics worker. Before each prototype screen update,
 it waits until the present worker has dequeued the previously bound event and

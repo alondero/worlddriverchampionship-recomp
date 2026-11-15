@@ -15,8 +15,8 @@ def build_present_audit(reference, output, compiler, capture=False):
     seam = "                swapChainValid = ext.swapChain->present(swapChainIndex, &waitSemaphore, 1);"
     if source.count(seam) != 1:
         raise RuntimeError("RT64 present audit seam changed")
-    source = '#include <cstdint>\nextern "C" void prototype_swap_observed(uint64_t, uint32_t, bool);\nextern "C" void prototype_swap_batch_finished(uint64_t);\nextern "C" void prototype_present_skipped(uint64_t, bool, bool);\nextern "C" void prototype_present_dequeued(uint64_t);\n' + source.replace(
-        seam, seam + "\n                prototype_swap_observed(present.presentId, i, swapChainValid);")
+    source = '#include <cstdint>\nextern "C" void prototype_swap_observed(uint64_t, uint32_t, bool, int64_t);\nextern "C" int64_t prototype_present_clock();\nextern "C" void prototype_present_ready();\nextern "C" void prototype_swap_batch_finished(uint64_t);\nextern "C" void prototype_present_skipped(uint64_t, bool, bool);\nextern "C" void prototype_present_dequeued(uint64_t);\n' + source.replace(
+        seam, "                const auto prototype_swap_begin = prototype_present_clock();\n" + seam + "\n                prototype_swap_observed(present.presentId, i, swapChainValid, prototype_swap_begin);")
     skip = "                skipPresent = skipPresent || ext.swapChain->isEmpty();"
     branch = "                if (skipPresent) {\n                    skipInterpolation();"
     if source.count(skip) != 1 or source.count(branch) != 1:
@@ -31,6 +31,10 @@ def build_present_audit(reference, output, compiler, capture=False):
         raise RuntimeError("RT64 present dequeue seam changed")
     source = source.replace(
         dequeue, dequeue + "\n                prototype_present_dequeued(present.presentId);")
+    ready = "                ext.workloadQueue->waitForWorkloadId(present.workloadId);"
+    if source.count(ready) != 1:
+        raise RuntimeError("RT64 workload-ready seam changed")
+    source = source.replace(ready, ready + "\n                prototype_present_ready();")
     end = "        }\n    }\n\n    void PresentQueue::skipInterpolation()"
     if source.count(end) != 1:
         raise RuntimeError("RT64 present completion seam changed")

@@ -25,6 +25,7 @@ from fast_hash_build import build_fast_hash
 from draw_boundary import build_draw_boundary
 from present_audit import build_present_audit, validate_admissions, validate_swaps
 from swap_timing import summarize_swaps
+from present_latency import join_present_latency
 
 
 def main():
@@ -468,6 +469,11 @@ def main():
             print(f"Presentation admission wait: {sum(a['wait_us'] for a in admissions) / len(admissions):.1f} us mean; "
                   f"{max(a['wait_us'] for a in admissions)} us maximum")
         selected = validate_swaps(bindings, swaps, presents)
+        latency = join_present_latency(bindings, selected)
+        (run_dir / "present-latency.json").write_text(json.dumps(latency, indent=2))
+        for phase in ("screen_to_dequeue_ms", "dequeue_to_ready_ms", "ready_to_api_ms", "swap_api_ms"):
+            values = sorted(row[phase] for row in latency)
+            print(f"Presentation {phase}: p95 {values[math.ceil(.95 * len(values)) - 1]:.3f}, max {values[-1]:.3f} ms")
         if args.capture_frames:
             captures = []
             for binding in bindings:
