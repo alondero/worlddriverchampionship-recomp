@@ -79,6 +79,8 @@ uint32_t redirected_camera = 0;
 unsigned camera_copies = 0, wheel_pose_reads = 0;
 struct Label { unsigned frame; unsigned draw; uint8_t* memory; };
 thread_local Label active_rsp_label{};
+thread_local uint64_t rsp_status_reads = 0, rsp_status_repeats = 0;
+thread_local uint32_t rsp_previous_status = 0;
 thread_local unsigned texture_calls = 0, texture_verified = 0;
 thread_local std::vector<std::pair<const char*, double>> rt64_phase_records;
 std::mutex label_mutex;
@@ -601,6 +603,19 @@ void __wrap_osSpTaskStartGo_recomp(uint8_t* rdram, recomp_context* ctx) {
 }
 void original_rsp(uint8_t*, const OSTask*, wdc::rsp::RdpSink, void*)
     asm("__real__ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_");
+uint32_t original_rsp_read_cop0(uint32_t) asm("__real__Z13rsp_read_cop0j");
+uint32_t wrapped_rsp_read_cop0(uint32_t) asm("__wrap__Z13rsp_read_cop0j");
+uint32_t wrapped_rsp_read_cop0(uint32_t reg) {
+    // Graphics-worker observations only. Preserve the bridge's yield, atomic
+    // status read and replay/capture behavior; no guest memory is accessed.
+    const auto value = original_rsp_read_cop0(reg);
+    if (reg == 4) {
+        if (rsp_status_reads && value == rsp_previous_status) ++rsp_status_repeats;
+        ++rsp_status_reads;
+        rsp_previous_status = value;
+    }
+    return value;
+}
 void wrapped_rsp(uint8_t*, const OSTask*, wdc::rsp::RdpSink, void*)
     asm("__wrap__ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_");
 void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, void* context) {
@@ -612,6 +627,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     }
     if (label.memory != rdram) std::_Exit(12);
     active_rsp_label = label;
+    rsp_status_reads = rsp_status_repeats = 0;
     texture_calls = texture_verified = 0;
     rt64_phase_records.clear();
     rt64_phase_records.reserve(32);
@@ -701,9 +717,10 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     }
 
     log_record("[prototype-rdp] {\"frame\":%u,\"draw\":%u,\"extra\":%s,\"triangles\":%u,"
-        "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s,\"task_ms\":%.3f,\"sink_ms\":%.3f,\"sync_chunk_sink_ms\":%.3f,\"owned_memory\":%s,\"same_headers_as_first_extra\":%s}\n", label.frame,
+        "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s,\"task_ms\":%.3f,\"sink_ms\":%.3f,\"sync_chunk_sink_ms\":%.3f,\"owned_memory\":%s,\"same_headers_as_first_extra\":%s,\"rsp_status_reads\":%llu,\"rsp_status_repeats\":%llu}\n", label.frame,
         label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false", same ? "true" : "false", task_ms, capture.sink_ms, capture.sync_sink_ms,
-        !render_ram.empty() && rdram == render_ram.data() ? "true" : "false", same_extra ? "true" : "false");
+        !render_ram.empty() && rdram == render_ram.data() ? "true" : "false", same_extra ? "true" : "false",
+        (unsigned long long)rsp_status_reads, (unsigned long long)rsp_status_repeats);
 }
 void __wrap_func_8001F9CC(uint8_t* rdram, recomp_context* ctx) {
     if (extra && gated()) { ++skipped_publish; return; }

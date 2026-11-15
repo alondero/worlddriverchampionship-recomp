@@ -227,6 +227,12 @@ do not add them or interpret them as CPU-only costs.
 `sync_chunk_sink_ms` counts sink calls whose accumulated command stream completes
 a full-sync command. A chunk can also contain other commands, so this is an
 upper bound on full-sync time, not an isolated function measurement.
+Geometry records also count BOSS COP0 status reads and consecutive equal status
+values per task. A linker wrapper delegates every read to the original bridge,
+including its yield and capture/replay handling, then updates graphics-thread
+counters. Owned modes require observations for every complete full-frame task.
+Equal values do not distinguish busy waiting from separate status checks in
+useful work, and these counters do not measure time spent yielding.
 
 ## What was observed
 
@@ -418,6 +424,20 @@ drain can add two VI receives; subsequent groups require eight mandatory
 receives plus at most the documented optional framebuffer receive. Per-trial
 `report.json` timings stop before the original endpoint, while callback timing
 spans the full presented sequence.
+
+A 30-group held-accelerator Arcade run with wheel/shadow interpolation, explicit
+audited presentation, RT64 profiling and owned readback/full-RAM scans disabled
+retained all 120 ordered swaps and passed state, pose and authoritative audio
+lifecycle checks. It reached 89.0 swaps/s (6.66..49.77 ms intervals), failing the
+120 Hz timing gate. A repeat with status-read counters retained all 120 swaps
+at 99.2/s (2.10..22.59 ms), still failing timing. Its 90 full owned tasks averaged
+1458.7 status reads and 1456.3 consecutive equal values; the 30 authoritative
+tasks averaged 1879.1 reads and 1877.1 equal values. Owned tasks averaged 6.343 ms,
+including 4.320 ms in the RDP sink. These observations motivate investigating
+the bridge's yield on every status read; they do not establish that polling is
+the bottleneck or that changing its policy is safe. Shared-host timing variation
+prevents attributing the rate difference to the counters. General driving
+visual/audio quality and sustained 120 Hz delivery remain unqualified.
 
 ## Full-sync profiling and owned readback experiment
 

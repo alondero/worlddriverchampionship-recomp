@@ -152,7 +152,7 @@ def main():
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
                "func_800013DC", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
-               "osSendMesg_recomp",
+               "osSendMesg_recomp", "_Z13rsp_read_cop0j",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     link = [*objects, str(probe), *runtime, *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),
             *("-Wl,--wrap=" + name for name in wrapped), "-o", str(exe)]
@@ -291,6 +291,9 @@ def main():
         if any(not g['complete'] for g in geometry):
             raise SystemExit("Incomplete shadow task command stream")
         geometry = [g for g in geometry if g['triangles']]
+        if not geometry or any(g['rsp_status_reads'] <= 0 or
+                               not 0 <= g['rsp_status_repeats'] < g['rsp_status_reads'] for g in geometry):
+            raise SystemExit("Missing or invalid BOSS status-read observations")
     snapshots = [json.loads(line.split("[prototype-snapshot] ", 1)[1])
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-snapshot] " in line]
     (run_dir / "snapshots.json").write_text(json.dumps(snapshots, indent=2))
