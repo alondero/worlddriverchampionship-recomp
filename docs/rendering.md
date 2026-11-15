@@ -636,8 +636,11 @@ suppressing the normal-draw presentation. Callback labels verify their order,
 and the endpoint still matches normal geometry. Optional wheel-pose capture
 now includes four independent matrices per car; a wheel-only control verifies
 that they affect geometry without changing camera/body inputs. High-speed spin
-phase, shadow/effect interpolation, visual qualification, full discontinuity
-handling and sustained performance remain open.
+phase, effects interpolation, visual qualification, full discontinuity
+handling and sustained performance remain open. Optional shadow ground-input
+interpolation now feeds the original cache rebuild; contact-point midpoint and
+endpoint geometry pass in Hawaii, including a shadow-only control. Other
+terrain and the alternate normal-vector path remain unqualified.
 `endpoint120` moves that experiment to the original race draw call: three
 owned blends precede the original authoritative draw, which supplies both the
 current endpoint and normal audio work. Task/callback gates verify this four-draw

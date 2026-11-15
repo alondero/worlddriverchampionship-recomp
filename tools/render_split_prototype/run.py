@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
+    parser.add_argument("--shadow-inputs", nargs="?", const="all", choices=["all", "only"], help="Interpolate shadow ground inputs; only isolates them in pose-snapshot")
     parser.add_argument("--wheel-poses", nargs="?", const="all", choices=["all", "only"], help="Interpolate four wheel matrices per car; only is a pose-snapshot geometry control")
     parser.add_argument("--skip-late-draws", action="store_true", help="motion-samples: skip elapsed group slots before starting another draw")
     parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for cadence modes; other modes retain 120")
@@ -60,6 +61,12 @@ def main():
     endpoint_mode = args.mode == "endpoint120"
     motion_mode = args.mode == "motion120" or motion_rate or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
+    if args.shadow_inputs and not pose_mode:
+        parser.error("--shadow-inputs requires a pose mode")
+    if args.shadow_inputs == "only" and (args.mode != "pose-snapshot" or args.wheel_poses):
+        parser.error("--shadow-inputs only requires pose-snapshot without wheel options")
+    if args.wheel_poses == "only" and args.shadow_inputs:
+        parser.error("Wheel-only and shadow-input controls cannot be combined")
     if args.wheel_poses == "only" and args.mode != "pose-snapshot":
         parser.error("--wheel-poses only requires pose-snapshot")
     if args.wheel_poses and not pose_mode:
@@ -124,7 +131,7 @@ def main():
         # This translation lives in an archive, unlike the renderer object.
         # The complete copied object satisfies its symbols before extraction.
         objects.append(build_draw_boundary(reference, output))
-    wrapped = ["func_8001A97C", "func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
+    wrapped = ["func_8003062C", "func_8001A97C", "func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
@@ -163,6 +170,10 @@ def main():
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_PRESENT_HZ=str(args.present_hz),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
+    if args.shadow_inputs:
+        env["WDC_RENDER_PROTOTYPE_SHADOW_INPUTS"] = "1"
+    if args.shadow_inputs == "only":
+        env["WDC_RENDER_PROTOTYPE_SHADOW_ONLY"] = "1"
     if args.wheel_poses == "only":
         env["WDC_RENDER_PROTOTYPE_WHEEL_ONLY"] = "1"
     if args.wheel_poses:
@@ -181,6 +192,7 @@ def main():
                                                   "present_hz": args.present_hz,
                                                   "skip_late_draws": args.skip_late_draws,
                                                   "wheel_poses": args.wheel_poses,
+                                                  "shadow_inputs": args.shadow_inputs,
                                                   "profile_rt64": args.profile_rt64,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
@@ -442,6 +454,25 @@ def main():
         expected = {(r['frame'], d) for r in rows for d in range(1, frame_repeats(r['trial']) + 1)}
         if len(poses) != len(expected) or {(p['frame'], p['draw']) for p in poses} != expected:
             raise SystemExit("Missing pose interpolation observations")
+        shadow_rows = []
+        if args.shadow_inputs:
+            shadow_rows = [json.loads(line.split("[prototype-shadow-inputs] ",1)[1])
+                           for line in log.read_text(errors="replace").splitlines() if "[prototype-shadow-inputs] " in line]
+            (run_dir / "shadow-inputs.json").write_text(json.dumps(shadow_rows,indent=2))
+            if len(shadow_rows)!=len(expected) or {(s['frame'],s['draw']) for s in shadow_rows}!=expected:
+                raise SystemExit("Missing shadow-input observations")
+            if not any(s['changed'] for s in shadow_rows) or not any(s['rebuilds'] for s in shadow_rows):
+                raise SystemExit("Shadow inputs/rebuilds were not exercised")
+            if any(pose_alpha(s['frame'],s['draw'])==1 and s['changed'] for s in shadow_rows):
+                raise SystemExit("Shadow current endpoint changed")
+            for shadow in shadow_rows:
+                state = next(s for s in snapshots if (s['frame'],s['draw']) == (shadow['frame'],shadow['draw']))
+                width = 5 if shadow['contact_mode'] else 2
+                if shadow['vectors']%width or shadow['vectors']>width*state['car_count'] or shadow['changed']>shadow['vectors'] or shadow['rebuilds']>state['car_count']:
+                    raise SystemExit("Invalid shadow input/copy counts")
+            if args.shadow_inputs=='only' and any(p['changed_poses'] for p in poses):
+                raise SystemExit("Shadow-only control changed rigid poses")
+            print("PASS: shadow ground inputs interpolate; original owned-bank rebuilds observed")
         if args.wheel_poses:
             wheel_reads = [json.loads(line.split("[prototype-wheel-reads] ", 1)[1])
                            for line in log.read_text(errors="replace").splitlines() if "[prototype-wheel-reads] " in line]
@@ -462,11 +493,11 @@ def main():
         if any(not math.isclose(p['alpha'], pose_alpha(p['frame'], p['draw']), rel_tol=0, abs_tol=1e-8) or
                (pose_alpha(p['frame'], p['draw']) == 1 and p['changed_poses']) for p in poses):
             raise SystemExit("Invalid pose alpha or changed current endpoint")
-        if not any(p['changed_poses'] for p in poses) or not any(
+        if not (any(p['changed_poses'] for p in poses) or any(s['changed'] for s in shadow_rows)) or not any(
                 (g['draw'] == 0 and not g['same_headers_as_first_extra'] if endpoint_mode else
                  g['draw'] == 1 and not g['same_headers_as_normal']) for g in geometry):
             raise SystemExit("Pose experiment did not demonstrate intermediate geometry")
-        print("PASS: interpolated pose inputs change geometry; " +
+        print("PASS: interpolated render inputs change geometry; " +
               ("original draw supplies current endpoint" if endpoint_mode else "scheduled endpoints match normal when present" if motion_rate else "current endpoint matches normal"))
         if motion_mode:
             expected_order = [(r['frame'], d) for r in rows for d in ((1, 2, 3, 0) if endpoint_mode else range(1, frame_repeats(r['trial']) + 1))]

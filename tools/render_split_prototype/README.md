@@ -593,5 +593,38 @@ python tools/render_split_prototype/run.py --reference-build build --rom "World 
 `poses.json` separately counts changed camera, body and wheel poses. The capture
 must contain one camera and five matrices per car. This matrix interpolation
 cannot recover extra wheel revolutions between samples; high-speed spin aliasing
-and visual quality remain unqualified. Shadow ground-contact inputs and effects
+and visual quality remain unqualified. Optional shadow ground-input interpolation is described below; effects
 remain separate work. The feature is opt-in for all pose modes.
+
+### Shadow ground-input experiment
+
+`--shadow-inputs` captures the inputs consumed by the original shadow rebuild,
+not its cached output matrix. Active cars are identified by the existing
+`car+2F4` guard. With `8007DF40 != 0`, capture includes `car+36C` XY and the four
+3D contact points at `+C6C/+C78/+C84/+C90`; the renderer derives normal and height.
+The zero-selector path captures the unit normal at `+360` and position at
+`+36C`. Positions blend linearly; normals blend and renormalize, with exact raw
+endpoint bits. All vectors must be finite and normals unit length within the
+bounded host tolerance. Invalid inputs abort rather than writing guesses.
+
+Only owned RAM is changed. Path/active-set changes reset history; ground-position
+jumps over 64 world units or normals at least 90 degrees apart also reset it.
+`shadow-inputs.json` records input counts/changes and observed native rebuilds.
+The original `3062C` still rebuilds cached matrices and vertices after `11BA0`
+clears their flags. Invisible shadows need not invoke the rebuild.
+
+`--shadow-inputs only` isolates ground inputs in `pose-snapshot`: rigid camera,
+body and wheel poses stay current. It cannot be combined with wheel controls.
+The midpoint must change geometry and repeat exactly; alpha 1 must match normal
+geometry, with every ground input unchanged. `--shadow-inputs` and `--wheel-poses`
+can be combined in ordinary pose or motion experiments.
+
+```powershell
+python tools/render_split_prototype/test_vectors.py --reference-build build
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode pose-snapshot --warp '1:0:arcade:3' --settle-frames 180 --shadow-inputs only
+```
+
+Native Hawaii evidence covers the contact-point path. The normal-vector path
+has source mapping and host math tests, but no native qualification. Geometry
+checks do not establish pixel quality, shadow behavior on all terrain, complete
+cut handling, effects interpolation or audio fidelity.
