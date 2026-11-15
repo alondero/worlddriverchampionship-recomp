@@ -34,14 +34,14 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
 in this worktree. Ordinary modes compile only `probe.cpp` and relink into a separate
 executable. It does not perform a full player rebuild.
-The `present120`, `shadow120`, `shadow-rate`, `motion120`, `motion-rate` and `endpoint120` modes additionally compile a copied `events.cpp` with guarded
+The `present120`, `shadow120`, `shadow-rate`, `motion120`, `motion-rate`, `motion-samples` and `endpoint120` modes additionally compile a copied `events.cpp` with guarded
 substitutions from `runtime.py`, linked ahead of the reference runtime archive.
 This copy uses the current source named by the reference compile database;
 unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-`shadow-snapshot`, `shadow120`, `shadow-rate`, `pose-snapshot`, `motion120`, `motion-rate` and `endpoint120` compile copied renderer and
+`shadow-snapshot`, `shadow120`, `shadow-rate`, `pose-snapshot`, `motion120`, `motion-rate`, `motion-samples` and `endpoint120` compile copied renderer and
 runtime message-queue sources via `shadow.py`, replacing the renderer object
 and queue archive member. `shadow-source.json` records both current-source and
 copy hashes and compile commands; unbuilt reference-source edits affect this
@@ -73,6 +73,7 @@ Use `--trials 120` for a longer bounded run (6..300, default 6); increase
 | `repeat` | Two consecutive sound-gated extra draws without simulation between them |
 | `render-only` | Two extra draws also skipping audio command generation/retirement and preserving lens-flare screen-position history |
 | `camera-snapshot` | Two render-only extras using a frozen 128-byte camera copy in owned transform-arena space; restore view/current-camera references after each draw |
+| `motion-samples` | Camera/body interpolation across actual consumed-sample spans, bounded to recent presentation slots |
 | `motion-rate` | Owned camera/body interpolation on a rational 60..240 Hz time grid; normal presentation suppressed |
 | `shadow-rate` | Frozen owned-RAM repeatability with rational 60..240 Hz presentation counts and pacing; no interpolation |
 | `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
@@ -496,7 +497,8 @@ missed deadlines. Wall-clock throughput, motion timing under load, and physical
 scanout require separate validation. The existing lag catch-up policy remains.
 Strict geometry/state gates are mandatory, with variable task counts, cumulative
 audio gating and ordered presentation labels checked independently by the runner.
-Modes other than `shadow-rate` and `motion-rate` retain their 120 Hz setting.
+Modes other than `shadow-rate`, `motion-rate` and `motion-samples` retain their
+120 Hz setting.
 Targets are integer rates from 60..240.
 
 ```powershell
@@ -523,3 +525,26 @@ still assumes nominal 30 Hz groups, so gaps other than one need adaptive timing
 before uniform motion can be claimed under load. Wheel/shadow/effect inputs and
 full discontinuity handling remain incomplete. Use the same target range and
 optional diagnostic/performance flags as `shadow-rate`.
+
+### Sample-based motion scheduling
+
+`motion-samples --present-hz 144` derives its interpolation span from the actual
+consumed-sample difference between saved poses. It selects grid times inside
+that span, capped at `ceil(target / 30)` owned draws per group. When more slots
+are available, it skips the oldest ones and uses the latest slots. For example,
+a two-sample interval from 1 to 3 at 144 Hz keeps slots 10..14: alphas 13/24
+through 23/24. This bounds rendering backlog while preserving source-time
+positions, rather than stretching a nominal group across missed samples.
+
+`schedule.json` records each span, selected slot/count and skipped count. The
+runner reconstructs them from observed simulation counters, checks the budget,
+and checks every pose alpha and reset flag. Existing geometry, ownership,
+audio-gating and callback-order gates remain mandatory. Counter subtraction is
+unsigned; the existing zero/>4-sample and pose-identity/distance reset policy
+starts a fresh local timeline with equal previous/current poses.
+
+This handles gaps already observed between snapshots. It does not yet drop
+individual draws based on deadlines missed while rendering a group, establish
+end-to-end display latency, or complete wheel/shadow/effect interpolation.
+A reset uses a synthetic one-sample span of identical poses and reanchors the
+presentation grid. The VI/AI clock and authoritative simulation stay unchanged.

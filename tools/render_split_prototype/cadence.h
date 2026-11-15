@@ -10,6 +10,22 @@ constexpr double presentation_alpha(uint64_t group, unsigned draw, unsigned hz) 
     const uint64_t presentation = group * hz / 30 + draw;
     return double(presentation * 30 - group * hz) / hz;
 }
+// A bounded suffix of the display grid inside an actual snapshot interval.
+// Callers provide a positive sample span and a positive rate/budget.
+struct SampleSchedule {
+    uint64_t begin, end, first_slot;
+    unsigned count, skipped, hz;
+    double alpha(unsigned draw) const {
+        return double((first_slot + draw - 1) * 30 - begin * hz) / ((end - begin) * hz);
+    }
+};
+constexpr SampleSchedule schedule_samples(uint64_t begin, uint64_t end, unsigned hz, unsigned budget) {
+    const uint64_t first = begin * hz / 30 + 1;
+    const uint64_t last = end * hz / 30;
+    const unsigned available = unsigned(last - first + 1);
+    const unsigned count = available < budget ? available : budget;
+    return {begin, end, last - count + 1, count, available - count, hz};
+}
 class PresentationPeriod {
     unsigned hz, remainder = 0;
 public:

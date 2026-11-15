@@ -108,7 +108,8 @@ bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
-bool motion_rate_mode() { return std::strcmp(mode(), "motion-rate") == 0; }
+bool sample_motion_mode() { return std::strcmp(mode(), "motion-samples") == 0; }
+bool motion_rate_mode() { return std::strcmp(mode(), "motion-rate") == 0 || sample_motion_mode(); }
 bool cadence_mode() { return std::strcmp(mode(), "shadow-rate") == 0 || motion_rate_mode(); }
 bool frozen_present_mode() { return std::strcmp(mode(), "shadow120") == 0 || std::strcmp(mode(), "shadow-rate") == 0; }
 unsigned present_hz() {
@@ -755,9 +756,28 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         }
         if (pose_reset) previous_poses = current_poses;
     }
+    // Reuse the observed 8007E530 consumed-sample u32 (MEM_W, N64 order),
+    // measured in original 30 Hz samples on the guest game thread. Only host
+    // timeline arithmetic changes; no counter or clock is written. The fixed
+    // address lies within 8 MiB; pose_reset handles zero/>4 gaps and identity
+    // discontinuities before scheduling. Unsigned subtraction handles wrap.
+    prototype::SampleSchedule sample_schedule{};
+    if (sample_motion_mode()) {
+        static uint64_t sample_timeline = 0;
+        if (pose_reset) sample_timeline = 0;
+        const unsigned gap = pose_reset ? 1 : samples - previous_pose_sample;
+        sample_schedule = prototype::schedule_samples(sample_timeline, sample_timeline + gap,
+            present_hz(), (present_hz() + 29) / 30);
+        sample_timeline += gap;
+        std::lock_guard lock(output_mutex);
+        log_record("[prototype-schedule] {\"frame\":%u,\"reset\":%s,\"begin\":%llu,\"end\":%llu,\"first_slot\":%llu,\"count\":%u,\"skipped\":%u}\n",
+            race_frame, pose_reset ? "true" : "false", (unsigned long long)sample_schedule.begin,
+            (unsigned long long)sample_schedule.end, (unsigned long long)sample_schedule.first_slot,
+            sample_schedule.count, sample_schedule.skipped);
+    }
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = cadence_mode() ? prototype::presentations_in_group(trials, present_hz()) - unsigned(!motion_rate_mode()) : endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
+    const unsigned repeats = sample_motion_mode() ? sample_schedule.count : cadence_mode() ? prototype::presentations_in_group(trials, present_hz()) - unsigned(!motion_rate_mode()) : endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         const auto receives_before = shadow_receives, sends_before = shadow_sends;
         const auto copies_before = camera_copies;
@@ -774,7 +794,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             if (pose_mode()) {
                 // pose-snapshot repeats a midpoint to validate determinism;
                 // motion120 presents increasing quarter steps to the endpoint.
-                const double alpha = motion_rate_mode() ? prototype::presentation_alpha(trials, draw_number, present_hz()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
+                const double alpha = sample_motion_mode() ? sample_schedule.alpha(draw_number) : motion_rate_mode() ? prototype::presentation_alpha(trials, draw_number, present_hz()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
                 unsigned changed = 0;
                 bool camera_changed = false;
                 for (unsigned i = 0; i < current_poses.size(); ++i) {

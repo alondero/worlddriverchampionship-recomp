@@ -648,8 +648,10 @@ The frozen `shadow-rate` mode now tests integer presentation targets from 60 to
 240 Hz with rational group counts and periods, independently of 60 Hz VI/AI.
 It retains exact snapshot/ownership gates. The separate `motion-rate` mode
 interpolates camera/body poses on the rational presentation grid and verifies
-current endpoints whenever they fall on that grid. Neither mode yet adapts
-group timing to consumed-sample gaps, which occur in heavier scenes.
+current endpoints whenever they fall on that grid. Those modes use nominal group timing. `motion-samples` instead derives alpha
+from consumed-sample spans and selects a bounded suffix of recent presentation
+slots, skipping older slots when rendering falls behind. Within-group deadline
+handling, latency qualification and sustained performance remain open.
 The prototype README records the car-list, per-view and arena ownership evidence.
 
 ## Tools and methods

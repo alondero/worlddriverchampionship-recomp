@@ -26,6 +26,29 @@ int main() {
             assert(frames == uint64_t(second+1)*hz);
         }
     }
+    // Source advances from sample 1 to 3: retain the latest five 144 Hz
+    // slots, not five evenly spaced blends across the two-sample gap.
+    const auto gap=prototype::schedule_samples(1,3,144,5);
+    assert(gap.first_slot==10 && gap.count==5 && gap.skipped==5);
+    assert(std::abs(gap.alpha(1)-13.0/24)<1e-12);
+    assert(std::abs(gap.alpha(5)-23.0/24)<1e-12);
+    for (unsigned hz : {60u,75u,90u,120u,144u,165u,240u}) {
+        uint64_t sample=0, previous_slot=0;
+        for(unsigned interval=0; interval<300; ++interval) {
+            const unsigned delta=1+interval%4, budget=(hz+29)/30;
+            auto schedule=prototype::schedule_samples(sample,sample+delta,hz,budget);
+            assert(schedule.count<=budget && schedule.count>0);
+            assert(schedule.first_slot>previous_slot);
+            for(unsigned d=1; d<=schedule.count; ++d) {
+                const auto alpha=schedule.alpha(d);
+                assert(alpha>0 && alpha<=1);
+                const double position=(sample+alpha*delta)/30;
+                assert(std::abs(position-double(schedule.first_slot+d-1)/hz)<1e-12);
+            }
+            previous_slot=schedule.first_slot+schedule.count-1;
+            sample+=delta;
+        }
+    }
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(prototype::presentations_in_group(g,144)==expected[g]);
     puts("PASS: rational cadence and nanosecond pacing remain exact over one hour");
