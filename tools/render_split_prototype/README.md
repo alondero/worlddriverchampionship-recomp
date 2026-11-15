@@ -34,14 +34,14 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
 in this worktree. Ordinary modes compile only `probe.cpp` and relink into a separate
 executable. It does not perform a full player rebuild.
-The `present120`, `shadow120`, `shadow-rate`, `motion120` and `endpoint120` modes additionally compile a copied `events.cpp` with guarded
+The `present120`, `shadow120`, `shadow-rate`, `motion120`, `motion-rate` and `endpoint120` modes additionally compile a copied `events.cpp` with guarded
 substitutions from `runtime.py`, linked ahead of the reference runtime archive.
 This copy uses the current source named by the reference compile database;
 unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-`shadow-snapshot`, `shadow120`, `shadow-rate`, `pose-snapshot`, `motion120` and `endpoint120` compile copied renderer and
+`shadow-snapshot`, `shadow120`, `shadow-rate`, `pose-snapshot`, `motion120`, `motion-rate` and `endpoint120` compile copied renderer and
 runtime message-queue sources via `shadow.py`, replacing the renderer object
 and queue archive member. `shadow-source.json` records both current-source and
 copy hashes and compile commands; unbuilt reference-source edits affect this
@@ -73,6 +73,7 @@ Use `--trials 120` for a longer bounded run (6..300, default 6); increase
 | `repeat` | Two consecutive sound-gated extra draws without simulation between them |
 | `render-only` | Two extra draws also skipping audio command generation/retirement and preserving lens-flare screen-position history |
 | `camera-snapshot` | Two render-only extras using a frozen 128-byte camera copy in owned transform-arena space; restore view/current-camera references after each draw |
+| `motion-rate` | Owned camera/body interpolation on a rational 60..240 Hz time grid; normal presentation suppressed |
 | `shadow-rate` | Frozen owned-RAM repeatability with rational 60..240 Hz presentation counts and pacing; no interpolation |
 | `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
@@ -495,7 +496,8 @@ missed deadlines. Wall-clock throughput, motion timing under load, and physical
 scanout require separate validation. The existing lag catch-up policy remains.
 Strict geometry/state gates are mandatory, with variable task counts, cumulative
 audio gating and ordered presentation labels checked independently by the runner.
-Other modes retain their 120 Hz setting. Targets are integer rates from 60..240.
+Modes other than `shadow-rate` and `motion-rate` retain their 120 Hz setting.
+Targets are integer rates from 60..240.
 
 ```powershell
 python tools/render_split_prototype/test_cadence.py --reference-build build
@@ -505,3 +507,19 @@ python tools/render_split_prototype/run.py --reference-build build --rom "World 
 The host test verifies exact presentation totals and accumulated period lengths
 for one simulated hour at 60, 75, 90, 120, 144, 165 and 240 Hz. It does not wait
 an hour or establish native performance.
+
+`motion-rate --present-hz 144` adds camera/body interpolation to the rational
+cadence. Each group draws all scheduled poses in owned RAM and suppresses the
+normal presentation; the original draw still runs for normal audio. Unlike
+restarting evenly spaced blends inside each group, alpha follows the continuous
+presentation grid. At 144 Hz the first group ends at alpha 5/6 and the next
+starts at 1/24; every fifth group includes an exact current endpoint. Endpoint
+geometry is checked whenever that endpoint lies on the grid. Pose-snapshot
+remains the independent repeated-midpoint/current-endpoint validation.
+
+The runner checks each alpha, ordered owned callbacks, variable task counts and
+unchanged original state. It also reports consumed-sample gaps: this schedule
+still assumes nominal 30 Hz groups, so gaps other than one need adaptive timing
+before uniform motion can be claimed under load. Wheel/shadow/effect inputs and
+full discontinuity handling remain incomplete. Use the same target range and
+optional diagnostic/performance flags as `shadow-rate`.

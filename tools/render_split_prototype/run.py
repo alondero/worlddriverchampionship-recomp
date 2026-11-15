@@ -28,13 +28,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-build", type=Path, required=True)
     parser.add_argument("--rom", type=Path, required=True)
-    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "endpoint120"], default="sound-gated")
+    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "endpoint120"], default="sound-gated")
     parser.add_argument("--require-repeatable", action="store_true",
                         help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
-    parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for shadow-rate; other modes retain 120")
+    parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for shadow-rate/motion-rate; other modes retain 120")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop collecting palette indices once the set is full")
@@ -48,16 +48,17 @@ def main():
         parser.error("--trials must be 6..300; increase --timeout for long runs")
     if args.verify_texture_hash and not args.fast_texture_hash:
         parser.error("--verify-texture-hash requires --fast-texture-hash")
-    cadence_mode = args.mode == "shadow-rate"
+    motion_rate = args.mode == "motion-rate"
+    cadence_mode = args.mode == "shadow-rate" or motion_rate
     if not 60 <= args.present_hz <= 240 or (not cadence_mode and args.present_hz != 120):
-        parser.error("--present-hz requires shadow-rate and a rate within 60..240")
+        parser.error("--present-hz requires shadow-rate or motion-rate and a rate within 60..240")
     endpoint_mode = args.mode == "endpoint120"
-    motion_mode = args.mode == "motion120" or endpoint_mode
+    motion_mode = args.mode == "motion120" or motion_rate or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
     if cadence_mode or pose_mode or args.no_authority_scan or args.fast_texture_hash:
         args.require_repeatable = True
-    owned_ram = args.mode in ("shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "endpoint120")
-    independent_present = args.mode in ("present120", "shadow120", "shadow-rate", "motion120", "endpoint120")
+    owned_ram = args.mode in ("shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "endpoint120")
+    independent_present = args.mode in ("present120", "shadow120", "shadow-rate", "motion120", "motion-rate", "endpoint120")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
     if args.no_authority_scan and not owned_ram:
         parser.error("--no-authority-scan requires an owned-RAM mode")
@@ -68,7 +69,7 @@ def main():
         parser.error("--shadow-eye-offset requires shadow-snapshot or shadow120 and a finite value within +/-10")
     if not 60 <= args.settle_frames <= 1800:
         parser.error("--settle-frames must be 60..1800; increase --timeout for long runs")
-    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "endpoint120"):
+    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "endpoint120"):
         parser.error("--require-repeatable requires a repeat, render-only, presentation or snapshot mode")
     reference = args.reference_build.resolve()
     rom = args.rom.resolve()
@@ -270,9 +271,15 @@ def main():
         raise SystemExit("Simulation counter or stock sampling contract changed")
     repeats = 3 if endpoint_mode else 4 if motion_mode else 3 if independent_present or pose_mode else (2 if args.mode in ("repeat", "render-only", "camera-snapshot", "shadow-snapshot") else 1)
     def frame_repeats(trial):
-        return (trial * args.present_hz // 30 - (trial - 1) * args.present_hz // 30 - 1) if cadence_mode else repeats
+        return (trial * args.present_hz // 30 - (trial - 1) * args.present_hz // 30 - int(not motion_rate)) if cadence_mode else repeats
+    trial_by_frame = {r['frame']: r['trial'] for r in rows}
+    def pose_alpha(frame, draw):
+        if motion_rate:
+            group = trial_by_frame[frame] - 1
+            return ((group * args.present_hz // 30 + draw) * 30 - group * args.present_hz) / args.present_hz
+        return draw / 4 if motion_mode else 1 if draw == 3 else .5
     def cumulative_repeats(trial):
-        return trial * args.present_hz // 30 - trial if cadence_mode else trial * repeats
+        return trial * args.present_hz // 30 - (0 if motion_rate else trial) if cadence_mode else trial * repeats
     if args.mode != "raw" and any(row['skipped_publish'] != cumulative_repeats(row['trial']) or
                                           row['skipped_consume'] != cumulative_repeats(row['trial']) for row in rows):
         raise SystemExit("Sound wrappers did not intercept every extra draw")
@@ -299,7 +306,7 @@ def main():
                 if group[0]['owned_memory']:
                     raise SystemExit("Current endpoint must use the original authoritative draw")
             elif motion_mode:
-                if not group[4]['same_headers_as_normal']:
+                if pose_alpha(frame, count) == 1 and not group[count]['same_headers_as_normal']:
                     raise SystemExit("Motion endpoint must reproduce normal geometry")
             elif pose_mode:
                 if not group[2]['same_headers_as_first_extra'] or not group[3]['same_headers_as_normal']:
@@ -344,30 +351,33 @@ def main():
                     p['matrix'] != matrices[0]['matrix'] for p in matrices):
                 raise SystemExit("Missing or unequal single-view projection evidence")
         print("PASS: " +
-              ("original endpoint retained; " if endpoint_mode else "motion endpoint matches; " if motion_mode else "pose midpoint repeats and endpoint matches; " if pose_mode else
+              ("original endpoint retained; " if endpoint_mode else "scheduled endpoints match when present; " if motion_rate else "motion endpoint matches; " if motion_mode else "pose midpoint repeats and endpoint matches; " if pose_mode else
                "owned eye offset changes normal geometry; " if args.shadow_eye_offset else "normal geometry matches; ") +
               "projection, camera snapshot, all-car non-link words and caller context preserved")
     if pose_mode:
         poses = [json.loads(line.split("[prototype-pose] ", 1)[1])
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-pose] " in line]
         (run_dir / "poses.json").write_text(json.dumps(poses, indent=2))
-        expected = {(r['frame'], d) for r in rows for d in range(1, repeats + 1)}
+        expected = {(r['frame'], d) for r in rows for d in range(1, frame_repeats(r['trial']) + 1)}
         if len(poses) != len(expected) or {(p['frame'], p['draw']) for p in poses} != expected:
             raise SystemExit("Missing pose interpolation observations")
-        if any(p['alpha'] != (p['draw'] / 4 if motion_mode else 1 if p['draw'] == 3 else .5) or
-               (not endpoint_mode and p['draw'] == repeats and p['changed_poses']) for p in poses):
+        if any(not math.isclose(p['alpha'], pose_alpha(p['frame'], p['draw']), rel_tol=0, abs_tol=1e-8) or
+               (pose_alpha(p['frame'], p['draw']) == 1 and p['changed_poses']) for p in poses):
             raise SystemExit("Invalid pose alpha or changed current endpoint")
         if not any(p['changed_poses'] for p in poses) or not any(
                 (g['draw'] == 0 and not g['same_headers_as_first_extra'] if endpoint_mode else
                  g['draw'] == 1 and not g['same_headers_as_normal']) for g in geometry):
             raise SystemExit("Pose experiment did not demonstrate intermediate geometry")
         print("PASS: interpolated camera/body inputs change geometry; " +
-              ("original draw supplies current endpoint" if endpoint_mode else "current endpoint matches normal"))
+              ("original draw supplies current endpoint" if endpoint_mode else "scheduled endpoints match normal when present" if motion_rate else "current endpoint matches normal"))
         if motion_mode:
-            expected_order = [(r['frame'], d) for r in rows for d in ((1, 2, 3, 0) if endpoint_mode else range(1, 5))]
+            expected_order = [(r['frame'], d) for r in rows for d in ((1, 2, 3, 0) if endpoint_mode else range(1, frame_repeats(r['trial']) + 1))]
             if [(p['frame'], p['draw']) for p in presents] != expected_order:
                 raise SystemExit("Motion presentations missing, reordered, or include a normal draw")
-            print("PASS: quarter-step poses and current endpoint presented in chronological order")
+            print("PASS: scheduled poses presented in chronological order")
+            if motion_rate:
+                gaps = [(b['sample_before'] - a['sample_before']) & 0xffffffff for a, b in zip(rows, rows[1:])]
+                print(f"Nominal motion schedule: {sum(g == 1 for g in gaps)}/{len(gaps)} sample gaps are one; observed gaps {sorted(set(gaps))}")
     if endpoint_mode:
         endpoints = [json.loads(line.split("[prototype-endpoint] ", 1)[1])
                      for line in log.read_text(errors="replace").splitlines() if "[prototype-endpoint] " in line]
@@ -393,8 +403,8 @@ def main():
             valid_waits = 8 <= skipped_deltas[0] <= 11 and all(8 <= d <= 9 for d in skipped_deltas[1:])
         expected_count = args.trials * args.present_hz // 30 if cadence_mode else 4 * args.trials
         if cadence_mode:
-            valid_waits = all(d == 2 * (frame_repeats(r['trial']) + 1) for d, r in zip(skipped_deltas, rows))
-            expected_order = [(r['frame'], d) for r in rows for d in range(frame_repeats(r['trial']) + 1)]
+            valid_waits = all(2 * (frame_repeats(r['trial']) + 1) <= d <= 2 * (frame_repeats(r['trial']) + 1) + int(motion_rate) for d, r in zip(skipped_deltas, rows))
+            expected_order = [(r['frame'], d) for r in rows for d in range(int(motion_rate), frame_repeats(r['trial']) + 1)]
             if [(p['frame'], p['draw']) for p in presents] != expected_order:
                 raise SystemExit("Rational cadence presentation order/count mismatch")
         if len(presents) != expected_count or not valid_waits:

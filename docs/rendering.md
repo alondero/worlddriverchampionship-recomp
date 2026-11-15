@@ -646,8 +646,10 @@ is retained. This remains an opt-in performance experiment because geometry
 checks cannot establish framebuffer-feedback or pixel equivalence.
 The frozen `shadow-rate` mode now tests integer presentation targets from 60 to
 240 Hz with rational group counts and periods, independently of 60 Hz VI/AI.
-It retains exact snapshot/ownership gates but does not yet interpolate motion
-at those rates or adapt group scheduling to consumed-sample gaps.
+It retains exact snapshot/ownership gates. The separate `motion-rate` mode
+interpolates camera/body poses on the rational presentation grid and verifies
+current endpoints whenever they fall on that grid. Neither mode yet adapts
+group timing to consumed-sample gaps, which occur in heavier scenes.
 The prototype README records the car-list, per-view and arena ownership evidence.
 
 ## Tools and methods

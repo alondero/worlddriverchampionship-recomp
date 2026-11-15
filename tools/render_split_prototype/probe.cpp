@@ -108,8 +108,9 @@ bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
-bool cadence_mode() { return std::strcmp(mode(), "shadow-rate") == 0; }
-bool frozen_present_mode() { return std::strcmp(mode(), "shadow120") == 0 || cadence_mode(); }
+bool motion_rate_mode() { return std::strcmp(mode(), "motion-rate") == 0; }
+bool cadence_mode() { return std::strcmp(mode(), "shadow-rate") == 0 || motion_rate_mode(); }
+bool frozen_present_mode() { return std::strcmp(mode(), "shadow120") == 0 || std::strcmp(mode(), "shadow-rate") == 0; }
 unsigned present_hz() {
     static const unsigned hz = [] {
         const char* value = std::getenv("WDC_RENDER_PROTOTYPE_PRESENT_HZ");
@@ -120,7 +121,7 @@ unsigned present_hz() {
     return hz;
 }
 bool endpoint_mode() { return std::strcmp(mode(), "endpoint120") == 0; }
-bool motion_mode() { return std::strcmp(mode(), "motion120") == 0 || endpoint_mode(); }
+bool motion_mode() { return std::strcmp(mode(), "motion120") == 0 || motion_rate_mode() || endpoint_mode(); }
 bool pose_mode() { return std::strcmp(mode(), "pose-snapshot") == 0 || motion_mode(); }
 bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || frozen_present_mode() || pose_mode(); }
 bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode() || shadow_mode(); }
@@ -756,7 +757,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     }
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = cadence_mode() ? prototype::presentations_in_group(trials, present_hz()) - 1 : endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
+    const unsigned repeats = cadence_mode() ? prototype::presentations_in_group(trials, present_hz()) - unsigned(!motion_rate_mode()) : endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         const auto receives_before = shadow_receives, sends_before = shadow_sends;
         const auto copies_before = camera_copies;
@@ -773,7 +774,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             if (pose_mode()) {
                 // pose-snapshot repeats a midpoint to validate determinism;
                 // motion120 presents increasing quarter steps to the endpoint.
-                const double alpha = motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
+                const double alpha = motion_rate_mode() ? prototype::presentation_alpha(trials, draw_number, present_hz()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
                 unsigned changed = 0;
                 bool camera_changed = false;
                 for (unsigned i = 0; i < current_poses.size(); ++i) {
@@ -784,7 +785,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                     std::memcpy(drawing_ram + (pose_addresses[i] - 0x80000000), pose.data(), sizeof(pose));
                 }
                 std::lock_guard lock(output_mutex);
-                log_record("[prototype-pose] {\"frame\":%u,\"draw\":%u,\"alpha\":%.2f,\"reset\":%s,\"poses\":%u,\"changed_poses\":%u,\"changed_camera\":%s,\"changed_bodies\":%u}\n",
+                log_record("[prototype-pose] {\"frame\":%u,\"draw\":%u,\"alpha\":%.9f,\"reset\":%s,\"poses\":%u,\"changed_poses\":%u,\"changed_camera\":%s,\"changed_bodies\":%u}\n",
                     race_frame, draw_number, alpha, pose_reset ? "true" : "false", unsigned(current_poses.size()), changed,
                     camera_changed ? "true" : "false", changed - unsigned(camera_changed));
             }
