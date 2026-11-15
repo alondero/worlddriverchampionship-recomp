@@ -93,6 +93,14 @@ submission prevents enqueue deduplication, but RT64 can still skip queued
 events when the presentation worker falls behind. The strict swap audit rejects
 any resulting loss in the selected sequence.
 
+Successful swap audits also write `swap-timing.json`: duration, rate and
+minimum/median/p95/p99/maximum intervals, using nearest-rank percentiles over
+intervals rather than events. Counts below 0.75 target periods and above 1.5
+periods expose short bursts and long gaps even when average rate passes. These
+thresholds are diagnostics, not a new smoothness acceptance gate. Existing
+rate/VI checks remain unchanged. Long runs with held accelerator still use
+neutral steering and can hit a wall; they are not full-playthrough evidence.
+
 `--pace-present-queue --explicit-present --audit-present` experiments with
 admission pacing on the graphics worker. Before each prototype screen update,
 it waits until the present worker has dequeued the previously bound event and
@@ -244,7 +252,8 @@ is an empty array), records `authority_scan: false` in `setup.json`, and retains
 the camera/car/context/sample, pose, queue and task-owner gates. It does not
 provide full-RAM changed-range evidence. The default still scans every extra.
 
-Use `--trials 120` for a longer bounded run (6..300, default 6); increase
+Use `--trials 120` for a short timing run or `--trials 1800 --timeout 180`
+for roughly one minute at the nominal 30 groups/s (6..1800, default 6); increase
 `--timeout` for workloads that need more than 60 seconds including startup.
 
 | Mode | Experiment |

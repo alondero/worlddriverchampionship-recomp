@@ -24,6 +24,7 @@ from rt64_profile import build_rt64_profile
 from fast_hash_build import build_fast_hash
 from draw_boundary import build_draw_boundary
 from present_audit import build_present_audit, validate_admissions, validate_swaps
+from swap_timing import summarize_swaps
 
 
 def main():
@@ -40,7 +41,7 @@ def main():
     parser.add_argument("--wheel-poses", nargs="?", const="all", choices=["all", "only"], help="Interpolate four wheel matrices per car; only is a pose-snapshot geometry control")
     parser.add_argument("--skip-late-draws", action="store_true", help="motion-samples: skip elapsed group slots before starting another draw")
     parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for cadence modes; other modes retain 120")
-    parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
+    parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..1800")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--notify-renderer-completion", action="store_true", help="Experiment: wake the owned-bank fence when renderer task/callback completion advances")
     parser.add_argument("--write-watch-reset", action="store_true", help="Windows experiment: restore tracked dirty pages between draws of one snapshot")
@@ -62,8 +63,8 @@ def main():
     parser.add_argument("--shadow-eye-offset", type=float, default=0,
                         help="Controlled eye-X perturbation in owned RAM only (shadow-snapshot or shadow120)")
     args = parser.parse_args()
-    if not 6 <= args.trials <= 300:
-        parser.error("--trials must be 6..300; increase --timeout for long runs")
+    if not 6 <= args.trials <= 1800:
+        parser.error("--trials must be 6..1800; increase --timeout for long runs")
     if args.capture_boss_tasks and (args.mode != "pose-snapshot" or args.trials != 6):
         parser.error("--capture-boss-tasks requires pose-snapshot and six trials")
     if args.verify_texture_hash and not args.fast_texture_hash:
@@ -489,9 +490,14 @@ def main():
 
         intervals = [(b["us"]-a["us"])/1000 for a, b in zip(selected, selected[1:])]
         swap_rate = 1000/statistics.mean(intervals)
+        timing = summarize_swaps(selected, args.present_hz)
+        (run_dir / "swap-timing.json").write_text(json.dumps(timing, indent=2))
         print(f"RT64 swap audit: {len(selected)} successful ordered swaps; "
               f"{swap_rate:.1f}/s; "
               f"intervals {min(intervals):.2f}..{max(intervals):.2f} ms (not physical scanout)")
+        print(f"Swap intervals: p50 {timing['p50_ms']:.2f}, p95 {timing['p95_ms']:.2f}, "
+              f"p99 {timing['p99_ms']:.2f} ms; {timing['short_intervals']} below 0.75 periods, "
+              f"{timing['long_intervals']} above 1.5 periods (diagnostic, not a smoothness gate)")
 
     queue_tests = [json.loads(line.split("[prototype-queue-test] ", 1)[1])
                    for line in log.read_text(errors="replace").splitlines() if "[prototype-queue-test] " in line]
