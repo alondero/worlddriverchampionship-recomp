@@ -614,7 +614,7 @@ a live sentinel test checks that the matching authoritative destination is
 untouched. Eight-car geometry repeats exactly; changing only the owned camera
 changes geometry without changing original camera/car records. Whole-RAM
 changed-range evidence still includes unclassified queue/input activity, so
-complete authoritative-state equivalence and interpolation remain unproven.
+complete authoritative-state equivalence remains unproven.
 The combined `shadow120` mode preserves exact frozen geometry across three
 owned extra draws while presenting independently. Diagnostic output overhead
 can dominate timing: batching complete lines allows a short practice run to
@@ -629,6 +629,11 @@ retirement path on extras preserves every observed car non-link word in the
 bounded run. The heavier scene still failed the 120 Hz timing gate (62.0
 renderer callbacks/s), so the practice timing does not establish sustained
 high-rate performance.
+A separate `pose-snapshot` validation now interpolates camera and main car-body
+rigid poses in owned RAM. Two identical midpoint renders must repeat exactly,
+and a bit-exact current endpoint must reproduce normal geometry. This is an
+intermediate-motion geometry proof, not chronological high-refresh presentation:
+wheel/shadow/effect interpolation and full discontinuity handling remain open.
 The prototype README records the car-list, per-view and arena ownership evidence.
 
 ## Tools and methods

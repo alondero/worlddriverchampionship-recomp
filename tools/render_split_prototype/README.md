@@ -41,7 +41,7 @@ unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-`shadow-snapshot` and `shadow120` compile copied renderer and
+`shadow-snapshot`, `shadow120` and `pose-snapshot` compile copied renderer and
 runtime message-queue sources via `shadow.py`, replacing the renderer object
 and queue archive member. `shadow-source.json` records both current-source and
 copy hashes and compile commands; unbuilt reference-source edits affect this
@@ -70,6 +70,7 @@ Use `--trials 120` for a longer bounded run (6..300, default 6); increase
 | `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
 | `shadow120` | Combine owned RAM with independent presentation; three frozen extras and a native drain per frame, with both copied-source provenance records |
+| `pose-snapshot` | Interpolate owned camera and car-body poses between captured samples; render the midpoint twice and current endpoint once, with mandatory geometry/state checks |
 | `camera-offset` | Sound-gated extra draw with camera eye X temporarily increased by one world unit; restore its three position words afterward |
 | `split60` | Sound-gated extra draw and one-VI presentation waits for normal/extra draws; leave input sampling at 30 Hz |
 
@@ -86,7 +87,8 @@ equality against the normal draw, identical projection matrices, unchanged
 camera words, every active car's words except the four arena links, and an untouched
 caller register context after **each** extra draw. This gate currently expects
 one view. Snapshot observations are immutable host copies used for comparison;
-all modes except `shadow-snapshot` and `shadow120` still draw in shared RDRAM. None rewinds
+The three owned-RAM modes are `shadow-snapshot`, `shadow120` and `pose-snapshot`;
+other modes still draw in shared RDRAM. None rewinds
 live arenas; the owned bank is reset only after its pipeline has drained.
 It supports `repeat`, `render-only`, `camera-snapshot`, `shadow-snapshot`, `shadow120` and `present120`. The render-only variants additionally
 reject view changes outside the lens-flare arena packet pointers. Both independent-presentation modes
@@ -97,7 +99,7 @@ broad bounds detect a remaining 60 Hz ceiling, not precise frame pacing.
 `camera-snapshot` requires exactly one copy per extra and permits only the
 expected 128-byte displacement of view zero's transform base/list links
 (`+18/+68/+6C`), in addition to the previously established flare packet links.
-Both owned-RAM modes additionally check owned-memory task routing, one bootstrap
+Owned-RAM modes additionally check owned-memory task routing, one bootstrap
 and one full-frame task per extra, and a live non-null message-receive sentinel
 test. `--shadow-eye-offset 1` changes only the owned camera eye X: with the strict
 gate, normal geometry must differ and all extras must match exactly, while
@@ -210,6 +212,36 @@ superseded: they did not establish a ZSort ownership bug. Sound gating and
 one-VI timing remain separate experiments, not proof of audio fidelity or
 physical scanout.
 
+## Pose interpolation validation
+
+```powershell
+python tools/render_split_prototype/test_pose.py --reference-build build
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode pose-snapshot --warp '1:0:arcade:3' --settle-frames 180
+```
+
+`pose-snapshot` always enables strict checks. The camera and each active car's
+main-body matrix are copied into immutable host records after normal graphics
+drain. `pose.h` interpolates translation linearly and rotation via shortest-arc
+quaternions, retaining opaque padding and bit-exact endpoints. It rejects
+non-finite, scaled, sheared or reflected bases outside its explicit tolerance;
+invalid poses abort the probe. Host tests cover rotations about all three axes,
+180-degree and wraparound cases, translation, padding and invalid inputs.
+
+The first pair starts with identical endpoints. History resets on scene,
+camera pointer/mode, car identity/count changes, zero or more than four elapsed
+samples, or a translation jump above 64 world units. These are provisional
+bounds, not complete camera-cut/save-state/respawn detection. Rotational cuts,
+projection changes and alternate views still need explicit policies.
+
+The three extras use alpha 0.5, 0.5 and 1.0. Both midpoint geometry streams must
+match exactly; the endpoint must reproduce normal geometry. At least one
+midpoint must change a pose and geometry during the run. Existing original
+camera/car/context/sample, queue, arena and sound gates remain mandatory.
+`poses.json` records reset status and counts changed camera/body poses per draw.
+This proves an intermediate rigid-pose input reaches geometry construction;
+it does not prove complete animated-car consistency, smooth display order or
+pixel quality. Detailed run evidence stays in the draft PR.
+
 ## Ownership recovered
 
 ROM reads with `tools/rom/inspect_code.py` and unchanged generated bodies
@@ -220,6 +252,7 @@ establish these boundaries (hex addresses/offsets):
 | Car `+B80/+B88`, associated `+B84/+B8C` | `28314` waits at `28344` for SP_BREAK, then `283C8..28428` finds signed lane-0 minima/maxima over four 16-byte transformed records and stores their associated signed `+E` lanes; `28448..2845C` may subtract 8 from the associated values. Derived view bounds, not car motion. |
 | Car `+B90/+B94`, `+B98/+B9C` | Two geometry-list head/tail pairs. `284CC` initializes the first head to `10000000`; `28C04` saves its final tail. `28F10..28FA0` builds the second pair. `29D6C..29DD8` splices both into sort buckets. Addresses depend on the current arena; never interpolate or restore them independently of their lists. |
 | Per-view record `800ABE40`, stride `1418` | `10A5C` clears its list via `F8BC` (`+68` head, `+6C` append link), builds the camera and transform requests, saves matrix `+1C..+5B`, normalization `+5C` and transform base `+18`. `10ECC` restores these values and walks the newly built list. |
+| Main car-body pose | `218F0` at `21F78` passes `car+14` to `1A97C`, copying 16 float-matrix words into `800B2B00`; `21FFC` subtracts camera position from its translation before conversion. Body translation is `car+44..4C`; shadow/wheel paths are separate. |
 | Camera snapshot | `11D54` reads the camera basis/position and projection fields, then writes derived `+7C` at `11DCC`. The experiment reserves 128 bytes below `FE70` after the normal arena reset, checks collision against `ED40`, copies the frozen host words and redirects view `+2DC` through both passes. It restores only that reference and current-camera global `ED6C`; the arena is not rewound. |
 | Lens-flare object, view `+2F4` | `2A3A8` shifts four screen-position history words at object `+10..+1C`; render-only extras preserve these around the call. Object `+6C/+70` are newly allocated packet pointers written at `2A280/2A284`, so view `+360/+364` must retain the current arena addresses. |
 | Matrix/transform arena `8007FE70`, counter `FE78` | `24038 -> 2D730` resets from `ED50 + ED54*8`; `2CF30` allocates 64-byte matrices downwards. The transform command stream grows upwards from `ED50`. |
@@ -246,8 +279,10 @@ visual-quality comparison was measured.
 
 ## Limits and next experiment
 
-The prototype does not interpolate cars or camera rotation. The shadow modes
-uses owned render RAM; other modes still borrow authoritative RDRAM (the camera
+The `pose-snapshot` mode interpolates camera and main car-body rigid poses in
+owned RAM. It is a midpoint-repeat/endpoint validation sequence, not a
+chronological presentation scheduler. Wheels, shadows and effects are not yet
+interpolated. The owned-RAM modes use private render RAM; other modes still borrow authoritative RDRAM (the camera
 copy mode isolates only that record). Camera offset is a controlled
 perturbation, not interpolation. The six-trial, stationary practice route
 does not establish gameplay equivalence, audio fidelity, sustained stability,

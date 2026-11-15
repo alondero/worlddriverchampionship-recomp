@@ -5,6 +5,7 @@
 #include "recomp.h"
 #include "boss_rsp.h"
 #include "context.h"
+#include "pose.h"
 #include <array>
 #include <atomic>
 #include <bit>
@@ -36,6 +37,9 @@ std::atomic_uint requested_presents{0}, completed_presents{0};
 std::mutex render_memory_mutex;
 uint8_t* authoritative_memory = nullptr;
 std::vector<uint8_t> frozen_ram, render_ram;
+std::vector<prototype::Pose> previous_poses;
+std::vector<uint32_t> previous_pose_identity;
+uint32_t previous_pose_sample = 0;
 unsigned shadow_receives = 0, shadow_sends = 0;
 thread_local uint8_t* receive_destination_memory = nullptr;
 unsigned skipped_publish = 0, skipped_consume = 0;
@@ -94,7 +98,8 @@ bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
-bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || std::strcmp(mode(), "shadow120") == 0; }
+bool pose_mode() { return std::strcmp(mode(), "pose-snapshot") == 0; }
+bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || std::strcmp(mode(), "shadow120") == 0 || pose_mode(); }
 bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode() || shadow_mode(); }
 uint8_t* queue_memory(uint8_t* memory) {
     return !render_ram.empty() && memory == render_ram.data() ? authoritative_memory : memory;
@@ -514,6 +519,8 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         std::_Exit(0);
     }
     if (!eligible()) {
+        previous_poses.clear();
+        previous_pose_identity.clear();
         settled = 0;
         one_vi = false;
         return;
@@ -589,9 +596,47 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     std::array<uint32_t, 32> camera_snapshot;
     for (unsigned i = 0; i < camera_snapshot.size(); ++i) camera_snapshot[i] = word(rdram, camera + 4 * i);
     frozen_camera = camera_snapshot;
+    // Experimental rigid inputs: camera 00..3C (11D54 -> 1A864), and
+    // car+14..50 (218F0 at 21F78 -> 1A97C copies the body matrix).
+    // 16 raw word-swapped u32s each; math touches only float basis/position.
+    // Bounds follow the full camera/car-span checks above. Game thread owns
+    // these host copies; only render_ram receives interpolated words. No
+    // authoritative restoration. Shadows/wheels/effects are not covered yet.
+    std::vector<prototype::Pose> current_poses;
+    std::vector<uint32_t> pose_addresses, pose_identity;
+    bool pose_reset = false;
+    if (pose_mode()) {
+        pose_addresses.push_back(camera);
+        pose_identity = {scene, camera, word(rdram, 0x800ABE40 + 0x74)};
+        for (unsigned i = 0; i < car_count; ++i) {
+            const auto car = 0x800BA7F0 + i * 0x18A0;
+            pose_addresses.push_back(car + 0x14);
+            pose_identity.push_back(word(rdram, car));
+        }
+        for (const auto address : pose_addresses) {
+            prototype::Pose pose;
+            for (unsigned j = 0; j < pose.size(); ++j) pose[j] = word(rdram, address + 4*j);
+            prototype::Quaternion rotation;
+            if (!prototype::rotation(pose, rotation)) std::_Exit(15);
+            current_poses.push_back(pose);
+        }
+        // Bounded safety policy, not a recovered camera-cut flag: reset on
+        // identity/scene changes, sample discontinuities or >64 world units.
+        pose_reset = previous_pose_identity != pose_identity || previous_poses.size() != current_poses.size() ||
+            samples - previous_pose_sample == 0 || samples - previous_pose_sample > 4;
+        if (!pose_reset) for (unsigned i = 0; i < current_poses.size(); ++i) {
+            double distance2 = 0;
+            for (unsigned j = 12; j < 15; ++j) {
+                const double delta = prototype::component(current_poses[i], j) - prototype::component(previous_poses[i], j);
+                distance2 += delta * delta;
+            }
+            pose_reset |= distance2 > 64*64;
+        }
+        if (pose_reset) previous_poses = current_poses;
+    }
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = direct_present ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
+    const unsigned repeats = direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         const auto receives_before = shadow_receives, sends_before = shadow_sends;
         const auto copies_before = camera_copies;
@@ -605,6 +650,24 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             std::lock_guard lock(render_memory_mutex);
             std::memcpy(render_ram.data(), frozen_ram.data(), frozen_ram.size());
             drawing_ram = render_ram.data();
+            if (pose_mode()) {
+                // Repeated midpoint, then exact current endpoint. This is a
+                // geometry validation sequence, not chronological presentation.
+                const double alpha = draw_number == 3 ? 1.0 : 0.5;
+                unsigned changed = 0;
+                bool camera_changed = false;
+                for (unsigned i = 0; i < current_poses.size(); ++i) {
+                    prototype::Pose pose;
+                    if (!prototype::interpolate_pose(previous_poses[i], current_poses[i], alpha, pose)) std::_Exit(15);
+                    changed += pose != current_poses[i];
+                    if (i == 0) camera_changed = pose != current_poses[i];
+                    std::memcpy(drawing_ram + (pose_addresses[i] - 0x80000000), pose.data(), sizeof(pose));
+                }
+                std::lock_guard lock(output_mutex);
+                log_record("[prototype-pose] {\"frame\":%u,\"draw\":%u,\"alpha\":%.1f,\"reset\":%s,\"poses\":%u,\"changed_poses\":%u,\"changed_camera\":%s,\"changed_bodies\":%u}\n",
+                    race_frame, draw_number, alpha, pose_reset ? "true" : "false", unsigned(current_poses.size()), changed,
+                    camera_changed ? "true" : "false", changed - unsigned(camera_changed));
+            }
             const char* offset_text = std::getenv("WDC_RENDER_PROTOTYPE_SHADOW_OFFSET");
             const float eye_offset = offset_text ? std::strtof(offset_text, nullptr) : 0.0f;
             if (eye_offset != 0) {
@@ -704,6 +767,11 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     draw_number = 0;
     extra = false;
+    if (pose_mode()) {
+        previous_poses = std::move(current_poses);
+        previous_pose_identity = std::move(pose_identity);
+        previous_pose_sample = samples;
+    }
     one_vi = false;
     if (offset)
         for (unsigned i = 0; i < 3; ++i) MEM_W(int32_t(0x30 + 4 * i), int32_t(camera)) = eye[i];

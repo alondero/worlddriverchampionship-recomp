@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-build", type=Path, required=True)
     parser.add_argument("--rom", type=Path, required=True)
-    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot", "shadow120"], default="sound-gated")
+    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "pose-snapshot"], default="sound-gated")
     parser.add_argument("--require-repeatable", action="store_true",
                         help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
@@ -37,16 +37,19 @@ def main():
     args = parser.parse_args()
     if not 6 <= args.trials <= 300:
         parser.error("--trials must be 6..300; increase --timeout for long runs")
-    owned_ram = args.mode in ("shadow-snapshot", "shadow120")
+    pose_mode = args.mode == "pose-snapshot"
+    if pose_mode:
+        args.require_repeatable = True
+    owned_ram = args.mode in ("shadow-snapshot", "shadow120", "pose-snapshot")
     independent_present = args.mode in ("present120", "shadow120")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
     if not math.isfinite(args.shadow_eye_offset) or abs(args.shadow_eye_offset) > 10 or (
-            args.shadow_eye_offset and not owned_ram):
-        parser.error("--shadow-eye-offset requires an owned-RAM mode and a finite value within +/-10")
+            args.shadow_eye_offset and (not owned_ram or pose_mode)):
+        parser.error("--shadow-eye-offset requires shadow-snapshot or shadow120 and a finite value within +/-10")
     if not 60 <= args.settle_frames <= 1800:
         parser.error("--settle-frames must be 60..1800; increase --timeout for long runs")
-    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120"):
-        parser.error("--require-repeatable requires repeat, render-only, present120 or camera-snapshot")
+    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "pose-snapshot"):
+        parser.error("--require-repeatable requires a repeat, render-only, presentation or snapshot mode")
     reference = args.reference_build.resolve()
     rom = args.rom.resolve()
     if hashlib.sha256(rom.read_bytes()).hexdigest() != "e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97":
@@ -177,7 +180,7 @@ def main():
            row['divider_before'] != 1 or row['divider_after'] != 1 or
            row['ticks_before'] != 1562500 or row['ticks_after'] != 1562500 for row in rows):
         raise SystemExit("Simulation counter or stock sampling contract changed")
-    repeats = 3 if independent_present else (2 if args.mode in ("repeat", "render-only", "camera-snapshot", "shadow-snapshot") else 1)
+    repeats = 3 if independent_present or pose_mode else (2 if args.mode in ("repeat", "render-only", "camera-snapshot", "shadow-snapshot") else 1)
     if args.mode != "raw" and any(row['skipped_publish'] != row['trial'] * repeats or
                                           row['skipped_consume'] != row['trial'] * repeats for row in rows):
         raise SystemExit("Sound wrappers did not intercept every extra draw")
@@ -198,7 +201,10 @@ def main():
         frames = {row['frame'] for row in rows}
         for frame in frames:
             group = sorted((g for g in geometry if g['frame'] == frame), key=lambda g: g['draw'])
-            if args.shadow_eye_offset:
+            if pose_mode:
+                if not group[2]['same_headers_as_first_extra'] or not group[3]['same_headers_as_normal']:
+                    raise SystemExit("Pose midpoint must repeat exactly and current endpoint must match normal")
+            elif args.shadow_eye_offset:
                 if any(g['same_headers_as_normal'] for g in group[1:]) or any(not g['same_headers_as_first_extra'] for g in group[1:]):
                     raise SystemExit("Owned eye perturbation must change normal geometry and repeat across extras")
             elif any(not g['same_headers_as_normal'] for g in group[1:]):
@@ -238,8 +244,23 @@ def main():
                     p['matrix'] != matrices[0]['matrix'] for p in matrices):
                 raise SystemExit("Missing or unequal single-view projection evidence")
         print("PASS: exact extra geometry repeats; " +
-              ("owned eye offset changes normal geometry; " if args.shadow_eye_offset else "normal geometry matches; ") +
+              ("pose midpoint repeats and endpoint matches; " if pose_mode else
+               "owned eye offset changes normal geometry; " if args.shadow_eye_offset else "normal geometry matches; ") +
               "projection, camera snapshot, all-car non-link words and caller context preserved")
+    if pose_mode:
+        poses = [json.loads(line.split("[prototype-pose] ", 1)[1])
+                 for line in log.read_text(errors="replace").splitlines() if "[prototype-pose] " in line]
+        (run_dir / "poses.json").write_text(json.dumps(poses, indent=2))
+        expected = {(r['frame'], d) for r in rows for d in (1, 2, 3)}
+        if len(poses) != len(expected) or {(p['frame'], p['draw']) for p in poses} != expected:
+            raise SystemExit("Missing pose interpolation observations")
+        if any(p['alpha'] != (1 if p['draw'] == 3 else .5) or
+               (p['draw'] == 3 and p['changed_poses']) for p in poses):
+            raise SystemExit("Invalid pose alpha or changed current endpoint")
+        if not any(p['changed_poses'] for p in poses) or not any(
+                g['draw'] == 1 and not g['same_headers_as_normal'] for g in geometry):
+            raise SystemExit("Pose experiment did not demonstrate intermediate geometry")
+        print("PASS: interpolated camera/body midpoint changes geometry, repeats exactly, and endpoint matches normal")
     if independent_present:
         if len(presents) != 4 * args.trials or rows[-1]['skipped_vi_waits'] != 8 * args.trials:
             raise SystemExit("Missing direct presentation callbacks or swap-wait interception")
