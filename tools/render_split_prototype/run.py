@@ -320,20 +320,27 @@ def main():
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-snapshot] " in line]
     (run_dir / "snapshots.json").write_text(json.dumps(snapshots, indent=2))
     if args.write_watch_reset:
+        captures = [json.loads(line.split("[prototype-bank-capture] ", 1)[1])
+                    for line in log.read_text(errors="replace").splitlines() if "[prototype-bank-capture] " in line]
+        (run_dir / "bank-captures.json").write_text(json.dumps(captures, indent=2))
+        if not captures or [c['frame'] for c in captures] != [r['frame'] for r in rows]:
+            raise SystemExit("Missing or duplicate write-watch source captures")
         resets = [json.loads(line.split("[prototype-bank-reset] ", 1)[1])
                   for line in log.read_text(errors="replace").splitlines() if "[prototype-bank-reset] " in line]
         (run_dir / "bank-resets.json").write_text(json.dumps(resets, indent=2))
-        if sorted((r['frame'], r['draw']) for r in resets) != sorted((s['frame'], s['draw']) for s in snapshots):
+        if not resets or sorted((r['frame'], r['draw']) for r in resets) != sorted((s['frame'], s['draw']) for s in snapshots):
             raise SystemExit("Missing or duplicate write-watch resets")
-        for r in resets:
+        for r in captures + resets:
             page = r['page_size']
             if (not 0 < page <= 0x800000 or 0x800000 % page or
                 not 0 <= r['copied_bytes'] <= 0x800000 or r['copied_bytes'] % page or
                 r['compared_bytes'] not in (0, 0x800000) or
-                (r['draw'] == 1 and r['copied_bytes'] != 0x800000 and r['compared_bytes'] != 0x800000) or
-                (r['draw'] > 1 and r['compared_bytes'] != 0) or
                 r['verified'] != args.verify_write_watch):
                 raise SystemExit("Invalid write-watch reset evidence")
+        if any(c['copied_bytes'] != 0x800000 and c['compared_bytes'] != 0x800000 for c in captures):
+            raise SystemExit("Write-watch capture did not cover the whole source")
+        if resets[0]['copied_bytes'] != 0x800000 or any(r['compared_bytes'] for r in resets):
+            raise SystemExit("Write-watch restore must seed once and avoid source rescans")
     if owned_ram and not endpoint_mode:
         if sorted((n["frame"], n["draw"]) for n in needles) != sorted((s["frame"], s["draw"]) for s in snapshots):
             raise SystemExit("Missing or duplicate single-view HUD needle snapshots")

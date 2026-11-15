@@ -499,12 +499,14 @@ Keep this option experimental; it does not qualify general high-refresh pacing.
 ### Write-tracked bank reset experiment
 
 `--write-watch-reset` uses a Windows `MEM_WRITE_WATCH` allocation for the owned
-8 MiB bank. The first restore copies the complete snapshot. At each subsequent
-new simulation snapshot, every page is compared with the new source and unequal
-pages are copied; source changes must not be inferred from renderer writes.
-Further draws of the same snapshot use `GetWriteWatch` to restore only pages
-written since the preceding restore. Default runs retain ordinary allocation
-and a full copy for every draw.
+8 MiB bank and keeps its frozen snapshot in the same storage owner. Initial
+capture and restore copy all bytes. Each later capture compares every source
+page against the frozen snapshot, updates differing snapshot pages and records
+them for restoration. Restore copies the union of those source-changed pages
+and pages reported by `GetWriteWatch`, once per page. It does not rescan the
+source. This preserves source changes on pages never written by rendering,
+without repeating full-bank copying and comparison at the first draw.
+Default runs retain full snapshot capture and full-copy restoration.
 
 The existing pipeline drain and renderer-memory mutex exclude writers while
 the page list is read, pages are restored, and tracking is reset. Tracking is
@@ -514,13 +516,15 @@ The storage retains raw guest byte order, stays host-owned and never replaces
 authoritative RAM. API failure, unsupported page size or an out-of-bank page
 aborts the probe. This is Windows-only experimental tooling.
 
-The option forces strict checks. `bank-resets.json` records copied/compared
-bytes, page size and verification for each owned draw; coverage must exactly
-match snapshot records. Every group's first draw must seed or compare all
-8 MiB. `--verify-write-watch` additionally compares the entire restored bank
-with the frozen source before applying interpolated inputs. It requires
-`--write-watch-reset`; its comparison cost is included in reset timing, so omit
-verification for performance measurements.
+The option forces strict checks. `bank-captures.json` requires one full-source
+capture or comparison per trial; `bank-resets.json` requires one restore per
+owned draw, a complete initial seed and no source rescans. Both record copied/
+compared bytes, page size and verification. `--verify-write-watch` compares each
+captured snapshot with authoritative RAM and each restored bank with that
+snapshot before applying interpolated inputs. It requires `--write-watch-reset`.
+These comparisons add to the `owned_capture` and reset timings, so omit
+verification for performance measurements. Capture timing also includes its
+diagnostic output; overlapping intervals must not be added as independent work.
 
 ```powershell
 python tools/render_split_prototype/test_render_bank.py --reference-build build
@@ -528,27 +532,19 @@ python tools/render_split_prototype/run.py --reference-build build --rom "World 
 ```
 
 Host checks cover same-value stores, first/last bytes, page boundaries, writes
-from another thread, clean-page changes in a new source and the full-copy
-fallback. Native driving verification matched all 8 MiB after all 18 restores,
+from another thread, overlapping/disjoint source and render writes, accumulated
+changes across several captures, clean-page changes and the full-copy fallback.
+Native driving verification matched all 8 MiB in six captures and 18 restores,
 repeated midpoint geometry exactly and matched every current endpoint, with
 wheel/shadow interpolation and renderer readback enabled.
-An earlier variant copied all 8 MiB on each new snapshot; it reduced later
-restores to 0.12..0.13 ms but cost 2.626 ms for each reseed. Its 120-group driving
-run retained all 480 swaps but failed timing at 96.9/s. The current new-snapshot
-comparison addresses that reseed cost; it is distinct from the rejected
-experiment that compared every page before every draw.
-A 120-group driving run of the revised implementation retained all 480 ordered
-swaps and passed correctness checks, but failed timing at 75.9 swaps/s. Restore
-work averaged 0.974 ms: 2.530 ms for first draws and about 0.195..0.199 ms for
-subsequent draws. A full-copy control retained all 480 swaps and correctness
-checks but reached only 60.2/s, with 2.027 ms mean restore cost. Both used fast
-hashing and profiling, with notifications, owned readback and full-RAM scans
-disabled. Normal tasks also slowed relative to earlier runs, and host CPU load
-measured after the control was 74%, versus 22% earlier. These are contended
-measurements, not isolated throughput comparisons or sustained high-refresh
-qualification. The new-snapshot comparison did not materially reduce its own
-measured first-draw cost; further work is needed before enabling tracking by
-default or combining it with other experimental scheduling policies.
+A 120-group driving endpoint profile retained all 480 ordered swaps and passed
+correctness checks, but failed timing at 76.0 swaps/s. Capture averaged 2.420 ms
+per group and restore work 0.235 ms per owned draw. Its full-copy control queued
+all trial callbacks but stopped producing swaps during startup, before the
+first prototype capture, then failed the final presentation audit. That control
+cannot establish comparative throughput. Sustained high-refresh qualification
+and a valid performance control remain outstanding; experiment history is in
+[draft PR #61](https://github.com/alondero/worlddriverchampionship-recomp/pull/61).
 
 ## Full-sync profiling and owned readback experiment
 

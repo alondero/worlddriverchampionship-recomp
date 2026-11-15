@@ -64,7 +64,6 @@ void finish_present_audit() {
 }
 std::mutex render_memory_mutex;
 uint8_t* authoritative_memory = nullptr;
-std::vector<uint8_t> frozen_ram;
 prototype::RenderBank render_ram;
 enum class PoseKind { Camera, Body, Wheel };
 std::vector<prototype::Pose> previous_poses;
@@ -901,8 +900,17 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         // and renderer memory share render_ram until its task is drained.
         // Never restore this image into authoritative RAM. Refreshing it is
         // serialized with renderer send_dl/update_screen, including VI reads.
-        frozen_ram.assign(rdram, rdram + 0x800000);
+        PhaseTimer capture_timer{"owned_capture"};
         render_ram.initialize(write_watch_reset());
+        const auto captured = render_ram.capture(rdram);
+        if (verify_write_watch() && std::memcmp(render_ram.snapshot(), rdram, prototype::RenderBank::size)) std::_Exit(25);
+        if (write_watch_reset()) {
+            std::lock_guard output_lock(output_mutex);
+            log_record("[prototype-bank-capture] {\"frame\":%u,\"copied_bytes\":%llu,\"compared_bytes\":%llu,\"page_size\":%llu,\"verified\":%s}\n",
+                race_frame, (unsigned long long)captured.copied_bytes,
+                (unsigned long long)captured.compared_bytes,
+                (unsigned long long)render_ram.page_size(), verify_write_watch() ? "true" : "false");
+        }
     }
     if (shadow_mode()) verify_shadow_receive(rdram, ctx);
     // 11BB8 iterates u32 car count 80080D90 over BA7F0 with stride 18A0.
@@ -1103,8 +1111,8 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             reset_times[0] = std::chrono::steady_clock::now();
             std::unique_lock memory_lock(render_memory_mutex);
             reset_times[1] = std::chrono::steady_clock::now();
-            const auto bank_reset = render_ram.restore(frozen_ram.data(), draw_number == 1);
-            if (verify_write_watch() && std::memcmp(render_ram.data(), frozen_ram.data(), frozen_ram.size())) std::_Exit(25);
+            const auto bank_reset = render_ram.restore();
+            if (verify_write_watch() && std::memcmp(render_ram.data(), render_ram.snapshot(), prototype::RenderBank::size)) std::_Exit(25);
             reset_times[2] = std::chrono::steady_clock::now();
             drawing_ram = render_ram.data();
             if (pose_mode()) {
@@ -1188,19 +1196,19 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 // reads over unchanged pages. Ranges crossing page boundaries
                 // still use the word loop below and remain contiguous.
                 if ((at & 0xFFF) == 0 &&
-                    std::memcmp(frozen_ram.data() + at, rdram + at, 0x1000) == 0) {
+                    std::memcmp(render_ram.snapshot() + at, rdram + at, 0x1000) == 0) {
                     at += 0x1000;
                     continue;
                 }
                 uint32_t before_word, after_word;
-                std::memcpy(&before_word, frozen_ram.data() + at, 4);
+                std::memcpy(&before_word, render_ram.snapshot() + at, 4);
                 std::memcpy(&after_word, rdram + at, 4);
                 if (before_word == after_word) { at += 4; continue; }
                 const unsigned first = at;
                 do {
                     at += 4; ++count;
                     if (at == 0x800000) break;
-                    std::memcpy(&before_word, frozen_ram.data() + at, 4);
+                    std::memcpy(&before_word, render_ram.snapshot() + at, 4);
                     std::memcpy(&after_word, rdram + at, 4);
                 } while (before_word != after_word);
                 if (ranges++) report += ',';
