@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
+    parser.add_argument("--skip-late-draws", action="store_true", help="motion-samples: skip elapsed group slots before starting another draw")
     parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for cadence modes; other modes retain 120")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
@@ -49,6 +50,8 @@ def main():
     if args.verify_texture_hash and not args.fast_texture_hash:
         parser.error("--verify-texture-hash requires --fast-texture-hash")
     sample_motion = args.mode == "motion-samples"
+    if args.skip_late_draws and not sample_motion:
+        parser.error("--skip-late-draws requires motion-samples")
     motion_rate = args.mode == "motion-rate" or sample_motion
     cadence_mode = args.mode == "shadow-rate" or motion_rate
     if not 60 <= args.present_hz <= 240 or (not cadence_mode and args.present_hz != 120):
@@ -155,6 +158,8 @@ def main():
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_PRESENT_HZ=str(args.present_hz),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
+    if args.skip_late_draws:
+        env["WDC_RENDER_PROTOTYPE_SKIP_LATE_DRAWS"] = "1"
     if args.verify_texture_hash:
         env["WDC_RENDER_PROTOTYPE_VERIFY_TEXTURE_HASH"] = "1"
     if args.no_authority_scan:
@@ -165,6 +170,7 @@ def main():
                                                   "settle_frames": args.settle_frames,
                                                   "trials": args.trials,
                                                   "present_hz": args.present_hz,
+                                                  "skip_late_draws": args.skip_late_draws,
                                                   "profile_rt64": args.profile_rt64,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
@@ -296,7 +302,38 @@ def main():
                 raise SystemExit("Snapshot schedule disagrees with consumed samples or draw budget")
             sample_schedules[row['trial']] = expected
         print(f"Sample schedule: {sum(s['skipped'] for s in records)} stale grid slots skipped")
+    selections = {}
+    if args.skip_late_draws:
+        records = [json.loads(line.split("[prototype-selection] ", 1)[1])
+                   for line in log.read_text(errors="replace").splitlines() if "[prototype-selection] " in line]
+        (run_dir / "selections.json").write_text(json.dumps(records, indent=2))
+        if {r['frame'] for r in records} != {r['frame'] for r in rows}:
+            raise SystemExit("Missing deadline selection groups")
+        expected_order = []
+        for row in rows:
+            selected = [r for r in records if r['frame'] == row['frame']]
+            schedule = sample_schedules[row['trial']]
+            next_index, elapsed = 0, 0
+            for draw, selection in enumerate(selected, 1):
+                expected_order.append((row['frame'], draw))
+                if selection['elapsed_ns'] < elapsed or next_index >= schedule['count']:
+                    raise SystemExit("Non-monotonic or surplus deadline selection")
+                elapsed = selection['elapsed_ns']
+                index = min(schedule['count']-1, max(next_index, elapsed * args.present_hz // 1000000000))
+                expected = dict(frame=row['frame'], draw=draw, elapsed_ns=elapsed, index=index,
+                                slot=schedule['first_slot']+index, skipped=index-next_index)
+                if selection != expected:
+                    raise SystemExit("Deadline selection disagrees with elapsed time")
+                next_index = index+1
+            if next_index != schedule['count']:
+                raise SystemExit("Deadline skipping lost the latest scheduled pose")
+            selections[row['trial']] = selected
+        if [(r['frame'], r['draw']) for r in records] != expected_order:
+            raise SystemExit("Deadline selection records reordered or duplicated")
+        print(f"Deadline selection: {sum(r['skipped'] for r in records)} additional group slots skipped")
     def frame_repeats(trial):
+        if args.skip_late_draws:
+            return len(selections[trial])
         if sample_motion:
             return sample_schedules[trial]['count']
         return (trial * args.present_hz // 30 - (trial - 1) * args.present_hz // 30 - int(not motion_rate)) if cadence_mode else repeats
@@ -304,14 +341,15 @@ def main():
     def pose_alpha(frame, draw):
         if sample_motion:
             s = sample_schedules[trial_by_frame[frame]]
-            return ((s['first_slot'] + draw - 1) * 30 - s['begin'] * args.present_hz) / ((s['end'] - s['begin']) * args.present_hz)
+            slot = selections[trial_by_frame[frame]][draw-1]['slot'] if args.skip_late_draws else s['first_slot'] + draw - 1
+            return (slot * 30 - s['begin'] * args.present_hz) / ((s['end'] - s['begin']) * args.present_hz)
         if motion_rate:
             group = trial_by_frame[frame] - 1
             return ((group * args.present_hz // 30 + draw) * 30 - group * args.present_hz) / args.present_hz
         return draw / 4 if motion_mode else 1 if draw == 3 else .5
     def cumulative_repeats(trial):
         if sample_motion:
-            return sum(sample_schedules[t]['count'] for t in range(1, trial+1))
+            return sum(frame_repeats(t) for t in range(1, trial+1))
         return trial * args.present_hz // 30 - (0 if motion_rate else trial) if cadence_mode else trial * repeats
     if args.mode != "raw" and any(row['skipped_publish'] != cumulative_repeats(row['trial']) or
                                           row['skipped_consume'] != cumulative_repeats(row['trial']) for row in rows):

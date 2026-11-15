@@ -543,8 +543,27 @@ audio-gating and callback-order gates remain mandatory. Counter subtraction is
 unsigned; the existing zero/>4-sample and pose-identity/distance reset policy
 starts a fresh local timeline with equal previous/current poses.
 
-This handles gaps already observed between snapshots. It does not yet drop
-individual draws based on deadlines missed while rendering a group, establish
-end-to-end display latency, or complete wheel/shadow/effect interpolation.
+The default handles gaps already observed between snapshots; the optional
+selector below also handles elapsed slots within a group. Neither establishes
+end-to-end display latency or completes wheel/shadow/effect interpolation.
 A reset uses a synthetic one-sample span of identical poses and reanchors the
 presentation grid. The VI/AI clock and authoritative simulation stay unchanged.
+
+`motion-samples --skip-late-draws` additionally checks a monotonic host timer
+before starting each owned draw. Relative to the beginning of that group's
+render loop, it advances to the latest due slot without repeating earlier
+slots, clamps to the last selected slot, and renders that final pose once.
+Slots skipped between snapshots and slots skipped within a group are recorded
+separately. No in-flight task is cancelled and all bank/presentation fences
+remain in place.
+
+`selections.json` records elapsed nanoseconds, contiguous draw labels, selected
+grid indices/slots and skip counts. The runner reconstructs every decision,
+checks that the final slot was rendered, and uses the selected slot for alpha,
+geometry/task-count, audio-gating and callback-order validation. Existing modes
+and the default sample scheduler retain their previous behavior.
+
+This is group-relative deadline selection, not an end-to-end display deadline
+or latency guarantee. The existing swap pacing/catch-up policy remains; a
+costly draw can still finish late. Visual and audio qualification are still
+required even if the bounded timing gate passes.

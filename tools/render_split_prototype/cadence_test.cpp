@@ -49,6 +49,18 @@ int main() {
             sample+=delta;
         }
     }
+    assert(prototype::due_slot(0,5,0,144)==0);
+    assert(prototype::due_slot(1,5,1000000,144)==1); // No repeated slot when early.
+    assert(prototype::due_slot(1,5,20833333,144)==2); // Before third-slot deadline.
+    assert(prototype::due_slot(1,5,20833334,144)==3);
+    assert(prototype::due_slot(2,5,1000000000,144)==4); // Keep final pose after stall.
+    unsigned cursor=0, draws=0;
+    for(uint64_t elapsed : {0ull, 10000000ull, 23000000ull, 35000000ull}) {
+        const auto selected=prototype::due_slot(cursor,5,elapsed,144);
+        assert(selected>=cursor && selected<5);
+        cursor=selected+1; ++draws;
+    }
+    assert(cursor==5 && draws==4); // One stale slot omitted, latest retained.
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(prototype::presentations_in_group(g,144)==expected[g]);
     puts("PASS: rational cadence and nanosecond pacing remain exact over one hour");

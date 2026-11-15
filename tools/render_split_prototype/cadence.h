@@ -26,6 +26,13 @@ constexpr SampleSchedule schedule_samples(uint64_t begin, uint64_t end, unsigned
     const unsigned count = available < budget ? available : budget;
     return {begin, end, last - count + 1, count, available - count, hz};
 }
+// Select before rendering, never repeat an earlier slot, and always retain
+// the final slot. Elapsed time is relative to the beginning of this draw group.
+constexpr unsigned due_slot(unsigned next, unsigned count, uint64_t elapsed_ns, unsigned hz) {
+    const uint64_t due = elapsed_ns * hz / 1000000000;
+    const uint64_t selected = due > next ? due : next;
+    return unsigned(selected < count ? selected : count - 1);
+}
 class PresentationPeriod {
     unsigned hz, remainder = 0;
 public:
