@@ -57,6 +57,8 @@ Use `--warp '1:0:arcade:3' --settle-frames 180` to audit the eight-car Hawaii
 grid later in the race. `--warp` follows the player's existing race setup
 syntax; `--settle-frames` accepts 60..1800 (increase `--timeout` as needed).
 Each run retains `setup.json` alongside its evidence.
+Use `--trials 120` for a longer bounded run (6..300, default 6); increase
+`--timeout` for workloads that need more than 60 seconds including startup.
 
 | Mode | Experiment |
 | --- | --- |
@@ -88,8 +90,9 @@ all modes except `shadow-snapshot` and `shadow120` still draw in shared RDRAM. N
 live arenas; the owned bank is reset only after its pipeline has drained.
 It supports `repeat`, `render-only`, `camera-snapshot`, `shadow-snapshot`, `shadow120` and `present120`. The render-only variants additionally
 reject view changes outside the lens-flare arena packet pointers. Both independent-presentation modes
-also writes `presents.json`, counts actual renderer callbacks and VI ticks,
-and requires 24 callbacks at an average 105–135 Hz with 9–14 VI ticks. These
+write `presents.json`, count actual renderer callbacks and VI ticks,
+and require four callbacks per trial at an average 105–135 Hz. The VI count
+must be within two ticks of 60 Hz over the measured callback interval. These
 broad bounds detect a remaining 60 Hz ceiling, not precise frame pacing.
 `camera-snapshot` requires exactly one copy per extra and permits only the
 expected 128-byte displacement of view zero's transform base/list links
@@ -281,17 +284,15 @@ The bounded owned-RAM geometry proof and projection fixture do not establish
 full gameplay/audio equivalence or snapshot behavior in every scene. The
 `shadow-snapshot` drain/bootstrap experiment retains stock VI waits;
 `shadow120` combines it with independent presentation and services live runtime
-queues while pacing owned frames. Initial combined practice runs preserved
-exact normal/extra/extra/extra geometry but averaged only 70.7–76.2 callbacks/s.
-The camera-offset negative control also passed geometry/state checks, including
-all three matching extras, but failed the timing gate. Scan diagnostics measured
-3.8 ms per extra before page comparison and batched output, and 1.3 ms afterward;
-these separate bounded runs are not a controlled performance benchmark.
-The combined path is not an accepted high-rate scheduler.
-After adding the presentation-completion fence, another practice run retained
-exact geometry/state checks across all six groups and measured 76.1 callbacks/s
-across 18 VI ticks. The owned drain averaged 5.9 ms and the scan 1.4 ms per extra;
-the 120 Hz timing gate correctly failed.
+queues while pacing owned frames. It preserves exact frozen geometry and
+observed camera/car/context state, including a controlled owned-camera offset.
+Logging overhead materially distorts timings: complete diagnostic lines are
+written once without dropping matrix or changed-word evidence. A short practice
+timing pass does not establish sustained 120 Hz; longer practice and eight-car
+workloads still fail that gate. Use longer `--trials` runs before interpreting
+timing results. The combined path is not an accepted high-rate scheduler.
+Run measurements and profiling evidence are recorded in
+[draft PR #61](https://github.com/alondero/worlddriverchampionship-recomp/pull/61).
 Interpolation, rotations, discontinuities and effect handling still
 need explicit policies before this can become a shipping option.
 The direct-presentation experiment is bounded to progressive single-view racing;

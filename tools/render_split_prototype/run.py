@@ -30,10 +30,13 @@ def main():
                         help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
-    parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before six trials")
+    parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
+    parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
     parser.add_argument("--shadow-eye-offset", type=float, default=0,
                         help="Controlled eye-X perturbation in owned RAM only (shadow-snapshot or shadow120)")
     args = parser.parse_args()
+    if not 6 <= args.trials <= 300:
+        parser.error("--trials must be 6..300; increase --timeout for long runs")
     owned_ram = args.mode in ("shadow-snapshot", "shadow120")
     independent_present = args.mode in ("present120", "shadow120")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
@@ -108,9 +111,11 @@ def main():
     env = {key: value for key, value in os.environ.items() if not key.startswith("WDC_")}
     env.update(WDC_WARP=args.warp, WDC_RENDER_PROTOTYPE_MODE=args.mode,
                WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames),
+               WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
                                                   "settle_frames": args.settle_frames,
+                                                  "trials": args.trials,
                                                   "shadow_eye_offset": args.shadow_eye_offset}, indent=2))
     log = run_dir / "run.log"
     print(f"Running {args.mode} probe; local evidence: {log}", flush=True)
@@ -166,7 +171,7 @@ def main():
               f"samples {row['sample_before']} -> {row['sample_after']}; "
               f"sound buffer {row['sound_buffer_before']} -> {row['sound_buffer_after']}; "
               f"changed car words {len(row['car_word_changes'])}")
-    if result.returncode or len(rows) != 6:
+    if result.returncode or len(rows) != args.trials:
         raise SystemExit(f"Incomplete probe (exit {result.returncode}); inspect {log}")
     if any(row['sample_before'] != row['sample_after'] or
            row['divider_before'] != 1 or row['divider_after'] != 1 or
@@ -236,13 +241,14 @@ def main():
               ("owned eye offset changes normal geometry; " if args.shadow_eye_offset else "normal geometry matches; ") +
               "projection, camera snapshot, all-car non-link words and caller context preserved")
     if independent_present:
-        if len(presents) != 24 or rows[-1]['skipped_vi_waits'] != 48:
+        if len(presents) != 4 * args.trials or rows[-1]['skipped_vi_waits'] != 8 * args.trials:
             raise SystemExit("Missing direct presentation callbacks or swap-wait interception")
         intervals = [(b['us'] - a['us']) / 1000 for a, b in zip(presents, presents[1:])]
         rate = 1000 / statistics.mean(intervals)
         vi_ticks = presents[-1]['vi_ticks'] - presents[0]['vi_ticks']
         print(f"Renderer callbacks: {rate:.1f}/s; intervals {min(intervals):.2f}..{max(intervals):.2f} ms; {vi_ticks} VI ticks")
-        if not 105 <= rate <= 135 or not 9 <= vi_ticks <= 14:
+        expected_vi_ticks = sum(intervals) * 60 / 1000
+        if not 105 <= rate <= 135 or abs(vi_ticks - expected_vi_ticks) > 2:
             raise SystemExit("120 Hz presentation / 60 Hz VI timing gate failed")
 
 

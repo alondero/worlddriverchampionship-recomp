@@ -9,6 +9,7 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -48,12 +49,30 @@ unsigned camera_copies = 0;
 struct Label { unsigned frame; unsigned draw; uint8_t* memory; };
 std::mutex label_mutex;
 std::mutex output_mutex;
+// Callers hold output_mutex across each complete record. Keep fragments in
+// host memory until newline so an unbuffered stderr does not issue a separate
+// file write for every matrix element or changed word. No evidence is dropped.
+void log_record(const char* format, ...) __attribute__((format(gnu_printf, 1, 2)));
+void log_record(const char* format, ...) {
+    thread_local std::string line;
+    char fragment[4096];
+    va_list args;
+    va_start(args, format);
+    const int size = std::vsnprintf(fragment, sizeof(fragment), format, args);
+    va_end(args);
+    if (size < 0 || size >= int(sizeof(fragment))) std::_Exit(14);
+    line.append(fragment, size_t(size));
+    if (!line.empty() && line.back() == '\n') {
+        std::fwrite(line.data(), 1, line.size(), stderr);
+        line.clear();
+    }
+}
 struct PhaseTimer {
     const char* name;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     ~PhaseTimer() {
         std::lock_guard lock(output_mutex);
-        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"%s\",\"ms\":%.3f}\n",
+        log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"%s\",\"ms\":%.3f}\n",
             race_frame, draw_number, name,
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
     }
@@ -66,6 +85,10 @@ const char* mode() {
 unsigned settle_frames() {
     const char* value = std::getenv("WDC_RENDER_PROTOTYPE_SETTLE");
     return value ? unsigned(std::strtoul(value, nullptr, 10)) : 60;
+}
+unsigned trial_count() {
+    const char* value = std::getenv("WDC_RENDER_PROTOTYPE_TRIALS");
+    return value ? unsigned(std::strtoul(value, nullptr, 10)) : 6;
 }
 bool gated() {
     return std::strcmp(mode(), "raw") != 0;
@@ -116,7 +139,7 @@ void __wrap_##name(uint8_t* rdram, recomp_context* ctx) { \
     if (extra) { \
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); \
         std::lock_guard lock(output_mutex); \
-        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"" #name "\",\"ms\":%.3f}\n", race_frame, draw_number, ms); \
+        log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"" #name "\",\"ms\":%.3f}\n", race_frame, draw_number, ms); \
     } \
 }
 TIME_DRAW_PHASE(func_80024038)
@@ -153,7 +176,7 @@ void __wrap_func_80010A5C(uint8_t* rdram, recomp_context* ctx) {
     __real_func_80010A5C(rdram, ctx);
     if (extra) {
         std::lock_guard lock(output_mutex);
-        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"func_80010A5C\",\"ms\":%.3f}\n", race_frame, draw_number,
+        log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"func_80010A5C\",\"ms\":%.3f}\n", race_frame, draw_number,
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
     }
 }
@@ -177,7 +200,7 @@ void prototype_vi_observed() { ++prototype_vi_ticks; }
 void prototype_present_observed(uint32_t origin) {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
     std::lock_guard lock(output_mutex);
-    std::fprintf(stderr, "[prototype-present] {\"us\":%lld,\"origin\":%u,\"vi_ticks\":%u}\n",
+    log_record("[prototype-present] {\"us\":%lld,\"origin\":%u,\"vi_ticks\":%u}\n",
         (long long)std::chrono::duration_cast<std::chrono::microseconds>(now).count(), origin, prototype_vi_ticks.load());
     ++completed_presents;
 }
@@ -189,7 +212,7 @@ void __wrap_func_800013DC(uint8_t* rdram, recomp_context* ctx) {
     inside_swap = false;
     if (extra) {
         std::lock_guard lock(output_mutex);
-        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"swap\",\"ms\":%.3f}\n", race_frame, draw_number,
+        log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"swap\",\"ms\":%.3f}\n", race_frame, draw_number,
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
     }
 }
@@ -262,7 +285,7 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
     if (!passed) std::_Exit(13);
     verified = true;
     std::lock_guard lock(output_mutex);
-    std::fprintf(stderr, "[prototype-queue-test] {\"authoritative_sentinel_preserved\":true,\"owned_result_received\":true}\n");
+    log_record("[prototype-queue-test] {\"authoritative_sentinel_preserved\":true,\"owned_result_received\":true}\n");
 }
 void __real_osViSwapBuffer_recomp(uint8_t*, recomp_context*);
 void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
@@ -285,7 +308,7 @@ void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
     __real_osViSwapBuffer_recomp(rdram, ctx);
     if (extra) {
         std::lock_guard lock(output_mutex);
-        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"pace_and_queue\",\"ms\":%.3f}\n", race_frame, draw_number,
+        log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"pace_and_queue\",\"ms\":%.3f}\n", race_frame, draw_number,
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
     }
 }
@@ -328,9 +351,9 @@ void __wrap_wdc_projection_normalize(uint8_t* rdram, recomp_context* ctx) {
     // at fixed aligned RDRAM 800B2A80..800B2ABF, word-swapped via MEM_W.
     // Projection scratch belongs to this view pass; retain only host values.
     std::lock_guard lock(output_mutex);
-    std::fprintf(stderr, "[prototype-projection] {\"frame\":%u,\"draw\":%u,\"matrix\":[", race_frame, draw_number);
-    for (unsigned i = 0; i < 16; ++i) std::fprintf(stderr, "%s%u", i ? "," : "", word(rdram, 0x800B2A80 + i * 4));
-    std::fprintf(stderr, "]}\n");
+    log_record("[prototype-projection] {\"frame\":%u,\"draw\":%u,\"matrix\":[", race_frame, draw_number);
+    for (unsigned i = 0; i < 16; ++i) log_record("%s%u", i ? "," : "", word(rdram, 0x800B2A80 + i * 4));
+    log_record("]}\n");
 }
 void __real_func_8000C560(uint8_t*, recomp_context*);
 void func_800252D0(uint8_t*, recomp_context*);
@@ -362,7 +385,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     Label label{};
     {
         std::lock_guard lock(label_mutex);
-        if (labels.empty()) { std::fprintf(stderr, "[prototype-error] unlabelled task\n"); std::_Exit(4); }
+        if (labels.empty()) { log_record("[prototype-error] unlabelled task\n"); std::_Exit(4); }
         label = labels.front(); labels.pop_front();
     }
     if (label.memory != rdram) std::_Exit(12);
@@ -431,7 +454,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     if (label.draw == 1) { first_extra_frame = label.frame; first_extra_headers = headers; }
     const bool same = normal_frame == label.frame && headers == normal_headers;
     const bool same_extra = first_extra_frame == label.frame && headers == first_extra_headers;
-    std::fprintf(stderr, "[prototype-rdp] {\"frame\":%u,\"draw\":%u,\"extra\":%s,\"triangles\":%u,"
+    log_record("[prototype-rdp] {\"frame\":%u,\"draw\":%u,\"extra\":%s,\"triangles\":%u,"
         "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s,\"task_ms\":%.3f,\"sink_ms\":%.3f,\"sync_chunk_sink_ms\":%.3f,\"owned_memory\":%s,\"same_headers_as_first_extra\":%s}\n", label.frame,
         label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false", same ? "true" : "false", task_ms, capture.sink_ms, capture.sync_sink_ms,
         !render_ram.empty() && rdram == render_ram.data() ? "true" : "false", same_extra ? "true" : "false");
@@ -470,7 +493,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             (scene == 0 || scene == 3 || scene == 5 || scene == 8 || scene == 9);
     };
     one_vi = settled + 1 >= settle_frames() && eligible() && std::strcmp(mode(), "split60") == 0;
-    direct_present = settled + 1 >= settle_frames() && trials < 6 && eligible() &&
+    direct_present = settled + 1 >= settle_frames() && trials < trial_count() && eligible() &&
         (std::strcmp(mode(), "present120") == 0 || (std::strcmp(mode(), "shadow120") == 0 && trials > 0));
     prototype_set_present(direct_present);
     const auto frame_start = std::chrono::steady_clock::now();
@@ -479,7 +502,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     // One subsequent normal draw drains the last extra task through the usual
     // BOSS synchronization before exiting. Do not wait on the graphics worker
     // with the guest scheduler locked or consume its completion message twice.
-    if (trials == 6) {
+    if (trials == trial_count()) {
         if (shadow_mode()) {
             recomp_context drain_context;
             copy_draw_context(drain_context, *ctx);
@@ -652,7 +675,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             car_same &= before[i] == word(rdram, 0x800BA7F0 + i * 4);
         }
         std::lock_guard lock(output_mutex);
-        std::fprintf(stderr, "[prototype-snapshot] {\"frame\":%u,\"draw\":%u,\"context_unchanged\":%s,"
+        log_record("[prototype-snapshot] {\"frame\":%u,\"draw\":%u,\"context_unchanged\":%s,"
             "\"camera_unchanged\":%s,\"car_nonlink_words_unchanged\":%s,\"sample_unchanged\":%s,"
             "\"matrix_arena_top\":%u,\"geometry_arena_top\":%u,\"next_arena\":%u,\"preserved_flare_calls\":%u,\"view_word_changes\":[",
             race_frame, draw_number, std::memcmp(ctx, caller_snapshot.data(), sizeof(*ctx)) == 0 ? "true" : "false",
@@ -662,11 +685,11 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         unsigned changed = 0;
         for (unsigned i = 0; i < views.size(); ++i) {
             auto after = word(rdram, 0x800ABE40 + 4 * i);
-            if (after != views[i]) std::fprintf(stderr, "%s[%u,%u,%u]", changed++ ? "," : "", i * 4, views[i], after);
+            if (after != views[i]) log_record("%s[%u,%u,%u]", changed++ ? "," : "", i * 4, views[i], after);
         }
-        std::fprintf(stderr, "],\"car_render_links\":[");
-        for (unsigned i = 0; i < 4; ++i) std::fprintf(stderr, "%s%u", i ? "," : "", word(rdram, 0x800BA7F0 + 0xB90 + i * 4));
-        std::fprintf(stderr, "],\"car_count\":%u,\"car_count_unchanged\":%s,\"skipped_car_sound_calls\":%u,\"camera_copies\":%u,\"shadow_receives\":%u,\"shadow_sends\":%u,\"all_car_nonlink_changes\":[",
+        log_record("],\"car_render_links\":[");
+        for (unsigned i = 0; i < 4; ++i) log_record("%s%u", i ? "," : "", word(rdram, 0x800BA7F0 + 0xB90 + i * 4));
+        log_record("],\"car_count\":%u,\"car_count_unchanged\":%s,\"skipped_car_sound_calls\":%u,\"camera_copies\":%u,\"shadow_receives\":%u,\"shadow_sends\":%u,\"all_car_nonlink_changes\":[",
             car_count, word(rdram, 0x80080D90) == car_count ? "true" : "false", skipped_car_sound - car_sound_before, camera_copies - copies_before,
             shadow_receives - receives_before, shadow_sends - sends_before);
         changed = 0;
@@ -674,10 +697,10 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             const unsigned offset = (i * 4) % 0x18A0;
             if (offset >= 0xB90 && offset <= 0xB9C) continue;
             const auto after = word(rdram, 0x800BA7F0 + i * 4);
-            if (after != all_cars[i]) std::fprintf(stderr, "%s[%u,%u,%u,%u]",
+            if (after != all_cars[i]) log_record("%s[%u,%u,%u,%u]",
                 changed++ ? "," : "", (i * 4) / 0x18A0, offset, all_cars[i], after);
         }
-        std::fprintf(stderr, "]}\n");
+        log_record("]}\n");
     }
     draw_number = 0;
     extra = false;
@@ -689,7 +712,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     const double frame_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - frame_start).count();
     std::lock_guard output_lock(output_mutex);
-    std::fprintf(stderr, "[render-prototype] {\"trial\":%u,\"frame\":%u,\"gated\":%s,\"scene\":%u,"
+    log_record("[render-prototype] {\"trial\":%u,\"frame\":%u,\"gated\":%s,\"scene\":%u,"
         "\"draw_ms\":%.3f,\"frame_ms\":%.3f,\"sample_before\":%u,\"sample_after\":%u,"
         "\"sound_buffer_before\":%u,\"sound_buffer_after\":%u,"
         "\"divider_before\":%u,\"divider_after\":%u,\"ticks_before\":%u,\"ticks_after\":%u,"
@@ -703,10 +726,10 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     for (unsigned i = 0; i < before.size(); ++i) {
         const auto after = word(rdram, 0x800BA7F0 + 4 * i);
         if (before[i] == after) continue;
-        std::fprintf(stderr, "%s{\"offset\":%u,\"before\":%u,\"after\":%u}",
+        log_record("%s{\"offset\":%u,\"before\":%u,\"after\":%u}",
             changed++ ? "," : "", 4 * i, before[i], after);
     }
-    std::fprintf(stderr, "]}\n");
+    log_record("]}\n");
     std::fflush(stderr);
 }
 }
