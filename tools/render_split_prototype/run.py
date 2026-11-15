@@ -49,6 +49,7 @@ def main():
     parser.add_argument("--verify-write-watch", action="store_true", help="Compare every restored byte with the frozen bank; requires --write-watch-reset")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop saturated palette scans and group contiguous palette hash updates")
     parser.add_argument("--cache-palette-indices", action="store_true", help="Experiment: cache palette index membership using exact texture-byte matches; requires fast texture hash")
+    parser.add_argument("--async-diagnostics", action="store_true", help="Experiment: bounded asynchronous diagnostic writes with final drain audit")
     parser.add_argument("--batch-texture-hash", action="store_true", help="Experiment: hash a bounded concatenation of the identical byte stream; requires fast texture hash")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
     parser.add_argument("--hold-accelerator", action="store_true", help="Input fixture: hold port-0 A with neutral steering during the race")
@@ -244,6 +245,8 @@ def main():
         env["WDC_RENDER_PROTOTYPE_SKIP_LATE_DRAWS"] = "1"
     if args.verify_texture_hash:
         env["WDC_RENDER_PROTOTYPE_VERIFY_TEXTURE_HASH"] = "1"
+    if args.async_diagnostics:
+        env["WDC_RENDER_PROTOTYPE_ASYNC_DIAGNOSTICS"] = "1"
     if args.no_authority_scan:
         env["WDC_RENDER_PROTOTYPE_NO_AUTHORITY_SCAN"] = "1"
     if args.notify_renderer_completion:
@@ -276,6 +279,7 @@ def main():
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "cache_palette_indices": args.cache_palette_indices,
                                                   "batch_texture_hash": args.batch_texture_hash,
+                                                  "async_diagnostics": args.async_diagnostics,
                                                   "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
                                                   "notify_renderer_completion": args.notify_renderer_completion,
@@ -299,6 +303,15 @@ def main():
         if skips:
             print(f"RT64 skipped events (including startup): {len(skips)}; "
                   f"backlog {sum(s['backlog'] for s in skips)}, empty swap chain {sum(s['empty_swapchain'] for s in skips)}")
+    if args.async_diagnostics:
+        diagnostics = [json.loads(line.split("[prototype-diagnostics] ", 1)[1])
+                       for line in log.read_text(errors="replace").splitlines() if "[prototype-diagnostics] " in line]
+        (run_dir / "diagnostics.json").write_text(json.dumps(diagnostics, indent=2))
+        if (len(diagnostics) != 1 or diagnostics[0]["failed"] or not diagnostics[0]["accepted"] or
+                diagnostics[0]["accepted"] != diagnostics[0]["written"] or
+                diagnostics[0]["accepted_bytes"] != diagnostics[0]["written_bytes"] or
+                not 0 < diagnostics[0]["max_queued_bytes"] <= 4 * 1024 * 1024):
+            raise SystemExit("Asynchronous diagnostic drain audit failed")
     if result.returncode:
         raise SystemExit(f"Probe exited {result.returncode}; inspect {log}")
     if args.sample_render_worker:

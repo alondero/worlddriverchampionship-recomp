@@ -12,6 +12,7 @@
 #include "vectors.h"
 #include "cadence.h"
 #include "render_bank.h"
+#include "async_log.h"
 #ifdef WDC_PROTOTYPE_SAMPLE_WORKER
 #include "worker_samples.h"
 #endif
@@ -40,6 +41,7 @@ static void prototype_set_present(bool) {}
 #endif
 
 namespace {
+[[noreturn]] void probe_exit(int code);
 #ifdef WDC_PROTOTYPE_SAMPLE_WORKER
 prototype::WorkerSamples worker_samples;
 #endif
@@ -77,7 +79,7 @@ void finish_present_audit() {
         if (std::chrono::steady_clock::now() >= deadline) {
             std::fprintf(stderr, "[prototype-present-timeout] {\"bound\":%llu,\"finished\":%llu}\n",
                 (unsigned long long)last_bound_present.load(), (unsigned long long)last_finished_present.load());
-            std::_Exit(22);
+            probe_exit(22);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
@@ -111,6 +113,37 @@ thread_local uint64_t palette_lookups = 0, palette_hits = 0;
 thread_local std::vector<std::pair<const char*, double>> rt64_phase_records;
 std::mutex label_mutex;
 std::mutex output_mutex;
+bool async_diagnostics() {
+    static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_ASYNC_DIAGNOSTICS") != nullptr;
+    return enabled;
+}
+prototype::AsyncLog& diagnostic_writer() {
+    // Process lifetime; probe_exit explicitly drains before _Exit. Other runtime
+    // crashes/forced termination remain incomplete evidence, rejected by run.py.
+    static auto* writer = new prototype::AsyncLog(4 * 1024 * 1024, [](std::string_view bytes) {
+        return std::fwrite(bytes.data(), 1, bytes.size(), stderr) == bytes.size();
+    });
+    return *writer;
+}
+[[noreturn]] void probe_exit(int code) {
+    static std::mutex exit_mutex;
+    std::lock_guard exit_lock(exit_mutex);
+    if (async_diagnostics()) {
+        const auto s = diagnostic_writer().finish();
+        if (s.failed || s.accepted != s.written || s.accepted_bytes != s.written_bytes) code = 29;
+        const int result = std::fprintf(stderr,
+            "[prototype-diagnostics] {\"accepted\":%llu,\"written\":%llu,\"accepted_bytes\":%llu,\"written_bytes\":%llu,"
+            "\"backpressure\":%llu,\"wait_us\":%llu,\"max_write_us\":%llu,\"max_queued_bytes\":%llu,\"failed\":%s}\n",
+            (unsigned long long)s.accepted, (unsigned long long)s.written,
+            (unsigned long long)s.accepted_bytes, (unsigned long long)s.written_bytes,
+            (unsigned long long)s.backpressure, (unsigned long long)s.wait_us,
+            (unsigned long long)s.max_write_us, (unsigned long long)s.max_queued_bytes,
+            s.failed ? "true" : "false");
+        if (result < 0) code = 29;
+    }
+    if (std::fflush(stderr)) code = 29;
+    std::_Exit(code);
+}
 // Callers hold output_mutex across each complete record. Keep fragments in
 // host memory until newline so an unbuffered stderr does not issue a separate
 // file write for every matrix element or changed word. No evidence is dropped.
@@ -122,10 +155,12 @@ void log_record(const char* format, ...) {
     va_start(args, format);
     const int size = std::vsnprintf(fragment, sizeof(fragment), format, args);
     va_end(args);
-    if (size < 0 || size >= int(sizeof(fragment))) std::_Exit(14);
+    if (size < 0 || size >= int(sizeof(fragment))) probe_exit(14);
     line.append(fragment, size_t(size));
     if (!line.empty() && line.back() == '\n') {
-        std::fwrite(line.data(), 1, line.size(), stderr);
+        if (async_diagnostics()) {
+            if (!diagnostic_writer().submit(line)) probe_exit(29);
+        } else if (std::fwrite(line.data(), 1, line.size(), stderr) != line.size()) probe_exit(29);
         line.clear();
     }
 }
@@ -185,7 +220,7 @@ unsigned present_hz() {
     static const unsigned hz = [] {
         const char* value = std::getenv("WDC_RENDER_PROTOTYPE_PRESENT_HZ");
         const unsigned rate = value ? unsigned(std::strtoul(value, nullptr, 10)) : 120;
-        if (rate < 60 || rate > 240) std::_Exit(20);
+        if (rate < 60 || rate > 240) probe_exit(20);
         return rate;
     }();
     return hz;
@@ -267,7 +302,7 @@ void __wrap_wdc_hud_normal_layout(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     if (!shadow_mode() || endpoint_mode()) return;
-    if (view != 0x800ABE40 || rdram != render_ram.data() || frame != race_frame) std::_Exit(24);
+    if (view != 0x800ABE40 || rdram != render_ram.data() || frame != race_frame) probe_exit(24);
     const auto after_normal = word(rdram, view+0x2D8);
     MEM_W(0, int32_t(view+0x2D8)) = angle;
     std::lock_guard lock(output_mutex);
@@ -298,7 +333,7 @@ void __wrap_osContGetReadData_recomp(uint8_t* rdram, recomp_context* ctx) {
 bool prototype_disable_readback(uint8_t* memory) {
     if (!std::getenv("WDC_RENDER_PROTOTYPE_NO_READBACK")) return false;
     std::lock_guard label_lock(label_mutex);
-    if (labels.empty() || labels.front().memory != memory) std::_Exit(17);
+    if (labels.empty() || labels.front().memory != memory) probe_exit(17);
     const auto label = labels.front();
     const bool disabled = !render_ram.empty() && memory == render_ram.data();
     if (label.frame >= settle_frames()) {
@@ -351,14 +386,14 @@ bool prototype_store_message(uint8_t* runtime_ram, int32_t destination, uint32_t
     if (!receive_destination_memory) return false;
     const auto address = uint32_t(destination);
     if (runtime_ram != authoritative_memory || address < 0x80000000 ||
-        address > 0x807FFFFC || (address & 3)) std::_Exit(11);
+        address > 0x807FFFFC || (address & 3)) probe_exit(11);
     std::memcpy(receive_destination_memory + (address - 0x80000000), &value, 4);
     return true;
 }
 std::mutex& prototype_memory_mutex() { return render_memory_mutex; }
 uint8_t* prototype_task_memory() {
     std::lock_guard lock(label_mutex);
-    if (labels.empty() || !labels.front().memory) std::_Exit(10);
+    if (labels.empty() || !labels.front().memory) probe_exit(10);
     return labels.front().memory;
 }
 void prototype_renderer_finished() { mark_renderer_completion(completed_tasks); }
@@ -393,7 +428,7 @@ void __wrap_func_80010A5C(uint8_t* rdram, recomp_context* ctx) {
         const auto top = word(rdram, 0x8007FE70);
         const auto commands = word(rdram, 0x8007ED40);
         if (top < 0x80000080 || top > 0x80800000 || (top & 15) ||
-            commands < 0x80000000 || commands >= top - 128 || redirected_camera) std::_Exit(9);
+            commands < 0x80000000 || commands >= top - 128 || redirected_camera) probe_exit(9);
         const auto owned = top - 128;
         redirected_camera = word(rdram, 0x800ABE40 + 0x2DC);
         MEM_W(0, int32_t(0x8007FE70)) = owned;
@@ -456,7 +491,7 @@ void prototype_screen_begin(bool enabled) {
             })) {
             std::fprintf(stderr, "[prototype-admission-timeout] previous=%llu dequeued=%llu\n",
                 (unsigned long long)previous, (unsigned long long)last_dequeued_present);
-            std::_Exit(26);
+            probe_exit(26);
         }
         dequeued = last_dequeued_present;
     }
@@ -474,7 +509,7 @@ void prototype_present_dequeued(uint64_t id) {
     static const unsigned delay_ms = [] {
         const auto* value = std::getenv("WDC_RENDER_PROTOTYPE_DEQUEUE_DELAY_MS");
         const int delay = value ? std::atoi(value) : 0;
-        if (delay < 0 || delay > 100) std::_Exit(26);
+        if (delay < 0 || delay > 100) probe_exit(26);
         return unsigned(delay);
     }();
     if (delay_ms && last_bound_present.load())
@@ -498,7 +533,7 @@ void prototype_present_bound(uint64_t previous, uint64_t id) {
     Label label;
     {
         std::lock_guard lock(label_mutex);
-        if (presentation_labels.empty()) std::_Exit(22);
+        if (presentation_labels.empty()) probe_exit(22);
         label = presentation_labels.front();
     }
     {
@@ -532,7 +567,7 @@ void prototype_present_observed(uint32_t origin) {
     Label label;
     {
         std::lock_guard lock(label_mutex);
-        if (presentation_labels.empty()) std::_Exit(16);
+        if (presentation_labels.empty()) probe_exit(16);
         label = presentation_labels.front();
         presentation_labels.pop_front();
     }
@@ -558,7 +593,7 @@ void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
     // Only the swap routine's VI queue, not SP_BREAK, DP completion, audio
     // or the input worker. The ROM supplies a null result pointer here.
     if (inside_swap && uint32_t(ctx->r4) == 0x800AAA28) {
-        if (ctx->r5 != 0) std::_Exit(7);
+        if (ctx->r5 != 0) probe_exit(7);
         ++skipped_vi_waits;
         ctx->r2 = 0;
         return;
@@ -567,9 +602,9 @@ void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
     auto* runtime_ram = queue_memory(rdram);
     if (runtime_ram != rdram) ++shadow_receives;
     const auto queue = uint32_t(ctx->r4);
-    if (runtime_ram != rdram && (queue < 0x80000000 || queue > 0x807FFFE8 || (queue & 3))) std::_Exit(11);
+    if (runtime_ram != rdram && (queue < 0x80000000 || queue > 0x807FFFE8 || (queue & 3))) probe_exit(11);
     if (runtime_ram != rdram && destination &&
-        (destination < 0x80000000 || destination > 0x807FFFFC || (destination & 3))) std::_Exit(11);
+        (destination < 0x80000000 || destination > 0x807FFFFC || (destination & 3))) probe_exit(11);
     // Runtime queue/thread structures remain authoritative, but its result
     // store is redirected before it touches memory. Each guest thread has a
     // native thread: thread_local routing survives a scheduler yield without
@@ -583,7 +618,7 @@ void __real_osSendMesg_recomp(uint8_t*, recomp_context*);
 void __wrap_osSendMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
     if (queue_memory(rdram) != rdram) {
         const auto queue = uint32_t(ctx->r4);
-        if (queue < 0x80000000 || queue > 0x807FFFE8 || (queue & 3)) std::_Exit(11);
+        if (queue < 0x80000000 || queue > 0x807FFFE8 || (queue & 3)) probe_exit(11);
         ++shadow_sends;
     }
     __real_osSendMesg_recomp(queue_memory(rdram), ctx);
@@ -597,7 +632,7 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
     // No external producer knows this queue. All addresses are aligned KSEG0
     // u32s in 8 MiB, game thread only. Runtime scheduling retains real queues.
     const auto sp = uint32_t(source->r29);
-    if (sp < 0x80000400 || sp > 0x80800000 || (sp & 15)) std::_Exit(13);
+    if (sp < 0x80000400 || sp > 0x80800000 || (sp & 15)) probe_exit(13);
     const auto base = sp - 0x200, physical = base - 0x80000000;
     std::array<uint8_t, 256> original_bytes, owned_bytes;
     std::memcpy(original_bytes.data(), rdram + physical, original_bytes.size());
@@ -609,7 +644,7 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
     osCreateMesgQueue_recomp(rdram, &call);
     call.r4 = int32_t(base); call.r5 = 0x13579BDF; call.r6 = 0;
     __real_osSendMesg_recomp(rdram, &call);
-    if (call.r2 != 0) std::_Exit(13);
+    if (call.r2 != 0) probe_exit(13);
     const uint32_t sentinel = 0xA1B2C3D4, owned_sentinel = 0x10203040;
     std::memcpy(rdram + physical + 128, &sentinel, 4);
     std::memcpy(render_ram.data() + physical + 128, &owned_sentinel, 4);
@@ -619,7 +654,7 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
         word(render_ram.data(), base + 128) == 0x13579BDF;
     std::memcpy(rdram + physical, original_bytes.data(), original_bytes.size());
     std::memcpy(render_ram.data() + physical, owned_bytes.data(), owned_bytes.size());
-    if (!passed) std::_Exit(13);
+    if (!passed) probe_exit(13);
     verified = true;
     std::lock_guard lock(output_mutex);
     log_record("[prototype-queue-test] {\"authoritative_sentinel_preserved\":true,\"owned_result_received\":true}\n");
@@ -684,7 +719,7 @@ void __wrap_func_8002A3A8(uint8_t* rdram, recomp_context* ctx) {
     // Read/write word-swapped aligned RDRAM; validate the complete object
     // before access. No scheduler yield occurs between return and restore.
     const auto object = uint32_t(ctx->r4);
-    if (object < 0x80000000 || object > 0x807FFF84 || (object & 3)) std::_Exit(6);
+    if (object < 0x80000000 || object > 0x807FFF84 || (object & 3)) probe_exit(6);
     std::array<uint32_t, 4> history;
     for (unsigned i = 0; i < 4; ++i) history[i] = word(rdram, object + 0x10 + i * 4);
     __real_func_8002A3A8(rdram, ctx);
@@ -763,10 +798,10 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     Label label{};
     {
         std::lock_guard lock(label_mutex);
-        if (labels.empty()) { log_record("[prototype-error] unlabelled task\n"); std::_Exit(4); }
+        if (labels.empty()) { log_record("[prototype-error] unlabelled task\n"); probe_exit(4); }
         label = labels.front(); labels.pop_front();
     }
-    if (label.memory != rdram) std::_Exit(12);
+    if (label.memory != rdram) probe_exit(12);
     active_rsp_label = label;
 #ifdef WDC_PROTOTYPE_CAPTURE_BOSS
     // Graphics-worker-only fixture: arm the existing atomic request directly
@@ -916,7 +951,7 @@ void run_render_trial(uint8_t*, recomp_context*, unsigned, std::chrono::steady_c
 void prototype_race_draw(uint8_t* rdram, recomp_context* ctx) {
     if (!endpoint_mode() || !early_pending) { func_8000A30C(rdram, ctx); return; }
     early_pending = false;
-    if (word(rdram, 0x8007DF44)) std::_Exit(18);
+    if (word(rdram, 0x8007DF44)) probe_exit(18);
     const auto samples = word(rdram, 0x8007E530);
     const auto publish = normal_publish, consume = normal_consume;
     const auto build = normal_audio_build, retire = normal_audio_retire;
@@ -950,15 +985,14 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         early_frame_start = std::chrono::steady_clock::now();
         ++race_frame;
         __real_func_8000C560(rdram, ctx);
-        if (early_pending) std::_Exit(18); // Required dispatcher seam was not reached.
+        if (early_pending) probe_exit(18); // Required dispatcher seam was not reached.
         if (early_trials == trial_count()) {
             finish_present_audit();
 #ifdef WDC_PROTOTYPE_SAMPLE_WORKER
             worker_samples.finish();
 #endif
             std::lock_guard lock(output_mutex);
-            std::fflush(stderr);
-            std::_Exit(0);
+            probe_exit(0);
         }
         return;
     }
@@ -984,8 +1018,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         worker_samples.finish();
 #endif
         std::lock_guard lock(output_mutex);
-        std::fflush(stderr);
-        std::_Exit(0);
+        probe_exit(0);
     }
     if (!eligible()) {
         previous_poses.clear();
@@ -1033,7 +1066,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         PhaseTimer capture_timer{"owned_capture"};
         render_ram.initialize(write_watch_reset());
         const auto captured = render_ram.capture(rdram);
-        if (verify_write_watch() && std::memcmp(render_ram.snapshot(), rdram, prototype::RenderBank::size)) std::_Exit(25);
+        if (verify_write_watch() && std::memcmp(render_ram.snapshot(), rdram, prototype::RenderBank::size)) probe_exit(25);
         if (write_watch_reset()) {
             std::lock_guard output_lock(output_mutex);
             log_record("[prototype-bank-capture] {\"frame\":%u,\"copied_bytes\":%llu,\"compared_bytes\":%llu,\"page_size\":%llu,\"verified\":%s}\n",
@@ -1048,7 +1081,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     // zero count or any span outside 8 MiB before allocating/reading. Other
     // workers may run during draws; no authoritative words are restored.
     const auto car_count = word(rdram, 0x80080D90);
-    if (!car_count || car_count > (0x80800000u - 0x800BA7F0u) / 0x18A0) std::_Exit(8);
+    if (!car_count || car_count > (0x80800000u - 0x800BA7F0u) / 0x18A0) probe_exit(8);
     std::vector<uint32_t> all_cars(car_count * (0x18A0 / 4));
     for (unsigned i = 0; i < all_cars.size(); ++i) all_cars[i] = word(rdram, 0x800BA7F0 + 4 * i);
     std::vector<uint32_t> before(0x18A0 / 4);
@@ -1064,7 +1097,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     // the authoritative words are restored bit-exactly before simulation resumes.
     // No rotation interpolation, split-screen, or camera-cut handling is claimed.
     const auto camera = word(rdram, 0x800ABE40 + 0x2DC);
-    if (camera < 0x80000000 || camera > 0x807FFF80 || (camera & 3)) std::_Exit(5);
+    if (camera < 0x80000000 || camera > 0x807FFF80 || (camera & 3)) probe_exit(5);
     std::array<uint32_t, 3> eye;
     for (unsigned i = 0; i < 3; ++i) eye[i] = word(rdram, camera + 0x30 + 4 * i);
     const bool offset = std::strcmp(mode(), "camera-offset") == 0;
@@ -1142,13 +1175,13 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             prototype::Pose pose;
             for (unsigned j = 0; j < pose.size(); ++j) pose[j] = word(rdram, address + 4*j);
             prototype::Quaternion rotation;
-            if (!prototype::rotation(pose, rotation)) std::_Exit(15);
+            if (!prototype::rotation(pose, rotation)) probe_exit(15);
             current_poses.push_back(pose);
         }
         for(const auto& field:shadow_fields) {
             prototype::Vector3 input{}, checked;
             for(unsigned j=0;j<field.words;++j) input[j]=word(rdram,field.address+4*j);
-            if(!prototype::interpolate_vector(input,input,1,field.normal,checked)) std::_Exit(21);
+            if(!prototype::interpolate_vector(input,input,1,field.normal,checked)) probe_exit(21);
             current_shadow_inputs.push_back(input);
         }
         // Bounded safety policy, not a recovered camera-cut flag: reset on
@@ -1242,7 +1275,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             std::unique_lock memory_lock(render_memory_mutex);
             reset_times[1] = std::chrono::steady_clock::now();
             const auto bank_reset = render_ram.restore();
-            if (verify_write_watch() && std::memcmp(render_ram.data(), render_ram.snapshot(), prototype::RenderBank::size)) std::_Exit(25);
+            if (verify_write_watch() && std::memcmp(render_ram.data(), render_ram.snapshot(), prototype::RenderBank::size)) probe_exit(25);
             reset_times[2] = std::chrono::steady_clock::now();
             drawing_ram = render_ram.data();
             if (pose_mode()) {
@@ -1254,7 +1287,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 for (unsigned i = 0; i < current_poses.size(); ++i) {
                     prototype::Pose pose;
                     if (!prototype::interpolate_pose(previous_poses[i], current_poses[i],
-                            (shadow_only_control() || (wheel_only_control() && pose_kind[i] != PoseKind::Wheel)) ? 1.0 : alpha, pose)) std::_Exit(15);
+                            (shadow_only_control() || (wheel_only_control() && pose_kind[i] != PoseKind::Wheel)) ? 1.0 : alpha, pose)) probe_exit(15);
                     changed += pose != current_poses[i];
                     changed_bodies += pose_kind[i] == PoseKind::Body && pose != current_poses[i];
                     changed_wheels += pose_kind[i] == PoseKind::Wheel && pose != current_poses[i];
@@ -1263,7 +1296,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 }
                 for(unsigned i=0;i<shadow_fields.size();++i) {
                     prototype::Vector3 input;
-                    if(!prototype::interpolate_vector(previous_shadow_inputs[i],current_shadow_inputs[i],alpha,shadow_fields[i].normal,input)) std::_Exit(21);
+                    if(!prototype::interpolate_vector(previous_shadow_inputs[i],current_shadow_inputs[i],alpha,shadow_fields[i].normal,input)) probe_exit(21);
                     changed_shadow_inputs += input!=current_shadow_inputs[i];
                     std::memcpy(drawing_ram+(shadow_fields[i].address-0x80000000),input.data(),shadow_fields[i].words*4);
                 }
@@ -1438,6 +1471,6 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             changed++ ? "," : "", 4 * i, before[i], after);
     }
     log_record("]}\n");
-    std::fflush(stderr);
+    if (!async_diagnostics()) std::fflush(stderr);
 }
 }

@@ -4,6 +4,25 @@ Question: can the real race drawing code produce additional frames while input
 sampling and simulation remain at their original fixed rate, and which state
 must be separated before those frames can be interpolated?
 
+`--async-diagnostics` moves complete probe diagnostic records to a host writer
+thread while retaining the existing record-formatting mutex. This isolates file
+I/O from that mutex; it does not eliminate formatting or scheduling contention.
+The queue and writer batch each hold at most 4 MiB of payload (string allocation
+capacity/overhead is additional). Producers wait when the queue is full; records
+are never intentionally dropped. The writer takes no rendering or output mutex.
+Exits through `probe.cpp` drain and join the writer, report record/byte totals and
+backpressure/write timing in `diagnostics.json`, then flush stderr. Rejected
+records, sink failures or flush failures exit with code 29. The runner requires
+one successful nonempty drain audit with matching accepted/written counts.
+Immediate aborts in existing bank/sampler/hash helpers, runtime crashes and
+forced termination can bypass draining; such runs cannot pass this audit.
+Available drain records are saved even when the native process exits nonzero. Queueing can reorder probe records relative to
+other runtime logs; selected-frame joins still use IDs and captured timestamps.
+This is opt-in diagnostic plumbing, not a change to presentation acceptance.
+
+Check the writer's ordering, bounded backpressure, final drain and failure paths:
+`python tools/render_split_prototype/test_async_log.py --reference-build build`.
+
 Owned-task audio isolation is checked at the BOSS DMA boundary as well as the
 CPU command helpers. `geometry.json` records rounded DMA bytes and overlap with
 the 16 KiB PCM ring at physical `3F0400..3F4400` for every observed task, including
@@ -325,7 +344,10 @@ Reset subphases separate waiting for the renderer mutex, copying the bank and
 preparing interpolated inputs. Their timestamps precede diagnostic output;
 input preparation includes its existing pose log, and the enclosing reset
 timer includes all reset logs. The three subphases are nested within reset,
-not additional independent work.
+not additional independent work. Generic phase timers (including `owned_capture`)
+and `pace_and_queue` include acquiring the diagnostic output mutex before their
+end timestamp; a long span alone does not attribute the delay to memory copying
+or rendering. The async writer isolates file I/O but retains this mutex.
 `owned_pipeline_drain` measures the original `252D0` call;
 `owned_renderer_fence` measures the subsequent wait for task cleanup and queued
 screen callbacks. These intervals are nested within `owned_drain`; their logs
