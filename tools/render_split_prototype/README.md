@@ -438,6 +438,13 @@ the bridge's yield on every status read; they do not establish that polling is
 the bottleneck or that changing its policy is safe. Shared-host timing variation
 prevents attributing the rate difference to the counters. General driving
 visual/audio quality and sustained 120 Hz delivery remain unqualified.
+A copied-bridge experiment yielded on the first owned status read and every
+64th thereafter, pausing on other reads while preserving every atomic read and
+all normal-task yields. Policy counters verified 23 yields per owned task
+instead of about 1459. All 120 swaps and retained correctness checks passed,
+but delivery remained 92.7/s and owned task time was 6.340 ms versus 6.343 ms
+in the prior control (RDP sink 4.327 versus 4.320 ms). The experiment was removed:
+this workload provided no measured benefit from reducing yield frequency.
 
 ## Full-sync profiling and owned readback experiment
 
@@ -586,6 +593,10 @@ indices have been seen; texture bytes and the selected palette bytes still go
 through the original hash algorithm. Upload residency/eviction remains intact.
 CI8 saturation is checked in blocks of 64 iterations. No cross-frame texture
 cache is introduced. This option forces the existing strict geometry/state gates.
+For partially populated palette bitsets, contiguous used entries are now hashed
+in one update rather than separate eight-byte updates. The byte sequence and
+final hash stay identical. Full 64-bit sets retain the existing fast path; the
+remaining run lengths are 1..63, so the bit scans and shifts stay defined.
 
 `--verify-texture-hash` additionally recomputes every result with the original
 hasher and aborts on a mismatch. `texture-hash.json` records task-level call and
@@ -602,8 +613,22 @@ python tools/render_split_prototype/run.py --reference-build build --rom "World 
 
 The host comparison uses 20,000 synthetic TMEM cases against the reference
 header, including sparse and dense palettes, varying formats, stride/wrap cases
-and hash versions. Native verification covers the actual race inputs. Neither
+and hash versions, plus all 32,896 contiguous CI8 palette ranges, including
+bitset boundaries and full sets. A 30-group driving endpoint run matched all
+186,609 native hashes against the original and passed retained correctness
+checks. Native verification covers the actual race inputs. Neither
 comparison establishes general renderer pixel equivalence or production readiness.
+
+Separate 120-group driving profiles with verification disabled retained all
+480 ordered swaps each. The optimized run measured 1.160 ms in tile processing
+and 2.400 ms in full sync, versus 1.314 and 2.488 ms in the original-hasher
+control. Mean owned triangle counts were comparable (1239.7 versus 1240.2).
+Total owned task time was effectively unchanged (6.014 versus 6.004 ms), and
+swap rates were 97.6 versus 98.3/s; both failed the 120 Hz timing gate. Thus the
+bounded profile shows lower tile-processing cost, not an end-to-end performance
+gain. The optimization stays opt-in. Both runs used held accelerator, wheel/
+shadow interpolation, explicit audited presentation and RT64 profiling, with
+owned readback and full-RAM scans disabled.
 
 ### Non-integer presentation cadence
 

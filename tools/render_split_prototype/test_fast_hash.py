@@ -45,7 +45,20 @@ int main() {
         auto b=RT64::PrototypeFastTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
         if (a!=b) { std::printf("Mismatch at trial %u\n", trial); return 1; }
     }
+    // Exercise every contiguous CI8 range, including full sets, bit 63 and
+    // runs crossing 64-bit boundaries. Palette values remain non-uniform.
+    for (unsigned first=0; first<256; ++first) {
+        for (unsigned count=1; count<=256-first; ++count) {
+            for (auto& b:tmem) b=uint8_t(next());
+            for (unsigned i=0;i<2048;++i) tmem[i]=uint8_t(first+i%count);
+            LoadTile tile{8,0,1,2,0};
+            auto a=RT64::TMEMHasher::hash(tmem.data(),tile,64,32,2,5);
+            auto b=RT64::PrototypeFastTMEMHasher::hash(tmem.data(),tile,64,32,2,5);
+            if(a!=b) { std::printf("Range mismatch %u/%u\n",first,count); return 1; }
+        }
+    }
     puts("PASS: 20000 original/optimized hash comparisons across formats, palettes, strides and versions");
+    puts("PASS: all 32896 contiguous CI8 palette ranges match original hashes");
 }
 ''')
     exe=output / "fast_hash_test.exe"

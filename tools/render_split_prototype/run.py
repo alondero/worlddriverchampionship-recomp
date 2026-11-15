@@ -41,7 +41,7 @@ def main():
     parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for cadence modes; other modes retain 120")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
-    parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop collecting palette indices once the set is full")
+    parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop saturated palette scans and group contiguous palette hash updates")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
     parser.add_argument("--hold-accelerator", action="store_true", help="Input fixture: hold port-0 A with neutral steering during the race")
     parser.add_argument("--capture-frames", action="store_true", help="Capture swap images; requires explicit present and exactly six trials; timing is diagnostic only")

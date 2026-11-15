@@ -1,4 +1,4 @@
-"""Optional copied RT64 palette-index saturation, never edits the reference."""
+"""Optional copied RT64 palette hash optimization, never edits the reference."""
 import hashlib
 import json
 from pathlib import Path
