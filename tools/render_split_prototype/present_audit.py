@@ -15,8 +15,17 @@ def build_present_audit(reference, output, compiler, capture=False):
     seam = "                swapChainValid = ext.swapChain->present(swapChainIndex, &waitSemaphore, 1);"
     if source.count(seam) != 1:
         raise RuntimeError("RT64 present audit seam changed")
-    source = '#include <cstdint>\nextern "C" void prototype_swap_observed(uint64_t, uint32_t, bool);\nextern "C" void prototype_swap_batch_finished(uint64_t);\n' + source.replace(
+    source = '#include <cstdint>\nextern "C" void prototype_swap_observed(uint64_t, uint32_t, bool);\nextern "C" void prototype_swap_batch_finished(uint64_t);\nextern "C" void prototype_present_skipped(uint64_t, bool, bool);\n' + source.replace(
         seam, seam + "\n                prototype_swap_observed(present.presentId, i, swapChainValid);")
+    skip = "                skipPresent = skipPresent || ext.swapChain->isEmpty();"
+    branch = "                if (skipPresent) {\n                    skipInterpolation();"
+    if source.count(skip) != 1 or source.count(branch) != 1:
+        raise RuntimeError("RT64 present skip seam changed")
+    source = source.replace(skip, """                const bool prototype_backlog = skipPresent;
+                const bool prototype_empty = ext.swapChain->isEmpty();
+                skipPresent = skipPresent || prototype_empty;""").replace(branch, """                if (skipPresent) {
+                    prototype_present_skipped(present.presentId, prototype_backlog, prototype_empty);
+                    skipInterpolation();""")
     end = "        }\n    }\n\n    void PresentQueue::skipInterpolation()"
     if source.count(end) != 1:
         raise RuntimeError("RT64 present completion seam changed")

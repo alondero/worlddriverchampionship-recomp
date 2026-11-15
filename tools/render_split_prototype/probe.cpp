@@ -58,7 +58,11 @@ void finish_present_audit() {
     // Performance runs never use this as a per-frame pacing fence.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (last_finished_present.load() < last_bound_present.load()) {
-        if (std::chrono::steady_clock::now() >= deadline) std::_Exit(22);
+        if (std::chrono::steady_clock::now() >= deadline) {
+            std::fprintf(stderr, "[prototype-present-timeout] {\"bound\":%llu,\"finished\":%llu}\n",
+                (unsigned long long)last_bound_present.load(), (unsigned long long)last_finished_present.load());
+            std::_Exit(22);
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
@@ -440,6 +444,11 @@ void prototype_swap_observed(uint64_t id, uint32_t index, bool valid) {
         (long long)std::chrono::duration_cast<std::chrono::microseconds>(now).count());
 }
 void prototype_swap_batch_finished(uint64_t id) { last_finished_present = id; }
+void prototype_present_skipped(uint64_t id, bool backlog, bool empty) {
+    std::lock_guard lock(output_mutex);
+    log_record("[prototype-present-skipped] {\"id\":%llu,\"backlog\":%s,\"empty_swapchain\":%s}\n",
+        (unsigned long long)id, backlog ? "true" : "false", empty ? "true" : "false");
+}
 void prototype_present_observed(uint32_t origin) {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
     Label label;

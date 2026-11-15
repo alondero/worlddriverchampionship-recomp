@@ -33,6 +33,15 @@ not merely its first swap. This final diagnostic drain does not pace individual
 frames. The audit adds logging overhead; swap completion still does not measure
 physical scanout or prove pixel identity. Image capture is a separate option.
 
+The copied queue also records `presentation-skips.json`: skipped event IDs and
+whether a newer queued event or an empty swapchain caused the skip. These
+records include startup and are retained after a nonzero native exit. A skipped
+event never counts as a successful swap or advances the final audit fence.
+Final audit timeouts log the last bound and last finished event IDs. Explicit
+submission prevents enqueue deduplication, but RT64 can still skip queued
+events when the presentation worker falls behind. The strict swap audit rejects
+any resulting loss in the selected sequence.
+
 `--capture-frames --explicit-present --audit-present` captures final swap-chain
 RGB images after VI/UI rendering, before presentation. It requires exactly six
 trials. The copied present queue reads back into a local GPU buffer after the

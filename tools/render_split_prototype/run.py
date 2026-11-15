@@ -253,6 +253,14 @@ def main():
                                     stdout=stream, stderr=subprocess.STDOUT, timeout=args.timeout)
         except subprocess.TimeoutExpired:
             raise SystemExit(f"Probe timed out; inspect {log}")
+    if args.audit_present:
+        # Preserve skip evidence even when the native final audit times out.
+        skips = [json.loads(line.split("[prototype-present-skipped] ", 1)[1])
+                 for line in log.read_text(errors="replace").splitlines() if "[prototype-present-skipped] " in line]
+        (run_dir / "presentation-skips.json").write_text(json.dumps(skips, indent=2))
+        if skips:
+            print(f"RT64 skipped events (including startup): {len(skips)}; "
+                  f"backlog {sum(s['backlog'] for s in skips)}, empty swap chain {sum(s['empty_swapchain'] for s in skips)}")
     if result.returncode:
         raise SystemExit(f"Probe exited {result.returncode}; inspect {log}")
     rows = [json.loads(line.split("[render-prototype] ", 1)[1])
