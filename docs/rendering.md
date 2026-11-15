@@ -605,8 +605,16 @@ and preserves the lens-flare history; the remaining observed view changes are
 current-arena packet pointers. A copied-runtime presentation experiment delivered
 24 renderer callbacks averaging 117.5 Hz across 12 VI ticks, with exact repeated
 geometry and no sample consumption during extras. That is callback timing,
-not physical scanout or intermediate motion. Full-frame snapshot isolation,
-all-car state equivalence and interpolation remain unproven.
+not physical scanout or intermediate motion. A separate owned-RAM experiment
+now rebuilds bounded frames from a frozen 8 MiB image: the native `252D0` path
+drains BOSS before switching memory owners, CPU/BOSS/renderer use the owned
+bank, and runtime queue operations retain authoritative queue/thread state.
+A receive-store adapter delivers message results directly into the owned bank;
+a live sentinel test checks that the matching authoritative destination is
+untouched. Eight-car geometry repeats exactly; changing only the owned camera
+changes geometry without changing original camera/car records. Whole-RAM
+changed-range evidence still includes unclassified queue/input activity, so
+complete authoritative-state equivalence and interpolation remain unproven.
 An eight-car Arcade extension found sound-ramp updates inside `218F0 -> 1FC64`,
 including car halfword `+A0E`. Skipping that call and the distant-car sound
 retirement path on extras preserves every observed car non-link word in the

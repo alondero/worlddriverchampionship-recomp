@@ -29,6 +29,12 @@ bool one_vi = false;
 bool direct_present = false, inside_swap = false;
 unsigned skipped_vi_waits = 0;
 std::atomic_uint prototype_vi_ticks{0};
+std::atomic_uint submitted_tasks{0}, completed_tasks{0};
+std::mutex render_memory_mutex;
+uint8_t* authoritative_memory = nullptr;
+std::vector<uint8_t> frozen_ram, render_ram;
+unsigned shadow_receives = 0, shadow_sends = 0;
+thread_local uint8_t* receive_destination_memory = nullptr;
 unsigned skipped_publish = 0, skipped_consume = 0;
 unsigned skipped_audio_build = 0, skipped_audio_retire = 0, preserved_flare_history = 0;
 unsigned skipped_car_sound = 0;
@@ -37,7 +43,7 @@ unsigned draw_number = 0;
 std::array<uint32_t, 32> frozen_camera{};
 uint32_t redirected_camera = 0;
 unsigned camera_copies = 0;
-struct Label { unsigned frame; unsigned draw; };
+struct Label { unsigned frame; unsigned draw; uint8_t* memory; };
 std::mutex label_mutex;
 std::mutex output_mutex;
 std::deque<Label> labels;
@@ -53,7 +59,15 @@ bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
-bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode(); }
+bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0; }
+bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode() || shadow_mode(); }
+uint8_t* queue_memory(uint8_t* memory) {
+    return !render_ram.empty() && memory == render_ram.data() ? authoritative_memory : memory;
+}
+void drain_renderer(uint8_t* memory) {
+    while (completed_tasks.load() < submitted_tasks.load())
+        ultramodern::wait_for_external_message_timed(memory, 1);
+}
 uint32_t word(uint8_t* rdram, uint32_t address) {
     return uint32_t(MEM_W(0, int32_t(address)));
 }
@@ -63,6 +77,21 @@ unsigned rdp_words(unsigned op) {
 }
 }
 extern "C" {
+bool prototype_store_message(uint8_t* runtime_ram, int32_t destination, uint32_t value) {
+    if (!receive_destination_memory) return false;
+    const auto address = uint32_t(destination);
+    if (runtime_ram != authoritative_memory || address < 0x80000000 ||
+        address > 0x807FFFFC || (address & 3)) std::_Exit(11);
+    std::memcpy(receive_destination_memory + (address - 0x80000000), &value, 4);
+    return true;
+}
+std::mutex& prototype_memory_mutex() { return render_memory_mutex; }
+uint8_t* prototype_task_memory() {
+    std::lock_guard lock(label_mutex);
+    if (labels.empty() || !labels.front().memory) std::_Exit(10);
+    return labels.front().memory;
+}
+void prototype_renderer_finished() { ++completed_tasks; }
 // Bounded diagnostic timings include scheduler/graphics waits, not CPU time.
 #define TIME_DRAW_PHASE(name) \
 void __real_##name(uint8_t*, recomp_context*); \
@@ -158,7 +187,66 @@ void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
         ctx->r2 = 0;
         return;
     }
-    __real_osRecvMesg_recomp(rdram, ctx);
+    const auto destination = uint32_t(ctx->r5);
+    auto* runtime_ram = queue_memory(rdram);
+    if (runtime_ram != rdram) ++shadow_receives;
+    const auto queue = uint32_t(ctx->r4);
+    if (runtime_ram != rdram && (queue < 0x80000000 || queue > 0x807FFFE8 || (queue & 3))) std::_Exit(11);
+    if (runtime_ram != rdram && destination &&
+        (destination < 0x80000000 || destination > 0x807FFFFC || (destination & 3))) std::_Exit(11);
+    // Runtime queue/thread structures remain authoritative, but its result
+    // store is redirected before it touches memory. Each guest thread has a
+    // native thread: thread_local routing survives a scheduler yield without
+    // redirecting another guest thread's receives.
+    auto* previous_destination_memory = receive_destination_memory;
+    if (runtime_ram != rdram) receive_destination_memory = rdram;
+    __real_osRecvMesg_recomp(runtime_ram, ctx);
+    receive_destination_memory = previous_destination_memory;
+}
+void __real_osSendMesg_recomp(uint8_t*, recomp_context*);
+void __wrap_osSendMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
+    if (queue_memory(rdram) != rdram) {
+        const auto queue = uint32_t(ctx->r4);
+        if (queue < 0x80000000 || queue > 0x807FFFE8 || (queue & 3)) std::_Exit(11);
+        ++shadow_sends;
+    }
+    __real_osSendMesg_recomp(queue_memory(rdram), ctx);
+}
+void osCreateMesgQueue_recomp(uint8_t*, recomp_context*);
+void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
+    static bool verified = false;
+    if (verified) return;
+    // Borrow a 256-byte inactive stack interval below the caller's SP for an
+    // immediate, nonblocking private queue test; restore both banks afterward.
+    // No external producer knows this queue. All addresses are aligned KSEG0
+    // u32s in 8 MiB, game thread only. Runtime scheduling retains real queues.
+    const auto sp = uint32_t(source->r29);
+    if (sp < 0x80000400 || sp > 0x80800000 || (sp & 15)) std::_Exit(13);
+    const auto base = sp - 0x200, physical = base - 0x80000000;
+    std::array<uint8_t, 256> original_bytes, owned_bytes;
+    std::memcpy(original_bytes.data(), rdram + physical, original_bytes.size());
+    std::memcpy(owned_bytes.data(), render_ram.data() + physical, owned_bytes.size());
+    recomp_context call;
+    copy_draw_context(call, *source);
+    call.r29 = int32_t(sp - 0x300);
+    call.r4 = int32_t(base); call.r5 = int32_t(base + 64); call.r6 = 1;
+    osCreateMesgQueue_recomp(rdram, &call);
+    call.r4 = int32_t(base); call.r5 = 0x13579BDF; call.r6 = 0;
+    __real_osSendMesg_recomp(rdram, &call);
+    if (call.r2 != 0) std::_Exit(13);
+    const uint32_t sentinel = 0xA1B2C3D4, owned_sentinel = 0x10203040;
+    std::memcpy(rdram + physical + 128, &sentinel, 4);
+    std::memcpy(render_ram.data() + physical + 128, &owned_sentinel, 4);
+    call.r4 = int32_t(base); call.r5 = int32_t(base + 128); call.r6 = 0;
+    __wrap_osRecvMesg_recomp(render_ram.data(), &call);
+    const bool passed = call.r2 == 0 && word(rdram, base + 128) == sentinel &&
+        word(render_ram.data(), base + 128) == 0x13579BDF;
+    std::memcpy(rdram + physical, original_bytes.data(), original_bytes.size());
+    std::memcpy(render_ram.data() + physical, owned_bytes.data(), owned_bytes.size());
+    if (!passed) std::_Exit(13);
+    verified = true;
+    std::lock_guard lock(output_mutex);
+    std::fprintf(stderr, "[prototype-queue-test] {\"authoritative_sentinel_preserved\":true,\"owned_result_received\":true}\n");
 }
 void __real_osViSwapBuffer_recomp(uint8_t*, recomp_context*);
 void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
@@ -226,6 +314,7 @@ void __wrap_wdc_projection_normalize(uint8_t* rdram, recomp_context* ctx) {
     std::fprintf(stderr, "]}\n");
 }
 void __real_func_8000C560(uint8_t*, recomp_context*);
+void func_800252D0(uint8_t*, recomp_context*);
 void __real_func_8001F9CC(uint8_t*, recomp_context*);
 void __real_func_800214C8(uint8_t*, recomp_context*);
 void func_8000A30C(uint8_t*, recomp_context*);
@@ -241,7 +330,8 @@ void __real_osSpTaskStartGo_recomp(uint8_t*, recomp_context*);
 void __wrap_osSpTaskStartGo_recomp(uint8_t* rdram, recomp_context* ctx) {
     {
         std::lock_guard lock(label_mutex);
-        labels.push_back({race_frame, draw_number});
+        labels.push_back({race_frame, draw_number, rdram});
+        ++submitted_tasks;
     }
     __real_osSpTaskStartGo_recomp(rdram, ctx);
 }
@@ -256,6 +346,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         if (labels.empty()) { std::fprintf(stderr, "[prototype-error] unlabelled task\n"); std::_Exit(4); }
         label = labels.front(); labels.pop_front();
     }
+    if (label.memory != rdram) std::_Exit(12);
     struct Collector {
         wdc::rsp::RdpSink sink;
         void* context;
@@ -315,11 +406,16 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     // the graphics worker; the mutex also protects this bounded reference.
     static unsigned normal_frame = 0;
     static std::vector<uint32_t> normal_headers;
+    static unsigned first_extra_frame = 0;
+    static std::vector<uint32_t> first_extra_headers;
     if (!label.draw) { normal_frame = label.frame; normal_headers = headers; }
+    if (label.draw == 1) { first_extra_frame = label.frame; first_extra_headers = headers; }
     const bool same = normal_frame == label.frame && headers == normal_headers;
+    const bool same_extra = first_extra_frame == label.frame && headers == first_extra_headers;
     std::fprintf(stderr, "[prototype-rdp] {\"frame\":%u,\"draw\":%u,\"extra\":%s,\"triangles\":%u,"
-        "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s,\"task_ms\":%.3f,\"sink_ms\":%.3f,\"sync_chunk_sink_ms\":%.3f}\n", label.frame,
-        label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false", same ? "true" : "false", task_ms, capture.sink_ms, capture.sync_sink_ms);
+        "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s,\"task_ms\":%.3f,\"sink_ms\":%.3f,\"sync_chunk_sink_ms\":%.3f,\"owned_memory\":%s,\"same_headers_as_first_extra\":%s}\n", label.frame,
+        label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false", same ? "true" : "false", task_ms, capture.sink_ms, capture.sync_sink_ms,
+        !render_ram.empty() && rdram == render_ram.data() ? "true" : "false", same_extra ? "true" : "false");
 }
 void __wrap_func_8001F9CC(uint8_t* rdram, recomp_context* ctx) {
     if (extra && gated()) { ++skipped_publish; return; }
@@ -363,7 +459,17 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     // One subsequent normal draw drains the last extra task through the usual
     // BOSS synchronization before exiting. Do not wait on the graphics worker
     // with the guest scheduler locked or consume its completion message twice.
-    if (trials == 6) std::_Exit(0);
+    if (trials == 6) {
+        if (shadow_mode()) {
+            recomp_context drain_context;
+            copy_draw_context(drain_context, *ctx);
+            func_800252D0(rdram, &drain_context);
+            drain_renderer(rdram);
+        }
+        std::lock_guard lock(output_mutex);
+        std::fflush(stderr);
+        std::_Exit(0);
+    }
     if (!eligible()) {
         settled = 0;
         one_vi = false;
@@ -371,6 +477,28 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     const auto scene = word(rdram, 0x800923E4);
     if (++settled < settle_frames()) return;
+    if (shadow_mode()) {
+        authoritative_memory = rdram;
+        recomp_context drain_context;
+        copy_draw_context(drain_context, *ctx);
+        func_800252D0(rdram, &drain_context);
+        // 252D0 supplies an empty next transform batch, consumes completion
+        // through the ROM's usual SP/DP/swap path and clears EDB8. Waiting
+        // alone cannot finish a pipelined BOSS task. The renderer then signals
+        // after BOSS, held RDP chunks and task cleanup.
+        drain_renderer(rdram);
+        std::lock_guard lock(render_memory_mutex);
+        // Host-owned 8 MiB byte images preserve the native word-swapped
+        // layout. Capture on the guest game thread after draining graphics;
+        // guest threads are cooperatively scheduled. Only send/receive queue
+        // operations use authoritative RAM during a shadow draw. CPU, BOSS
+        // and renderer memory share render_ram until its task is drained.
+        // Never restore this image into authoritative RAM. Refreshing it is
+        // serialized with renderer send_dl/update_screen, including VI reads.
+        frozen_ram.assign(rdram, rdram + 0x800000);
+        render_ram.resize(0x800000);
+    }
+    if (shadow_mode()) verify_shadow_receive(rdram, ctx);
     // 11BB8 iterates u32 car count 80080D90 over BA7F0 with stride 18A0.
     // Read-only game-thread observations, raw word-swapped u32s; reject a
     // zero count or any span outside 8 MiB before allocating/reading. Other
@@ -415,12 +543,53 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     extra = true;
     const unsigned repeats = direct_present ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
+        const auto receives_before = shadow_receives, sends_before = shadow_sends;
         const auto copies_before = camera_copies;
         const auto active_camera = word(rdram, 0x8007ED6C);
         const auto history_before = preserved_flare_history;
         const auto car_sound_before = skipped_car_sound;
         copy_draw_context(draw_context, *ctx);
-        func_8000A30C(rdram, &draw_context);
+        auto* drawing_ram = rdram;
+        if (shadow_mode()) {
+            std::lock_guard lock(render_memory_mutex);
+            std::memcpy(render_ram.data(), frozen_ram.data(), frozen_ram.size());
+            drawing_ram = render_ram.data();
+            const char* offset_text = std::getenv("WDC_RENDER_PROTOTYPE_SHADOW_OFFSET");
+            const float eye_offset = offset_text ? std::strtof(offset_text, nullptr) : 0.0f;
+            if (eye_offset != 0) {
+                // Controlled input perturbation in the owned image only.
+                // Camera pointer/range was validated above from this snapshot.
+                const uint32_t eye_word = word(drawing_ram, camera + 0x30);
+                const uint32_t shifted = std::bit_cast<uint32_t>(std::bit_cast<float>(eye_word) + eye_offset);
+                std::memcpy(drawing_ram + (camera - 0x80000000) + 0x30, &shifted, 4);
+            }
+        }
+        func_8000A30C(drawing_ram, &draw_context);
+        if (shadow_mode()) {
+            func_800252D0(drawing_ram, &draw_context);
+            drain_renderer(rdram);
+            // Observe all authoritative words, without restoring any of them.
+            // Runtime queue/input workers legitimately advance during waits;
+            // these ranges are attribution evidence, not an equivalence gate.
+            std::lock_guard lock(output_mutex);
+            std::fprintf(stderr, "[prototype-authority] {\"frame\":%u,\"draw\":%u,\"changed_ranges\":[", race_frame, draw_number);
+            unsigned count = 0, ranges = 0;
+            for (unsigned at = 0; at < 0x800000;) {
+                uint32_t before_word, after_word;
+                std::memcpy(&before_word, frozen_ram.data() + at, 4);
+                std::memcpy(&after_word, rdram + at, 4);
+                if (before_word == after_word) { at += 4; continue; }
+                const unsigned first = at;
+                do {
+                    at += 4; ++count;
+                    if (at == 0x800000) break;
+                    std::memcpy(&before_word, frozen_ram.data() + at, 4);
+                    std::memcpy(&after_word, rdram + at, 4);
+                } while (before_word != after_word);
+                std::fprintf(stderr, "%s[%u,%u]", ranges++ ? "," : "", 0x80000000u + first, (at - first) / 4);
+            }
+            std::fprintf(stderr, "],\"changed_words\":%u}\n", count);
+        }
         if (redirected_camera) {
             // 10A5C publishes the current camera in ED6C for CPU culling.
             // Both u32 references return to their authoritative values after
@@ -454,8 +623,9 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         }
         std::fprintf(stderr, "],\"car_render_links\":[");
         for (unsigned i = 0; i < 4; ++i) std::fprintf(stderr, "%s%u", i ? "," : "", word(rdram, 0x800BA7F0 + 0xB90 + i * 4));
-        std::fprintf(stderr, "],\"car_count\":%u,\"car_count_unchanged\":%s,\"skipped_car_sound_calls\":%u,\"camera_copies\":%u,\"all_car_nonlink_changes\":[",
-            car_count, word(rdram, 0x80080D90) == car_count ? "true" : "false", skipped_car_sound - car_sound_before, camera_copies - copies_before);
+        std::fprintf(stderr, "],\"car_count\":%u,\"car_count_unchanged\":%s,\"skipped_car_sound_calls\":%u,\"camera_copies\":%u,\"shadow_receives\":%u,\"shadow_sends\":%u,\"all_car_nonlink_changes\":[",
+            car_count, word(rdram, 0x80080D90) == car_count ? "true" : "false", skipped_car_sound - car_sound_before, camera_copies - copies_before,
+            shadow_receives - receives_before, shadow_sends - sends_before);
         changed = 0;
         for (unsigned i = 0; i < all_cars.size(); ++i) {
             const unsigned offset = (i * 4) % 0x18A0;

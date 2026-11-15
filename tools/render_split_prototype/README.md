@@ -32,7 +32,7 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 
 `--reference-build` may point to an existing build in another checkout. The
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
-in this worktree. It compiles only `probe.cpp` and relinks into a separate
+in this worktree. Ordinary modes compile only `probe.cpp` and relink into a separate
 executable. It does not perform a full player rebuild.
 The `present120` mode additionally compiles a copied `events.cpp` with guarded
 substitutions from `runtime.py`, linked ahead of the reference runtime archive.
@@ -41,6 +41,12 @@ unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
+`shadow-snapshot` is a separate experiment: it compiles copied renderer and
+runtime message-queue sources via `shadow.py`, replacing the renderer object
+and queue archive member. `shadow-source.json` records both current-source and
+copy hashes and compile commands; unbuilt reference-source edits affect this
+mode. Dependency compiler warnings are retained in `shadow-build.log` under
+the local prototype build directory. No reference file is edited.
 
 The run opens Hawaii practice at 1x resolution, waits for 60 eligible race
 frames, performs six trials, drains the last extra graphics task through the
@@ -59,6 +65,7 @@ Each run retains `setup.json` alongside its evidence.
 | `repeat` | Two consecutive sound-gated extra draws without simulation between them |
 | `render-only` | Two extra draws also skipping audio command generation/retirement and preserving lens-flare screen-position history |
 | `camera-snapshot` | Two render-only extras using a frozen 128-byte camera copy in owned transform-arena space; restore view/current-camera references after each draw |
+| `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
 | `camera-offset` | Sound-gated extra draw with camera eye X temporarily increased by one world unit; restore its three position words afterward |
 | `split60` | Sound-gated extra draw and one-VI presentation waits for normal/extra draws; leave input sampling at 30 Hz |
@@ -76,8 +83,9 @@ equality against the normal draw, identical projection matrices, unchanged
 camera words, every active car's words except the four arena links, and an untouched
 caller register context after **each** extra draw. This gate currently expects
 one view. Snapshot observations are immutable host copies used for comparison;
-the live experiment still draws in shared RDRAM and does not restore arenas.
-It supports `repeat`, `render-only`, `camera-snapshot` and `present120`. The render-only variants additionally
+all modes except `shadow-snapshot` still draw in shared RDRAM. None rewinds
+live arenas; the owned bank is reset only after its pipeline has drained.
+It supports `repeat`, `render-only`, `camera-snapshot`, `shadow-snapshot` and `present120`. The render-only variants additionally
 reject view changes outside the lens-flare arena packet pointers. `present120`
 also writes `presents.json`, counts actual renderer callbacks and VI ticks,
 and requires 24 callbacks at an average 105–135 Hz with 9–14 VI ticks. These
@@ -85,6 +93,14 @@ broad bounds detect a remaining 60 Hz ceiling, not precise frame pacing.
 `camera-snapshot` requires exactly one copy per extra and permits only the
 expected 128-byte displacement of view zero's transform base/list links
 (`+18/+68/+6C`), in addition to the previously established flare packet links.
+`shadow-snapshot` additionally checks owned-memory task routing, one bootstrap
+and one full-frame task per extra, and a live non-null message-receive sentinel
+test. `--shadow-eye-offset 1` changes only the owned camera eye X: with the strict
+gate, normal geometry must differ and both extras must match exactly, while
+original camera/car state stays unchanged. This is a negative control, not
+interpolation. `authority.json` records all changed authoritative word ranges
+across each extra, including runtime queue and input activity; these ranges
+are diagnostic evidence and are not yet a complete permitted-write policy.
 `phases.json` separates transform setup, view passes, submission and swap/pacing
 wall times. Geometry records also include BOSS task wall time and time spent
 inside the downstream RDP sink. These overlap across CPU/graphics threads;
@@ -167,6 +183,12 @@ Bounded Hawaii practice on Windows D3D12/RTX 3080, 1x resolution, divider 1 /
   each repeated three times). The original camera, every car's non-link words,
   caller registers and consumed sample count remained unchanged after each
   extra. This isolates the camera input/output record, not the entire frame.
+- `shadow-snapshot` passed six later eight-car groups with identical normal
+  and owned-RAM extra geometry. A separate eye-X +1 negative control changed
+  every normal/extra geometry pair while the two extras matched exactly.
+  Original camera/car words, caller context and consumed sample counts stayed
+  unchanged. The live receive test left an authoritative sentinel intact and
+  delivered the message into the corresponding owned address.
 
 `test_context.py` extracts the unchanged translated `80070DB0` projection,
 `80071250`/`80071410` trig and `80077390` identity functions. Four executions
@@ -218,8 +240,9 @@ visual-quality comparison was measured.
 
 ## Limits and next experiment
 
-The prototype does not interpolate cars or camera rotation,
-or isolate rendering from authoritative RDRAM. Camera offset is a controlled
+The prototype does not interpolate cars or camera rotation. The shadow mode
+uses owned render RAM; other modes still borrow authoritative RDRAM (the camera
+copy mode isolates only that record). Camera offset is a controlled
 perturbation, not interpolation. The six-trial, stationary practice route
 does not establish gameplay equivalence, audio fidelity, sustained stability,
 or split-screen/other-track behavior. One earlier instrumentation build
@@ -230,14 +253,28 @@ Input and graphics workers can run during swap waits. Car differences are
 observations across the draw interval, not a complete attribution of every
 write. Every active car is inspected, but the sample counter and car records
 are not a full simulation-state checksum. Audio synthesis and DMA remain in the original
-combined BOSS submission except on render-only/present120 extras. Geometry
+combined BOSS submission except on render-only variants' extras. Geometry
 collection itself adds work, so these timings are not a performance benchmark.
 
-Next: recover an explicit full-frame snapshot interface, including remaining
-per-view/HUD history and all cars/effects. The corrected probe establishes
-repeatable geometry for this frozen simulation sample, and the projection
-fixture provides isolated frozen-memory coverage; neither establishes full
-authoritative-state equivalence. Keep interpolation behind that ownership work.
+The owned-RAM handoff uses `252D0`: it writes an empty next-transform batch,
+waits through the original SP/DP/swap path and clears `EDB8`. Merely waiting
+for task completion deadlocks because a BOSS task awaits the next transform
+batch. A fresh bank starts via the normal `2523C` bootstrap. The copied renderer
+selects task memory for both BOSS and RT64's core/state RAM pointers. A mutex
+serializes bank refresh with renderer task processing and VI screen updates;
+completion is signalled only after held RDP chunks and task cleanup finish.
+`osSendMesg`/`osRecvMesg` use authoritative queue/thread structures. A thread-local
+receive-store adapter writes a non-null result directly into the owned bank,
+without first touching the corresponding authoritative address. The image is
+never copied back into authoritative RAM.
+
+Next: classify remaining authoritative changed ranges, qualify the snapshot
+handoff across transitions and combine it with independent presentation.
+The bounded owned-RAM geometry proof and projection fixture do not establish
+full gameplay/audio equivalence or snapshot behavior in every scene. The
+drain/bootstrap experiment retains stock VI waits and is not a high-rate
+scheduler. Interpolation, rotations, discontinuities and effect handling still
+need explicit policies before this can become a shipping option.
 The direct-presentation experiment is bounded to progressive single-view racing;
 it skips only swap routine `013DC` receives on VI queue `800AAA28`, retaining
 SP_BREAK and DP completion waits. Its copied runtime locks VI state transitions

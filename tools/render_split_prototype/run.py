@@ -8,6 +8,7 @@ sound and presentation boundaries were intercepted rather than optimized away.
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -17,22 +18,28 @@ import statistics
 import subprocess
 import tempfile
 from runtime import build_runtime
+from shadow import build_shadow_renderer
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-build", type=Path, required=True)
     parser.add_argument("--rom", type=Path, required=True)
-    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot"], default="sound-gated")
+    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot"], default="sound-gated")
     parser.add_argument("--require-repeatable", action="store_true",
                         help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before six trials")
+    parser.add_argument("--shadow-eye-offset", type=float, default=0,
+                        help="Controlled eye-X perturbation in owned RAM only (shadow-snapshot)")
     args = parser.parse_args()
+    if not math.isfinite(args.shadow_eye_offset) or abs(args.shadow_eye_offset) > 10 or (
+            args.shadow_eye_offset and args.mode != "shadow-snapshot"):
+        parser.error("--shadow-eye-offset requires shadow-snapshot and a finite value within +/-10")
     if not 60 <= args.settle_frames <= 1800:
         parser.error("--settle-frames must be 60..1800; increase --timeout for long runs")
-    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot"):
+    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot"):
         parser.error("--require-repeatable requires repeat, render-only, present120 or camera-snapshot")
     reference = args.reference_build.resolve()
     rom = args.rom.resolve()
@@ -62,11 +69,18 @@ def main():
                     "-c", str(here / "probe.cpp"), "-o", str(probe)], check=True)
     exe = output / "render_split_prototype.exe"
     runtime = [str(build_runtime(reference, output, compiler))] if args.mode == "present120" else []
+    if args.mode == "shadow-snapshot":
+        replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler)
+        if original_object not in [o.replace("\\", "/") for o in objects]:
+            raise SystemExit("Reference renderer object missing from executable link")
+        objects = [replacement if o.replace("\\", "/") == original_object else o for o in objects]
+        objects.append(queue_object)
     wrapped = ["func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
                "func_800013DC", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
+               "osSendMesg_recomp",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     link = [*objects, str(probe), *runtime, *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),
             *("-Wl,--wrap=" + name for name in wrapped), "-o", str(exe)]
@@ -83,14 +97,18 @@ def main():
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=mode_dir))
     if runtime:
         shutil.copy2(output / "runtime-source.json", run_dir / "runtime-source.json")
+    if args.mode == "shadow-snapshot":
+        shutil.copy2(output / "shadow-source.json", run_dir / "shadow-source.json")
     config = run_dir / "build" / "user-data"
     config.mkdir(parents=True, exist_ok=True)
     (config / "graphics.json").write_text(json.dumps({"resolution": 1, "native_60fps": False}))
     env = {key: value for key, value in os.environ.items() if not key.startswith("WDC_")}
     env.update(WDC_WARP=args.warp, WDC_RENDER_PROTOTYPE_MODE=args.mode,
-               WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames))
+               WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames),
+               WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
-                                                  "settle_frames": args.settle_frames}, indent=2))
+                                                  "settle_frames": args.settle_frames,
+                                                  "shadow_eye_offset": args.shadow_eye_offset}, indent=2))
     log = run_dir / "run.log"
     print(f"Running {args.mode} probe; local evidence: {log}", flush=True)
     with log.open("w") as stream:
@@ -105,15 +123,34 @@ def main():
     geometry = [json.loads(line.split("[prototype-rdp] ", 1)[1])
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-rdp] " in line]
     (run_dir / "geometry.json").write_text(json.dumps(geometry, indent=2))
+    all_geometry = geometry
+    if args.mode == "shadow-snapshot":
+        # 252D0 drains each bank; 2523C then bootstraps the next bank with a
+        # zero-geometry task. Retain those records in evidence, but compare the
+        # actual full-frame tasks rather than treating bootstraps as frames.
+        if any(not g['complete'] for g in geometry):
+            raise SystemExit("Incomplete shadow task command stream")
+        geometry = [g for g in geometry if g['triangles']]
     snapshots = [json.loads(line.split("[prototype-snapshot] ", 1)[1])
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-snapshot] " in line]
     (run_dir / "snapshots.json").write_text(json.dumps(snapshots, indent=2))
+    authority = [json.loads(line.split("[prototype-authority] ", 1)[1])
+                 for line in log.read_text(errors="replace").splitlines() if "[prototype-authority] " in line]
+    (run_dir / "authority.json").write_text(json.dumps(authority, indent=2))
+    if args.mode == "shadow-snapshot" and {(a['frame'], a['draw']) for a in authority} != {
+            (s['frame'], s['draw']) for s in snapshots}:
+        raise SystemExit("Missing full-RAM changed-range observations")
     projections = [json.loads(line.split("[prototype-projection] ", 1)[1])
                    for line in log.read_text(errors="replace").splitlines() if "[prototype-projection] " in line]
     (run_dir / "projections.json").write_text(json.dumps(projections, indent=2))
     presents = [json.loads(line.split("[prototype-present] ", 1)[1])
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-present] " in line]
     (run_dir / "presents.json").write_text(json.dumps(presents, indent=2))
+    queue_tests = [json.loads(line.split("[prototype-queue-test] ", 1)[1])
+                   for line in log.read_text(errors="replace").splitlines() if "[prototype-queue-test] " in line]
+    if args.mode == "shadow-snapshot" and queue_tests != [{
+            "authoritative_sentinel_preserved": True, "owned_result_received": True}]:
+        raise SystemExit("Owned receive-result sentinel test did not pass")
     phases = [json.loads(line.split("[prototype-phase] ", 1)[1])
               for line in log.read_text(errors="replace").splitlines() if "[prototype-phase] " in line]
     (run_dir / "phases.json").write_text(json.dumps(phases, indent=2))
@@ -132,11 +169,11 @@ def main():
            row['divider_before'] != 1 or row['divider_after'] != 1 or
            row['ticks_before'] != 1562500 or row['ticks_after'] != 1562500 for row in rows):
         raise SystemExit("Simulation counter or stock sampling contract changed")
-    repeats = 3 if args.mode == "present120" else (2 if args.mode in ("repeat", "render-only", "camera-snapshot") else 1)
+    repeats = 3 if args.mode == "present120" else (2 if args.mode in ("repeat", "render-only", "camera-snapshot", "shadow-snapshot") else 1)
     if args.mode != "raw" and any(row['skipped_publish'] != row['trial'] * repeats or
                                           row['skipped_consume'] != row['trial'] * repeats for row in rows):
         raise SystemExit("Sound wrappers did not intercept every extra draw")
-    if args.mode in ("render-only", "present120", "camera-snapshot") and any(row['skipped_audio_build'] != row['trial'] * repeats or
+    if args.mode in ("render-only", "present120", "camera-snapshot", "shadow-snapshot") and any(row['skipped_audio_build'] != row['trial'] * repeats or
             row['skipped_audio_retire'] != row['trial'] * repeats or not row['preserved_flare_history'] for row in rows):
         raise SystemExit("Render-only audio/history wrappers did not intercept")
     for row in rows:
@@ -153,7 +190,10 @@ def main():
         frames = {row['frame'] for row in rows}
         for frame in frames:
             group = sorted((g for g in geometry if g['frame'] == frame), key=lambda g: g['draw'])
-            if any(not g['same_headers_as_normal'] for g in group[1:]):
+            if args.shadow_eye_offset:
+                if any(g['same_headers_as_normal'] for g in group[1:]) or not group[2]['same_headers_as_first_extra']:
+                    raise SystemExit("Owned eye perturbation must change normal geometry and repeat across extras")
+            elif any(not g['same_headers_as_normal'] for g in group[1:]):
                 raise SystemExit("Frozen-sample geometry differs (exact ordered triangle headers)")
             states = [s for s in snapshots if s['frame'] == frame]
             if len(states) != repeats or {s['draw'] for s in states} != set(range(1, repeats + 1)):
@@ -165,13 +205,21 @@ def main():
                 raise SystemExit("Frozen all-car non-link observation changed")
             if args.mode == "camera-snapshot" and any(s['camera_copies'] != 1 for s in states):
                 raise SystemExit("Camera snapshot did not supply each single-view extra draw")
-            if args.mode in ("render-only", "present120", "camera-snapshot") and any(
+            if args.mode == "shadow-snapshot" and (any(not g['owned_memory'] for g in group[1:]) or
+                    any(not s['shadow_receives'] for s in states)):
+                raise SystemExit("Owned RAM / authoritative queue routing was not observed")
+            if args.mode == "shadow-snapshot":
+                for draw in range(1, repeats + 1):
+                    tasks = [g for g in all_geometry if g['frame'] == frame and g['draw'] == draw]
+                    if len(tasks) != 2 or sum(g['triangles'] == 0 for g in tasks) != 1 or any(not g['owned_memory'] for g in tasks):
+                        raise SystemExit("Expected one owned bootstrap and one full-frame task per shadow draw")
+            if args.mode in ("render-only", "present120", "camera-snapshot", "shadow-snapshot") and any(
                     not s['preserved_flare_calls'] for s in states):
                 raise SystemExit("Lens-flare preservation did not intercept each extra draw")
-            if args.mode in ("render-only", "present120", "camera-snapshot") and any(
+            if args.mode in ("render-only", "present120", "camera-snapshot", "shadow-snapshot") and any(
                     s['skipped_car_sound_calls'] != s['car_count'] for s in states):
                 raise SystemExit("Single-view car sound gating did not intercept every car per extra draw")
-            if args.mode in ("render-only", "present120", "camera-snapshot") and any(
+            if args.mode in ("render-only", "present120", "camera-snapshot", "shadow-snapshot") and any(
                     change[0] % 0x1418 not in (0x360, 0x364) and not (
                         args.mode == "camera-snapshot" and change[0] in (0x18, 0x68, 0x6C)
                         and change[1] - change[2] == 128)
@@ -181,7 +229,9 @@ def main():
             if len(matrices) != repeats + 1 or {p['draw'] for p in matrices} != set(range(repeats + 1)) or any(
                     p['matrix'] != matrices[0]['matrix'] for p in matrices):
                 raise SystemExit("Missing or unequal single-view projection evidence")
-        print("PASS: exact triangle headers, projection, camera snapshot, all-car non-link words and caller context repeat")
+        print("PASS: exact extra geometry repeats; " +
+              ("owned eye offset changes normal geometry; " if args.shadow_eye_offset else "normal geometry matches; ") +
+              "projection, camera snapshot, all-car non-link words and caller context preserved")
     if args.mode == "present120":
         if len(presents) != 24 or rows[-1]['skipped_vi_waits'] != 48:
             raise SystemExit("Missing direct presentation callbacks or swap-wait interception")
