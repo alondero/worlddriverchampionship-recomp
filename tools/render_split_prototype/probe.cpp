@@ -44,8 +44,10 @@ std::atomic_uint submitted_tasks{0}, completed_tasks{0};
 std::atomic_uint requested_presents{0}, completed_presents{0};
 std::atomic_uint64_t last_bound_present{0}, last_finished_present{0};
 thread_local bool binding_screen = false;
+std::atomic_bool capture_started{false};
 void finish_present_audit() {
-    // Final diagnostic drain only; do not add a per-frame pacing fence.
+    // Final audit drain, also used per frame in capture-only builds.
+    // Performance runs never use this as a per-frame pacing fence.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (last_finished_present.load() < last_bound_present.load()) {
         if (std::chrono::steady_clock::now() >= deadline) std::_Exit(22);
@@ -316,7 +318,8 @@ void prototype_vi_observed() { ++prototype_vi_ticks; }
 // Host-only telemetry: graphics worker binds RT64's monotonic presentation ID
 // to its queued label. RT64's present worker reports after swapChain->present.
 // No guest access. Separate locks avoid holding label state during log writes.
-void prototype_screen_begin(bool enabled) { binding_screen = enabled; }
+void prototype_screen_begin(bool enabled) { binding_screen = enabled; if (enabled) capture_started = true; }
+bool prototype_capture_enabled() { return capture_started.load(); }
 bool prototype_explicit_present() { return binding_screen; }
 void prototype_present_bound(uint64_t previous, uint64_t id) {
     if (!binding_screen) return;
@@ -326,10 +329,17 @@ void prototype_present_bound(uint64_t previous, uint64_t id) {
         if (presentation_labels.empty()) std::_Exit(22);
         label = presentation_labels.front();
     }
-    std::lock_guard lock(output_mutex);
-    log_record("[prototype-present-id] {\"previous\":%llu,\"id\":%llu,\"frame\":%u,\"draw\":%u}\n",
-        (unsigned long long)previous, (unsigned long long)id, label.frame, label.draw);
-    last_bound_present = id;
+    {
+        std::lock_guard lock(output_mutex);
+        log_record("[prototype-present-id] {\"previous\":%llu,\"id\":%llu,\"frame\":%u,\"draw\":%u}\n",
+            (unsigned long long)previous, (unsigned long long)id, label.frame, label.draw);
+        last_bound_present = id;
+    }
+#ifdef WDC_PROTOTYPE_CAPTURE
+    // Capture-only serialization: prevent RT64 dropping queued images while
+    // file output stalls its present worker. Never used for timing acceptance.
+    finish_present_audit();
+#endif
 }
 void prototype_swap_observed(uint64_t id, uint32_t index, bool valid) {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();

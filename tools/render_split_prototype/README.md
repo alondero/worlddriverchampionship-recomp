@@ -31,7 +31,40 @@ swaps are retained but excluded from the selected sequence. Final shutdown
 waits up to ten seconds for the last bound present event's entire swap loop,
 not merely its first swap. This final diagnostic drain does not pace individual
 frames. The audit adds logging overhead; swap completion still does not measure
-physical scanout or prove pixel identity. It does not capture images.
+physical scanout or prove pixel identity. Image capture is a separate option.
+
+`--capture-frames --explicit-present --audit-present` captures final swap-chain
+RGB images after VI/UI rendering, before presentation. It requires exactly six
+trials. The copied present queue reads back into a local GPU buffer after the
+existing completion fence and writes `present-ID-0.ppm`; `captures.json` links
+each selected presentation to its image dimensions and RGB SHA-256. Captures
+and manifests stay in the ignored run directory. Conversion from the pinned
+BGRA8 swap-chain format and D3D12's 256-byte row pitch is explicit; application
+and backend source hashes are recorded. The pinned backend assumes a texture
+destination even for buffer copies, so the diagnostic supplies the single-sample
+swap texture to its sample-position helper while the footprint still selects
+the readback buffer. Reference dependencies remain unmodified.
+
+Capture-only serialization waits for each entire present event before releasing
+its graphics callback; otherwise slow file output can cause RT64 to discard
+queued presents. One un-serialized control omitted two of 15 requested images,
+which the strict audit rejected. Capture runs retain the state/geometry/queue
+and 60 Hz VI checks but explicitly omit target-rate acceptance; their timings
+are diagnostic only. They cannot qualify normal scheduling or performance.
+The runner requires every selected image and exact frozen normal/extra pixel
+equality in frozen modes without an intentional eye offset. A serialized 75 Hz frozen control captured all 15
+1280x720 images across six groups, with identical pixels within every group.
+Visual inspection of its first captured frame showed a coherent car, track and
+HUD. This is bounded pixel-repeatability evidence, not general visual quality
+or physical-scanout qualification.
+A combined camera/body/wheel/shadow 75 Hz capture also passed all retained
+checks and wrote 15 images. The initial identical-pose group had identical
+pixels; all five subsequent groups had distinct images for each selected pose.
+Inspection of the first and last poses in the last group showed coherent car,
+wheel, track and HUD imagery as the camera moved. These captures show the
+stationary pre-race camera sequence, not driving or high-speed wheel-spin
+qualification. Capture-induced sample gaps also make this unsuitable for
+judging chronological smoothness.
 
 Use `--explicit-present --audit-present` to submit every prototype screen
 update even when RT64 sees unchanged VI/framebuffer RAM. The copied state

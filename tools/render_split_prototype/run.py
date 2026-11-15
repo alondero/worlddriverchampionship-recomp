@@ -43,6 +43,7 @@ def main():
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop collecting palette indices once the set is full")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
+    parser.add_argument("--capture-frames", action="store_true", help="Capture swap images; requires explicit present and exactly six trials; timing is diagnostic only")
     parser.add_argument("--explicit-present", action="store_true", help="Submit every explicit prototype screen update to RT64; requires --audit-present")
     parser.add_argument("--audit-present", action="store_true", help="Observe actual RT64 swap calls and bind presentation IDs to prototype labels")
     parser.add_argument("--profile-rt64", action="store_true", help="Compile copied RT64 full-sync phase timers")
@@ -78,6 +79,8 @@ def main():
         args.require_repeatable = True
     owned_ram = args.mode in ("shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "motion-samples", "endpoint120")
     independent_present = args.mode in ("present120", "shadow120", "shadow-rate", "motion120", "motion-rate", "motion-samples", "endpoint120")
+    if args.capture_frames and (not args.explicit_present or args.trials != 6):
+        parser.error("--capture-frames requires --explicit-present and --trials 6")
     if args.explicit_present and not args.audit_present:
         parser.error("--explicit-present requires --audit-present")
     if args.audit_present:
@@ -118,6 +121,7 @@ def main():
     probe = output / "probe.o"
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
                     *(["-DWDC_PROTOTYPE_PRESENT"] if independent_present else []),
+                    *(["-DWDC_PROTOTYPE_CAPTURE"] if args.capture_frames else []),
                     "-I", str(source / "lib/N64ModernRuntime/N64Recomp/include"),
                     "-I", str(source / "lib/N64ModernRuntime/ultramodern/include"),
                     "-I", str(source / "src"),
@@ -126,7 +130,7 @@ def main():
     if args.fast_texture_hash:
         objects.append(build_fast_hash(reference, output, compiler))
     if args.audit_present:
-        objects.append(build_present_audit(reference, output, compiler))
+        objects.append(build_present_audit(reference, output, compiler, args.capture_frames))
     if args.profile_rt64 or args.explicit_present:
         objects.append(build_rt64_profile(reference, output, compiler, profile=args.profile_rt64, explicit_present=args.explicit_present))
     runtime = [str(build_runtime(reference, output, compiler))] if independent_present else []
@@ -209,6 +213,7 @@ def main():
                                                   "profile_rt64": args.profile_rt64,
                                                   "audit_present": args.audit_present,
                                                   "explicit_present": args.explicit_present,
+                                                  "capture_frames": args.capture_frames,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
@@ -222,6 +227,8 @@ def main():
                                     stdout=stream, stderr=subprocess.STDOUT, timeout=args.timeout)
         except subprocess.TimeoutExpired:
             raise SystemExit(f"Probe timed out; inspect {log}")
+    if result.returncode:
+        raise SystemExit(f"Probe exited {result.returncode}; inspect {log}")
     rows = [json.loads(line.split("[render-prototype] ", 1)[1])
             for line in log.read_text(errors="replace").splitlines() if "[render-prototype] " in line]
     (run_dir / "report.json").write_text(json.dumps(rows, indent=2))
@@ -287,6 +294,26 @@ def main():
         (run_dir / "present-bindings.json").write_text(json.dumps(bindings, indent=2))
         (run_dir / "swaps.json").write_text(json.dumps(swaps, indent=2))
         selected = validate_swaps(bindings, swaps, presents)
+        if args.capture_frames:
+            captures = []
+            for binding in bindings:
+                path = run_dir / f"present-{binding['id']}-0.ppm"
+                data = path.read_bytes()
+                magic, dimensions, maximum, pixels = data.split(b"\n", 3)
+                width, height = map(int, dimensions.split())
+                if magic != b"P6" or maximum != b"255" or not (0 < width <= 4096 and 0 < height <= 4096) or len(pixels) != width*height*3:
+                    raise SystemExit("Invalid captured image")
+                captures.append(dict(binding, file=path.name, width=width, height=height,
+                                     rgb_sha256=hashlib.sha256(pixels).hexdigest()))
+            (run_dir / "captures.json").write_text(json.dumps(captures, indent=2))
+            print(f"CAPTURE: {len(captures)} complete swap images; timing is diagnostic only")
+            if not motion_mode and not args.shadow_eye_offset:
+                for frame in {c["frame"] for c in captures}:
+                    if len({c["rgb_sha256"] for c in captures if c["frame"] == frame}) != 1:
+                        raise SystemExit("Frozen normal/extra swap pixels differ")
+                print("PASS: frozen normal/extra swap images are pixel-identical")
+
+
         intervals = [(b["us"]-a["us"])/1000 for a, b in zip(selected, selected[1:])]
         swap_rate = 1000/statistics.mean(intervals)
         print(f"RT64 swap audit: {len(selected)} successful ordered swaps; "
@@ -572,9 +599,9 @@ def main():
         vi_ticks = presents[-1]['vi_ticks'] - presents[0]['vi_ticks']
         print(f"Renderer callbacks: {rate:.1f}/s; intervals {min(intervals):.2f}..{max(intervals):.2f} ms; {vi_ticks} VI ticks")
         expected_vi_ticks = sum(intervals) * 60 / 1000
-        if not args.present_hz * .875 <= rate <= args.present_hz * 1.125 or abs(vi_ticks - expected_vi_ticks) > 2:
+        if abs(vi_ticks - expected_vi_ticks) > 2 or (not args.capture_frames and not args.present_hz * .875 <= rate <= args.present_hz * 1.125):
             raise SystemExit(f"{args.present_hz} Hz presentation / 60 Hz VI timing gate failed")
-        if args.audit_present and not args.present_hz * .875 <= swap_rate <= args.present_hz * 1.125:
+        if args.audit_present and not args.capture_frames and not args.present_hz * .875 <= swap_rate <= args.present_hz * 1.125:
             raise SystemExit(f"{args.present_hz} Hz actual RT64 swap timing gate failed")
 
 

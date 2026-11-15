@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
+from capture_present import patch_capture
 
 
-def build_present_audit(reference, output, compiler):
+def build_present_audit(reference, output, compiler, capture=False):
     entries = json.loads((reference / "compile_commands.json").read_text())
     entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/hle/rt64_present_queue.cpp"))
     original = Path(entry["file"]).read_bytes()
@@ -20,6 +21,22 @@ def build_present_audit(reference, output, compiler):
     if source.count(end) != 1:
         raise RuntimeError("RT64 present completion seam changed")
     source = source.replace(end, "        }\n        prototype_swap_batch_finished(present.presentId);\n    }\n\n    void PresentQueue::skipInterpolation()")
+    application_evidence = None
+    if capture:
+        application = Path(entry["file"]).with_name("rt64_application.cpp")
+        application_bytes = application.read_bytes()
+        application_source = application_bytes.decode()
+        if application_source.count("swapChainDesc.format =") != 1 or "swapChainDesc.format = RenderFormat::B8G8R8A8_UNORM;" not in application_source:
+            raise RuntimeError("Capture requires the verified BGRA8 swap-chain format")
+        application_evidence = {"source": str(application), "sha256": hashlib.sha256(application_bytes).hexdigest()}
+        backend = application.parent.parent / "contrib/plume/plume_d3d12.cpp"
+        backend_bytes = backend.read_bytes()
+        backend_source = backend_bytes.decode()
+        if backend_source.count("setSamplePositions(dstLocation.texture);") != 1 or "static_cast<const D3D12Buffer *>(location.buffer)" not in backend_source:
+            raise RuntimeError("Capture D3D12 footprint compatibility seam changed")
+        application_evidence["backend"] = {"source": str(backend), "sha256": hashlib.sha256(backend_bytes).hexdigest()}
+
+        source = patch_capture(source)
     copied = output / "audit_rt64_present.cpp"
     copied.write_text(source)
     obj = output / "audit_rt64_present.o"
@@ -34,6 +51,7 @@ def build_present_audit(reference, output, compiler):
     if result.returncode:
         raise RuntimeError("Copied present queue compilation failed; inspect present-audit-build.log")
     (output / "present-audit-source.json").write_text(json.dumps({
+        "capture": capture, "application_format_evidence": application_evidence,
         "source": entry["file"], "source_sha256": hashlib.sha256(original).hexdigest(),
         "copied_sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
         "compile_command": command,
