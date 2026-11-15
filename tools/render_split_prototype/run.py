@@ -45,6 +45,7 @@ def main():
     parser.add_argument("--write-watch-reset", action="store_true", help="Windows experiment: restore tracked dirty pages between draws of one snapshot")
     parser.add_argument("--verify-write-watch", action="store_true", help="Compare every restored byte with the frozen bank; requires --write-watch-reset")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop saturated palette scans and group contiguous palette hash updates")
+    parser.add_argument("--cache-palette-indices", action="store_true", help="Experiment: cache palette index membership using exact texture-byte matches; requires fast texture hash")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
     parser.add_argument("--hold-accelerator", action="store_true", help="Input fixture: hold port-0 A with neutral steering during the race")
     parser.add_argument("--capture-frames", action="store_true", help="Capture swap images; requires explicit present and exactly six trials; timing is diagnostic only")
@@ -61,6 +62,8 @@ def main():
         parser.error("--trials must be 6..300; increase --timeout for long runs")
     if args.verify_texture_hash and not args.fast_texture_hash:
         parser.error("--verify-texture-hash requires --fast-texture-hash")
+    if args.cache_palette_indices and not args.fast_texture_hash:
+        parser.error("--cache-palette-indices requires --fast-texture-hash")
     sample_motion = args.mode == "motion-samples"
     if args.skip_late_draws and not sample_motion:
         parser.error("--skip-late-draws requires motion-samples")
@@ -150,7 +153,7 @@ def main():
                     "-c", str(here / "probe.cpp"), "-o", str(probe)], check=True)
     exe = output / "render_split_prototype.exe"
     if args.fast_texture_hash:
-        objects.append(build_fast_hash(reference, output, compiler))
+        objects.append(build_fast_hash(reference, output, compiler, args.cache_palette_indices))
     if args.audit_present:
         objects.append(build_present_audit(reference, output, compiler, args.capture_frames))
     if args.profile_rt64 or args.explicit_present:
@@ -249,6 +252,7 @@ def main():
                                                   "capture_frames": args.capture_frames,
                                                   "hold_accelerator": args.hold_accelerator,
                                                   "fast_texture_hash": args.fast_texture_hash,
+                                                  "cache_palette_indices": args.cache_palette_indices,
                                                   "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
                                                   "notify_renderer_completion": args.notify_renderer_completion,
@@ -316,6 +320,12 @@ def main():
         if not calls or (args.verify_texture_hash and verified != calls):
             raise SystemExit("Texture hasher was not exercised or differential verification was incomplete")
         print(f"Optimized texture hash: {calls} calls; {verified} original-hasher comparisons")
+        if args.cache_palette_indices:
+            lookups = sum(r['palette_lookups'] for r in hash_rows)
+            hits = sum(r['palette_hits'] for r in hash_rows)
+            if not lookups or any(not 0 <= r['palette_hits'] <= r['palette_lookups'] for r in hash_rows):
+                raise SystemExit("Missing or invalid palette-index cache observations")
+            print(f"Palette index cache: {hits}/{lookups} exact-byte hits")
     if args.no_owned_readback:
         readbacks = [json.loads(line.split("[prototype-readback] ", 1)[1])
                      for line in log.read_text(errors="replace").splitlines() if "[prototype-readback] " in line]

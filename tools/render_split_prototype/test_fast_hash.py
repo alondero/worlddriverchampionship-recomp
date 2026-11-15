@@ -15,11 +15,19 @@ def main():
     source = Path(re.search(r"^CMAKE_HOME_DIRECTORY:INTERNAL=(.*)$", cache, re.M)[1])
     compiler = re.search(r"^CMAKE_CXX_COMPILER:[^=]+=(.*)$", cache, re.M)[1]
     rt64 = source / "lib/rt64/src"
-    output = Path(__file__).resolve().parents[2] / "build/render-split-prototype"
+    # Do not overwrite headers used by a native prototype build in progress.
+    output = Path(__file__).resolve().parents[2] / "build/render-split-prototype/hash-tests"
     output.mkdir(parents=True, exist_ok=True)
     original = (rt64 / "common/rt64_tmem_hasher.h").read_text()
     (output / "original_tmem_hasher.h").write_text(original)
     (output / "fast_tmem_hasher.h").write_text(make_fast_hasher(original))
+    (output / "cached_tmem_hasher.h").write_text(make_fast_hasher(original, True)
+        .replace("PrototypeFastTMEMHasher", "PrototypeCachedTMEMHasher")
+        .replace("prototypeBitScanForward64", "cachedBitScanForward64"))
+    (output / "collision_tmem_hasher.h").write_text(make_fast_hasher(original, True)
+        .replace("PrototypeFastTMEMHasher", "PrototypeCollisionTMEMHasher")
+        .replace("prototypeBitScanForward64", "collisionBitScanForward64")
+        .replace("key = XXH3_64bits(tmemBytes, byteCount);", "key = 0;"))
     fixture = output / "fast_hash_test.cpp"
     fixture.write_text(r'''#include <algorithm>
 #include <array>
@@ -32,6 +40,8 @@ constexpr uint8_t G_IM_SIZ_4b=0, G_IM_SIZ_16b=2, G_IM_SIZ_32b=3, G_IM_FMT_RGBA=0
 struct LoadTile { uint16_t line, tmem; uint8_t siz, fmt, palette; };
 #include "original_tmem_hasher.h"
 #include "fast_tmem_hasher.h"
+#include "cached_tmem_hasher.h"
+#include "collision_tmem_hasher.h"
 int main() {
     std::array<uint8_t,4096> tmem;
     uint32_t random=1234567;
@@ -43,7 +53,24 @@ int main() {
         const uint32_t tlut=next()%3, version=1+next()%5;
         auto a=RT64::TMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
         auto b=RT64::PrototypeFastTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
-        if (a!=b) { std::printf("Mismatch at trial %u\n", trial); return 1; }
+        auto c=RT64::PrototypeCachedTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
+        auto d=RT64::PrototypeCollisionTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
+        if (a!=b || a!=c || a!=d) { std::printf("Mismatch at trial %u\n", trial); return 1; }
+        // Reuse identical index bytes with changed palette values; membership
+        // may hit, but the final hash must always include the current palette.
+        for (unsigned i=2048;i<4096;++i) tmem[i]=uint8_t(next());
+        a=RT64::TMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
+        c=RT64::PrototypeCachedTMEMHasher::hash(tmem.data(),tile,width,height,tlut,version);
+        if (a!=c) { std::printf("Palette mutation mismatch %u\n",trial); return 1; }
+    }
+    // Same key, size and format with changing index bytes must never reuse
+    // stale membership, even when all fingerprints are forced to zero.
+    for (unsigned value=0; value<256; ++value) {
+        for (unsigned i=0;i<2048;++i) tmem[i]=uint8_t(value);
+        LoadTile tile{8,0,1,2,0};
+        auto a=RT64::TMEMHasher::hash(tmem.data(),tile,64,32,2,5);
+        auto b=RT64::PrototypeCollisionTMEMHasher::hash(tmem.data(),tile,64,32,2,5);
+        if(a!=b) { std::printf("Stale membership at index %u\n",value); return 1; }
     }
     // Exercise every contiguous CI8 range, including full sets, bit 63 and
     // runs crossing 64-bit boundaries. Palette values remain non-uniform.
@@ -54,11 +81,15 @@ int main() {
             LoadTile tile{8,0,1,2,0};
             auto a=RT64::TMEMHasher::hash(tmem.data(),tile,64,32,2,5);
             auto b=RT64::PrototypeFastTMEMHasher::hash(tmem.data(),tile,64,32,2,5);
-            if(a!=b) { std::printf("Range mismatch %u/%u\n",first,count); return 1; }
+            auto c=RT64::PrototypeCachedTMEMHasher::hash(tmem.data(),tile,64,32,2,5);
+            if(a!=b || a!=c) { std::printf("Range mismatch %u/%u\n",first,count); return 1; }
         }
     }
     puts("PASS: 20000 original/optimized hash comparisons across formats, palettes, strides and versions");
     puts("PASS: all 32896 contiguous CI8 palette ranges match original hashes");
+    if (!RT64::PrototypeCachedTMEMHasher::paletteHits) return 1;
+    puts("PASS: cached index membership matches original with changing palette bytes");
+    puts("PASS: forced cache fingerprint collisions retain original hashes");
 }
 ''')
     exe=output / "fast_hash_test.exe"

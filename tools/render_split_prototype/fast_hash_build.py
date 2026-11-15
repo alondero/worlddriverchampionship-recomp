@@ -7,7 +7,7 @@ import subprocess
 from fast_hash import make_fast_hasher
 
 
-def build_fast_hash(reference, output, compiler):
+def build_fast_hash(reference, output, compiler, cache_palette=False):
     entries = json.loads((reference / "compile_commands.json").read_text())
     entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/hle/rt64_rdp_tmem.cpp"))
     original = Path(entry["file"]).read_bytes()
@@ -17,7 +17,7 @@ def build_fast_hash(reference, output, compiler):
         raise RuntimeError("RT64 texture hash seam changed")
     header_path = Path(entry["file"]).parent.parent / "common/rt64_tmem_hasher.h"
     header = header_path.read_bytes()
-    (output / "fast_tmem_hasher.h").write_text(make_fast_hasher(header.decode().replace("\r\n", "\n")))
+    (output / "fast_tmem_hasher.h").write_text(make_fast_hasher(header.decode().replace("\r\n", "\n"), cache_palette))
     if source.count('#include "common/rt64_tmem_hasher.h"') != 1:
         raise RuntimeError("RT64 hasher include seam changed")
     source = source.replace('#include "common/rt64_tmem_hasher.h"', '#include "common/rt64_tmem_hasher.h"\n#include "fast_tmem_hasher.h"')
@@ -26,7 +26,14 @@ def build_fast_hash(reference, output, compiler):
         static const bool verify = std::getenv("WDC_RENDER_PROTOTYPE_VERIFY_TEXTURE_HASH") != nullptr;
         if (verify && hash != TMEMHasher::hash(TMEM, loadTile, width, height, tlut, TMEMHasher::CurrentHashVersion)) std::_Exit(19);
         prototype_texture_hash_result(verify);''')
-    source = '#include <cstdlib>\nextern "C" void prototype_texture_hash_result(bool);\n' + source
+    if cache_palette:
+        source = source.replace('        uint64_t hash = PrototypeFastTMEMHasher::hash',
+            '        const auto lookups = PrototypeFastTMEMHasher::paletteLookups, hits = PrototypeFastTMEMHasher::paletteHits;\n        uint64_t hash = PrototypeFastTMEMHasher::hash')
+        source = source.replace('prototype_texture_hash_result(verify);',
+            'prototype_texture_hash_result(verify, PrototypeFastTMEMHasher::paletteLookups - lookups, PrototypeFastTMEMHasher::paletteHits - hits);')
+    else:
+        source = source.replace('prototype_texture_hash_result(verify);', 'prototype_texture_hash_result(verify, 0, 0);')
+    source = '#include <cstdlib>\n#include <cstdint>\nextern "C" void prototype_texture_hash_result(bool, uint64_t, uint64_t);\n' + source
     copied = output / "fast_rt64_rdp_tmem.cpp"
     copied.write_text(source)
     obj = output / "fast_rt64_rdp_tmem.o"
@@ -40,6 +47,7 @@ def build_fast_hash(reference, output, compiler):
     if result.returncode:
         raise RuntimeError("Optimized hasher compilation failed; inspect fast-hash-build.log")
     (output / "fast-hash-source.json").write_text(json.dumps({
+        "cache_palette": cache_palette,
         "source": entry["file"], "source_sha256": hashlib.sha256(original).hexdigest(),
         "copied_sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
         "header": str(header_path), "header_sha256": hashlib.sha256(header).hexdigest(),

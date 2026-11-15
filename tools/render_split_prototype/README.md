@@ -742,6 +742,22 @@ in one update rather than separate eight-byte updates. The byte sequence and
 final hash stay identical. Full 64-bit sets retain the existing fast path; the
 remaining run lengths are 1..63, so the bit scans and shifts stay defined.
 
+`--cache-palette-indices` requires `--fast-texture-hash` and adds an optional
+per-thread cache of palette-index membership for contiguous 64..2048-byte
+texture chunks. Its 256 entries store exact bytes, length, CI4/other indexing
+mode and a 256-bit membership set (about 0.5 MiB per renderer thread). A fast
+fingerprint selects a slot; reuse also requires a byte-for-byte match. Each
+chunk's membership is computed independently before merging with prior rows.
+Palette values and the final texture hash are always computed from current
+data. Residency, GPU upload and eviction decisions remain RT64's responsibility.
+The cache retains no TMEM pointers and is isolated to the copied hasher.
+
+`texture-hash.json` includes lookup/hit counts; a cache experiment must exercise
+lookups and retain all hash, geometry and ownership checks. The host fixture
+compares cached results after palette changes and forces fingerprint collisions
+with changing texture bytes. Performance must be measured without differential
+verification; cache hits alone do not establish a throughput improvement.
+
 `--verify-texture-hash` additionally recomputes every result with the original
 hasher and aborts on a mismatch. `texture-hash.json` records task-level call and
 comparison counts; the runner requires evidence for every complete trial task.

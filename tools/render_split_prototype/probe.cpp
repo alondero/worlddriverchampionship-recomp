@@ -97,6 +97,7 @@ thread_local uint64_t rsp_status_reads = 0, rsp_status_repeats = 0;
 thread_local uint64_t rsp_dma_bytes = 0, rsp_audio_dma_bytes = 0;
 thread_local uint32_t rsp_previous_status = 0;
 thread_local unsigned texture_calls = 0, texture_verified = 0;
+thread_local uint64_t palette_lookups = 0, palette_hits = 0;
 thread_local std::vector<std::pair<const char*, double>> rt64_phase_records;
 std::mutex label_mutex;
 std::mutex output_mutex;
@@ -326,8 +327,9 @@ void __wrap_func_8001A97C(uint8_t* rdram, recomp_context* ctx) {
     }
     __real_func_8001A97C(rdram, ctx);
 }
-void prototype_texture_hash_result(bool verified) {
+void prototype_texture_hash_result(bool verified, uint64_t lookups, uint64_t hits) {
     ++texture_calls; texture_verified += verified;
+    palette_lookups += lookups; palette_hits += hits;
 }
 void prototype_rt64_phase(const char* name, double ms) {
     if (!active_rsp_label.draw) return;
@@ -749,6 +751,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     rsp_status_reads = rsp_status_repeats = 0;
     rsp_dma_bytes = rsp_audio_dma_bytes = 0;
     texture_calls = texture_verified = 0;
+    palette_lookups = palette_hits = 0;
     rt64_phase_records.clear();
     rt64_phase_records.reserve(32);
     struct Collector {
@@ -807,8 +810,9 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         i += length;
     }
     std::lock_guard output_lock(output_mutex);
-    if (texture_calls) log_record("[prototype-texture-hash] {\"frame\":%u,\"draw\":%u,\"calls\":%u,\"verified\":%u}\n",
-        label.frame, label.draw, texture_calls, texture_verified);
+    if (texture_calls) log_record("[prototype-texture-hash] {\"frame\":%u,\"draw\":%u,\"calls\":%u,\"verified\":%u,\"palette_lookups\":%llu,\"palette_hits\":%llu}\n",
+        label.frame, label.draw, texture_calls, texture_verified,
+        (unsigned long long)palette_lookups, (unsigned long long)palette_hits);
     for (const auto& [name, ms] : rt64_phase_records)
         log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"rt64_%s\",\"ms\":%.3f}\n",
             label.frame, label.draw, name, ms);
