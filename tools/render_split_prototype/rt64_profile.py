@@ -47,8 +47,35 @@ def build_rt64_profile(reference, output, compiler):
     body = body.replace('PrototypeRT64Timer full_timer{"full_sync"};',
                         'PrototypeRT64Timer full_timer{"full_sync"};\n        PrototypeRT64Stages stage_timer;')
     source = source[:start] + body + source[end:]
+    pair_start = source.index("    void State::fullSyncFramebufferPairTiles(")
+    pair_end = source.index("\n    void State::", pair_start + 1)
+    pair_body = source[pair_start:pair_end]
+    for marker, replacement in [
+        ("        auto loadOperation =", '        PrototypeRT64Accum loads{"tile_loads"}, uploads{"tile_uploads"};\n        auto loadOperation ='),
+        ("            const auto &loadOp = workload.drawData.loadOperations[loadOpIndex];", "            PrototypeRT64AccumScope timer{loads};\n            const auto &loadOp = workload.drawData.loadOperations[loadOpIndex];"),
+        ("            auto &callTile = workload.drawData.callTiles[rdpTileIndex];", "            PrototypeRT64AccumScope timer{uploads};\n            auto &callTile = workload.drawData.callTiles[rdpTileIndex];"),
+    ]:
+        if pair_body.count(marker) != 1:
+            raise RuntimeError("RT64 tile profiling seam changed: " + marker)
+        pair_body = pair_body.replace(marker, replacement)
+    source = source[:pair_start] + pair_body + source[pair_end:]
+
     source = '''#include <chrono>
 extern "C" void prototype_rt64_phase(const char*, double);
+// Aggregate per-operation clocks locally; emit only once per framebuffer pair.
+struct PrototypeRT64Accum {
+    const char* name;
+    double milliseconds = 0;
+    ~PrototypeRT64Accum() { prototype_rt64_phase(name, milliseconds); }
+};
+struct PrototypeRT64AccumScope {
+    PrototypeRT64Accum& total;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~PrototypeRT64AccumScope() {
+        total.milliseconds += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
+    }
+};
 struct PrototypeRT64Stages {
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
     void checkpoint(const char* name) {

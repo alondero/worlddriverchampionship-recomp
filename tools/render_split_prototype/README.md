@@ -331,6 +331,8 @@ workload queuing. Every complete extra task must report all six stages. The
 stages partition full-sync; nested wait timings are included in those stages
 and must not be added to them. Additional nested timings isolate framebuffer
 pair tile processing, pipeline creation waits, command recording and submission.
+Within pair processing, TMEM load and upload/hash/cache lambda timings accumulate
+locally and emit once per pair; per-operation clock calls still add overhead.
 `rt64-profile-source.json` records current-source/copy hashes and the compiler
 command; current reference-source edits affect this optional path. Compiler
 output stays in local `rt64-profile-build.log`. The launcher requires a full-sync
