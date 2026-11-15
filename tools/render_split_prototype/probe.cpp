@@ -186,6 +186,32 @@ unsigned rdp_words(unsigned op) {
 }
 }
 extern "C" {
+void __real_wdc_hud_normal_layout(uint8_t*, recomp_context*);
+void __wrap_wdc_hud_normal_layout(uint8_t* rdram, recomp_context* ctx) {
+    __real_wdc_hud_normal_layout(rdram, ctx);
+    // USA HUD 2E13C, hook after 2E1A4 before needle smoothing: current-view
+    // pointer u32 at 8007E570; single-view record ABE40, angle float32 radians
+    // at +2D8 (2E3A4 selects +2C4, 2E440 reads +14). 2E4C0..2E508 advances
+    // and stores it once per draw. MEM_W preserves N64 word-swapped bits.
+    // Game-thread host snapshot, replaced each normal frame; no pointer retained.
+    // Replaying the normal draw's input affects owned RAM only, before the ROM
+    // re-applies its smoothing. Invalid/missing current-frame evidence aborts.
+    // Endpoint mode runs extras before normal; it does not use this post-normal
+    // replay. Replace this seam with an explicit fixed-rate HUD snapshot later.
+    static unsigned frame = 0;
+    static uint32_t angle = 0;
+    const auto view = word(rdram, 0x8007E570);
+    if (!extra) {
+        if (view == 0x800ABE40) { frame = race_frame; angle = word(rdram, view+0x2D8); }
+        return;
+    }
+    if (!shadow_mode() || endpoint_mode()) return;
+    if (view != 0x800ABE40 || rdram != render_ram.data() || frame != race_frame) std::_Exit(24);
+    const auto after_normal = word(rdram, view+0x2D8);
+    MEM_W(0, int32_t(view+0x2D8)) = angle;
+    std::lock_guard lock(output_mutex);
+    log_record("[prototype-hud-needle] {\"frame\":%u,\"draw\":%u,\"input\":%u,\"after_normal\":%u}\n", race_frame,draw_number,angle,after_normal);
+}
 void __real_osContGetReadData_recomp(uint8_t*, recomp_context*);
 void __wrap_osContGetReadData_recomp(uint8_t* rdram, recomp_context* ctx) {
     __real_osContGetReadData_recomp(rdram, ctx);
@@ -660,6 +686,20 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     if (label.draw == 1) { first_extra_frame = label.frame; first_extra_headers = headers; }
     const bool same = normal_frame == label.frame && headers == normal_headers;
     const bool same_extra = first_extra_frame == label.frame && headers == first_extra_headers;
+    if (label.draw && normal_frame == label.frame && headers.size() == normal_headers.size() && !same) {
+        unsigned changed = 0, first = unsigned(headers.size()/8), last = 0;
+        for(unsigned i=0;i<headers.size();i+=8) {
+            bool differs = false;
+            for(unsigned j=0;j<8;++j) differs |= headers[i+j]!=normal_headers[i+j];
+            if(differs) { ++changed; if(i/8<first) first=i/8; last=i/8; }
+        }
+        log_record("[prototype-header-diff] {\"frame\":%u,\"draw\":%u,\"changed_triangles\":%u,\"first\":%u,\"last\":%u,\"normal\":[", label.frame,label.draw,changed,first,last);
+        for(unsigned j=0;j<8;++j) log_record("%s%u", j?",":"", normal_headers[first*8+j]);
+        log_record("],\"extra\":[");
+        for(unsigned j=0;j<8;++j) log_record("%s%u", j?",":"", headers[first*8+j]);
+        log_record("]}\n");
+    }
+
     log_record("[prototype-rdp] {\"frame\":%u,\"draw\":%u,\"extra\":%s,\"triangles\":%u,"
         "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s,\"task_ms\":%.3f,\"sink_ms\":%.3f,\"sync_chunk_sink_ms\":%.3f,\"owned_memory\":%s,\"same_headers_as_first_extra\":%s}\n", label.frame,
         label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false", same ? "true" : "false", task_ms, capture.sink_ms, capture.sync_sink_ms,

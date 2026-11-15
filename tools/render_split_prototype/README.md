@@ -713,14 +713,35 @@ groups in a six-group driving capture, restoring intermediate geometry.
 `history.json` records identity/count/gap/jump reset causes before history
 replacement. Later guards are skipped once an earlier reset cause is found, so
 false jump flags do not independently establish continuity.
-Driving validation is still incomplete: the capture failed exact normal-versus-
-current-endpoint geometry checks, including a control before the identity fix.
-Do not treat restored interpolation as a passed driving-render acceptance gate.
-A separate frozen driving control, with interpolation disabled, reproduced the
-mismatch in two of six groups: counts matched (1291 and 1306 triangles), but
-ordered headers differed from the normal draw. Both consecutive owned draws
-matched each other in all six groups. This localizes the remaining discrepancy
-to normal-draw versus post-draw snapshot state, rather than blend arithmetic.
+Driving validation initially failed exact normal-versus-current-endpoint
+geometry checks, including a control before the identity fix. A frozen control
+reproduced the mismatch in two of six groups despite equal counts (1291 and
+1306 triangles). Consecutive owned draws matched each other in all six groups.
+`header-differences.json` now records differing-triangle counts/indices and the
+first mismatching pair of eight-word headers when triangle counts agree.
+This localized the mismatch to the final triangle: the HUD tachometer needle.
+
+The HUD builder selects `view+2C4` at `2E3A4`, reads the float32 angle at `+14`
+(`view+2D8`) at `2E440`, and smooths/stores it at `2E4C0..2E508` each draw.
+Reusing post-normal RAM therefore advanced the needle twice. The existing
+layout-hook boundary now captures its pre-normal input; owned post-normal
+extras replay that input before the original smoothing code. Authoritative
+RAM keeps its one normal update. `hud-needle.json` must contain one replay per
+owned draw. The current single-view scope is explicit; `endpoint120` draws
+extras before normal and does not use this replay.
+
+The corrected frozen driving run matched all ordered normal/extra headers in
+all six groups. A combined driving capture then passed camera/body/wheel/shadow,
+state, endpoint and swap gates with 17 images, only the initial history reset,
+and an inspected image showing 33 mph with a coherent dial/needle. Capture
+timing remains diagnostic; this does not qualify sustained performance,
+high-speed spin, other HUD layouts, or general driving visual correctness.
+A separate 30-group driving run without capture serialization passed retained
+checks and the broad timing band at a 75 Hz target: 77 selected frames and 77
+successful ordered swaps, 68.2 swaps/s with 6.09..27.74 ms intervals. Callbacks
+averaged 68.5/s over 67 VI ticks. This is not steady 75 Hz delivery. The run used
+sample/deadline scheduling, wheel/shadow interpolation, held accelerator and
+disabled owned readback/whole-RAM diagnostics.
 `shadow-inputs.json` records input counts/changes and observed native rebuilds.
 The original `3062C` still rebuilds cached matrices and vertices after `11BA0`
 clears their flags. Invisible shadows need not invoke the rebuild.

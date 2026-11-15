@@ -20,9 +20,11 @@ the failed controls and the explicit-submission experiment.
 
 Driving captures now use an optional held-accelerator fixture. They exposed
 ordinary ground-contact references incorrectly resetting interpolation history;
-tracking contact availability fixes those resets. Driving remains unqualified:
-a frozen driving control still differs from the normal draw in some ordered
-triangle headers, even though consecutive owned draws repeat exactly.
+tracking contact availability fixes those resets. A further driving mismatch
+was isolated to the tachometer needle's per-draw smoothing. Replaying its
+pre-normal input in owned extras restores exact frozen geometry and allows a
+bounded driving interpolation capture to pass. Sustained driving performance,
+other HUD layouts and general visual correctness remain unqualified.
 
 All addresses are for the USA ROM (SHA-256
 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`).

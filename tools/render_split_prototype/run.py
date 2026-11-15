@@ -147,7 +147,7 @@ def main():
         # This translation lives in an archive, unlike the renderer object.
         # The complete copied object satisfies its symbols before extraction.
         objects.append(build_draw_boundary(reference, output))
-    wrapped = ["osContGetReadData_recomp", "func_8003062C", "func_8001A97C", "func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
+    wrapped = ["wdc_hud_normal_layout", "osContGetReadData_recomp", "func_8003062C", "func_8001A97C", "func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
@@ -239,6 +239,10 @@ def main():
     history = [json.loads(line.split("[prototype-history] ", 1)[1])
                for line in log.read_text(errors="replace").splitlines() if "[prototype-history] " in line]
     (run_dir / "history.json").write_text(json.dumps(history, indent=2))
+    needles = [json.loads(line.split("[prototype-hud-needle] ", 1)[1])
+               for line in log.read_text(errors="replace").splitlines() if "[prototype-hud-needle] " in line]
+    (run_dir / "hud-needle.json").write_text(json.dumps(needles, indent=2))
+
 
     if args.hold_accelerator:
         inputs = [json.loads(line.split("[prototype-input] ", 1)[1])
@@ -251,6 +255,10 @@ def main():
     geometry = [json.loads(line.split("[prototype-rdp] ", 1)[1])
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-rdp] " in line]
     (run_dir / "geometry.json").write_text(json.dumps(geometry, indent=2))
+    differences = [json.loads(line.split("[prototype-header-diff] ", 1)[1])
+                   for line in log.read_text(errors="replace").splitlines() if "[prototype-header-diff] " in line]
+    (run_dir / "header-differences.json").write_text(json.dumps(differences, indent=2))
+
     all_geometry = geometry
     if args.fast_texture_hash:
         hash_rows = [json.loads(line.split("[prototype-texture-hash] ", 1)[1])
@@ -286,6 +294,10 @@ def main():
     snapshots = [json.loads(line.split("[prototype-snapshot] ", 1)[1])
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-snapshot] " in line]
     (run_dir / "snapshots.json").write_text(json.dumps(snapshots, indent=2))
+    if owned_ram and not endpoint_mode:
+        if sorted((n["frame"], n["draw"]) for n in needles) != sorted((s["frame"], s["draw"]) for s in snapshots):
+            raise SystemExit("Missing or duplicate single-view HUD needle snapshots")
+
     authority = [json.loads(line.split("[prototype-authority] ", 1)[1])
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-authority] " in line]
     (run_dir / "authority.json").write_text(json.dumps(authority, indent=2))
