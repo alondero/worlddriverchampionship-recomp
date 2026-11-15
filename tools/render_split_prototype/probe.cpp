@@ -34,6 +34,9 @@ unsigned skipped_audio_build = 0, skipped_audio_retire = 0, preserved_flare_hist
 unsigned skipped_car_sound = 0;
 unsigned race_frame = 0;
 unsigned draw_number = 0;
+std::array<uint32_t, 32> frozen_camera{};
+uint32_t redirected_camera = 0;
+unsigned camera_copies = 0;
 struct Label { unsigned frame; unsigned draw; };
 std::mutex label_mutex;
 std::mutex output_mutex;
@@ -49,7 +52,8 @@ unsigned settle_frames() {
 bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
-bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0; }
+bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
+bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode(); }
 uint32_t word(uint8_t* rdram, uint32_t address) {
     return uint32_t(MEM_W(0, int32_t(address)));
 }
@@ -72,11 +76,43 @@ void __wrap_##name(uint8_t* rdram, recomp_context* ctx) { \
     } \
 }
 TIME_DRAW_PHASE(func_80024038)
-TIME_DRAW_PHASE(func_80010A5C)
 TIME_DRAW_PHASE(func_80010ECC)
 TIME_DRAW_PHASE(func_80024FCC)
 TIME_DRAW_PHASE(func_80025350)
 #undef TIME_DRAW_PHASE
+void __real_func_80010A5C(uint8_t*, recomp_context*);
+void __wrap_func_80010A5C(uint8_t* rdram, recomp_context* ctx) {
+    const auto start = std::chrono::steady_clock::now();
+    if (extra && camera_snapshot_mode() && uint32_t(ctx->r4) == 0x800ABE40) {
+        // Single-view camera snapshot, game thread only, after 24038 resets
+        // the transform arena. Reserve 128 aligned bytes below FE70 using
+        // the same downward allocation/collision rule as 2CF30. ED40 is the
+        // upward command cursor. This is raw camera storage, not an encoded
+        // matrix, so FE78's matrix count is not incremented. Fail before any
+        // access on bad spans/collision. Do not rewind the reservation: normal
+        // arena ownership and SP_BREAK handshakes govern reuse next draw.
+        const auto top = word(rdram, 0x8007FE70);
+        const auto commands = word(rdram, 0x8007ED40);
+        if (top < 0x80000080 || top > 0x80800000 || (top & 15) ||
+            commands < 0x80000000 || commands >= top - 128 || redirected_camera) std::_Exit(9);
+        const auto owned = top - 128;
+        redirected_camera = word(rdram, 0x800ABE40 + 0x2DC);
+        MEM_W(0, int32_t(0x8007FE70)) = owned;
+        for (unsigned i = 0; i < frozen_camera.size(); ++i)
+            MEM_W(0, int32_t(owned + i * 4)) = frozen_camera[i];
+        // Only the reference is redirected; original camera bytes remain
+        // untouched. Keep this reference through both view passes, then
+        // restore it after the draw has returned. No host pointer enters RAM.
+        MEM_W(0, int32_t(0x800ABE40 + 0x2DC)) = owned;
+        ++camera_copies;
+    }
+    __real_func_80010A5C(rdram, ctx);
+    if (extra) {
+        std::lock_guard lock(output_mutex);
+        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"func_80010A5C\",\"ms\":%.3f}\n", race_frame, draw_number,
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    }
+}
 void __real_func_8001FC64(uint8_t*, recomp_context*);
 void __wrap_func_8001FC64(uint8_t* rdram, recomp_context* ctx) {
     // 218F0's near-car branch (21994) publishes vehicle sound parameters.
@@ -374,14 +410,25 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     for (unsigned i = 0; i < views.size(); ++i) views[i] = word(rdram, 0x800ABE40 + 4 * i);
     std::array<uint32_t, 32> camera_snapshot;
     for (unsigned i = 0; i < camera_snapshot.size(); ++i) camera_snapshot[i] = word(rdram, camera + 4 * i);
+    frozen_camera = camera_snapshot;
     const auto start = std::chrono::steady_clock::now();
     extra = true;
     const unsigned repeats = direct_present ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
+        const auto copies_before = camera_copies;
+        const auto active_camera = word(rdram, 0x8007ED6C);
         const auto history_before = preserved_flare_history;
         const auto car_sound_before = skipped_car_sound;
         copy_draw_context(draw_context, *ctx);
         func_8000A30C(rdram, &draw_context);
+        if (redirected_camera) {
+            // 10A5C publishes the current camera in ED6C for CPU culling.
+            // Both u32 references return to their authoritative values after
+            // the complete draw; copied camera/arena output stays allocated.
+            MEM_W(0, int32_t(0x800ABE40 + 0x2DC)) = redirected_camera;
+            MEM_W(0, int32_t(0x8007ED6C)) = active_camera;
+            redirected_camera = 0;
+        }
         bool camera_same = word(rdram, 0x800ABE40 + 0x2DC) == camera;
         for (unsigned i = 0; i < camera_snapshot.size(); ++i)
             camera_same &= camera_snapshot[i] == word(rdram, camera + 4 * i);
@@ -407,8 +454,8 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         }
         std::fprintf(stderr, "],\"car_render_links\":[");
         for (unsigned i = 0; i < 4; ++i) std::fprintf(stderr, "%s%u", i ? "," : "", word(rdram, 0x800BA7F0 + 0xB90 + i * 4));
-        std::fprintf(stderr, "],\"car_count\":%u,\"car_count_unchanged\":%s,\"skipped_car_sound_calls\":%u,\"all_car_nonlink_changes\":[",
-            car_count, word(rdram, 0x80080D90) == car_count ? "true" : "false", skipped_car_sound - car_sound_before);
+        std::fprintf(stderr, "],\"car_count\":%u,\"car_count_unchanged\":%s,\"skipped_car_sound_calls\":%u,\"camera_copies\":%u,\"all_car_nonlink_changes\":[",
+            car_count, word(rdram, 0x80080D90) == car_count ? "true" : "false", skipped_car_sound - car_sound_before, camera_copies - copies_before);
         changed = 0;
         for (unsigned i = 0; i < all_cars.size(); ++i) {
             const unsigned offset = (i * 4) % 0x18A0;

@@ -58,6 +58,7 @@ Each run retains `setup.json` alongside its evidence.
 | `sound-gated` | Skip sound-list rollover and consumption only on the extra draw |
 | `repeat` | Two consecutive sound-gated extra draws without simulation between them |
 | `render-only` | Two extra draws also skipping audio command generation/retirement and preserving lens-flare screen-position history |
+| `camera-snapshot` | Two render-only extras using a frozen 128-byte camera copy in owned transform-arena space; restore view/current-camera references after each draw |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
 | `camera-offset` | Sound-gated extra draw with camera eye X temporarily increased by one world unit; restore its three position words afterward |
 | `split60` | Sound-gated extra draw and one-VI presentation waits for normal/extra draws; leave input sampling at 30 Hz |
@@ -76,11 +77,14 @@ camera words, every active car's words except the four arena links, and an untou
 caller register context after **each** extra draw. This gate currently expects
 one view. Snapshot observations are immutable host copies used for comparison;
 the live experiment still draws in shared RDRAM and does not restore arenas.
-It supports `repeat`, `render-only` and `present120`. The latter two additionally
+It supports `repeat`, `render-only`, `camera-snapshot` and `present120`. The render-only variants additionally
 reject view changes outside the lens-flare arena packet pointers. `present120`
 also writes `presents.json`, counts actual renderer callbacks and VI ticks,
 and requires 24 callbacks at an average 105–135 Hz with 9–14 VI ticks. These
 broad bounds detect a remaining 60 Hz ceiling, not precise frame pacing.
+`camera-snapshot` requires exactly one copy per extra and permits only the
+expected 128-byte displacement of view zero's transform base/list links
+(`+18/+68/+6C`), in addition to the previously established flare packet links.
 `phases.json` separates transform setup, view passes, submission and swap/pacing
 wall times. Geometry records also include BOSS task wall time and time spent
 inside the downstream RDP sink. These overlap across CPU/graphics threads;
@@ -158,6 +162,11 @@ Bounded Hawaii practice on Windows D3D12/RTX 3080, 1x resolution, divider 1 /
   completing full-sync commands. The renderer's full-sync path includes workload
   preparation and uploader/worker waits; removing the game's swap waits cannot
   eliminate that cost.
+- `camera-snapshot --require-repeatable --warp '1:0:arcade:3' --settle-frames 180`
+  passed six eight-car groups (1252, 1260, 1256, 1266, 1270, 1265 triangles,
+  each repeated three times). The original camera, every car's non-link words,
+  caller registers and consumed sample count remained unchanged after each
+  extra. This isolates the camera input/output record, not the entire frame.
 
 `test_context.py` extracts the unchanged translated `80070DB0` projection,
 `80071250`/`80071410` trig and `80077390` identity functions. Four executions
@@ -183,6 +192,7 @@ establish these boundaries (hex addresses/offsets):
 | Car `+B80/+B88`, associated `+B84/+B8C` | `28314` waits at `28344` for SP_BREAK, then `283C8..28428` finds signed lane-0 minima/maxima over four 16-byte transformed records and stores their associated signed `+E` lanes; `28448..2845C` may subtract 8 from the associated values. Derived view bounds, not car motion. |
 | Car `+B90/+B94`, `+B98/+B9C` | Two geometry-list head/tail pairs. `284CC` initializes the first head to `10000000`; `28C04` saves its final tail. `28F10..28FA0` builds the second pair. `29D6C..29DD8` splices both into sort buckets. Addresses depend on the current arena; never interpolate or restore them independently of their lists. |
 | Per-view record `800ABE40`, stride `1418` | `10A5C` clears its list via `F8BC` (`+68` head, `+6C` append link), builds the camera and transform requests, saves matrix `+1C..+5B`, normalization `+5C` and transform base `+18`. `10ECC` restores these values and walks the newly built list. |
+| Camera snapshot | `11D54` reads the camera basis/position and projection fields, then writes derived `+7C` at `11DCC`. The experiment reserves 128 bytes below `FE70` after the normal arena reset, checks collision against `ED40`, copies the frozen host words and redirects view `+2DC` through both passes. It restores only that reference and current-camera global `ED6C`; the arena is not rewound. |
 | Lens-flare object, view `+2F4` | `2A3A8` shifts four screen-position history words at object `+10..+1C`; render-only extras preserve these around the call. Object `+6C/+70` are newly allocated packet pointers written at `2A280/2A284`, so view `+360/+364` must retain the current arena addresses. |
 | Matrix/transform arena `8007FE70`, counter `FE78` | `24038 -> 2D730` resets from `ED50 + ED54*8`; `2CF30` allocates 64-byte matrices downwards. The transform command stream grows upwards from `ED50`. |
 | Geometry arena `8007FE74` | `24D38 -> 2D768` resets from `800B3830[ED94] + ED90*8`. `28314` and cache-transform helpers allocate/link packets. `24FCC` toggles `ED94` after submission; the original SP/DP/VI and SP_BREAK handshakes remain essential. |

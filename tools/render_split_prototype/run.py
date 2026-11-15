@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-build", type=Path, required=True)
     parser.add_argument("--rom", type=Path, required=True)
-    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120"], default="sound-gated")
+    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot"], default="sound-gated")
     parser.add_argument("--require-repeatable", action="store_true",
                         help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
@@ -32,8 +32,8 @@ def main():
     args = parser.parse_args()
     if not 60 <= args.settle_frames <= 1800:
         parser.error("--settle-frames must be 60..1800; increase --timeout for long runs")
-    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120"):
-        parser.error("--require-repeatable requires --mode repeat, render-only or present120")
+    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot"):
+        parser.error("--require-repeatable requires repeat, render-only, present120 or camera-snapshot")
     reference = args.reference_build.resolve()
     rom = args.rom.resolve()
     if hashlib.sha256(rom.read_bytes()).hexdigest() != "e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97":
@@ -132,11 +132,11 @@ def main():
            row['divider_before'] != 1 or row['divider_after'] != 1 or
            row['ticks_before'] != 1562500 or row['ticks_after'] != 1562500 for row in rows):
         raise SystemExit("Simulation counter or stock sampling contract changed")
-    repeats = 3 if args.mode == "present120" else (2 if args.mode in ("repeat", "render-only") else 1)
+    repeats = 3 if args.mode == "present120" else (2 if args.mode in ("repeat", "render-only", "camera-snapshot") else 1)
     if args.mode != "raw" and any(row['skipped_publish'] != row['trial'] * repeats or
                                           row['skipped_consume'] != row['trial'] * repeats for row in rows):
         raise SystemExit("Sound wrappers did not intercept every extra draw")
-    if args.mode in ("render-only", "present120") and any(row['skipped_audio_build'] != row['trial'] * repeats or
+    if args.mode in ("render-only", "present120", "camera-snapshot") and any(row['skipped_audio_build'] != row['trial'] * repeats or
             row['skipped_audio_retire'] != row['trial'] * repeats or not row['preserved_flare_history'] for row in rows):
         raise SystemExit("Render-only audio/history wrappers did not intercept")
     for row in rows:
@@ -163,14 +163,18 @@ def main():
                 raise SystemExit("Frozen camera/car/context observation changed")
             if any(not s['car_count_unchanged'] or s['all_car_nonlink_changes'] for s in states):
                 raise SystemExit("Frozen all-car non-link observation changed")
-            if args.mode in ("render-only", "present120") and any(
+            if args.mode == "camera-snapshot" and any(s['camera_copies'] != 1 for s in states):
+                raise SystemExit("Camera snapshot did not supply each single-view extra draw")
+            if args.mode in ("render-only", "present120", "camera-snapshot") and any(
                     not s['preserved_flare_calls'] for s in states):
                 raise SystemExit("Lens-flare preservation did not intercept each extra draw")
-            if args.mode in ("render-only", "present120") and any(
+            if args.mode in ("render-only", "present120", "camera-snapshot") and any(
                     s['skipped_car_sound_calls'] != s['car_count'] for s in states):
                 raise SystemExit("Single-view car sound gating did not intercept every car per extra draw")
-            if args.mode in ("render-only", "present120") and any(
-                    change[0] % 0x1418 not in (0x360, 0x364)
+            if args.mode in ("render-only", "present120", "camera-snapshot") and any(
+                    change[0] % 0x1418 not in (0x360, 0x364) and not (
+                        args.mode == "camera-snapshot" and change[0] in (0x18, 0x68, 0x6C)
+                        and change[1] - change[2] == 128)
                     for s in states for change in s['view_word_changes']):
                 raise SystemExit("Render-only draw changed per-view words outside flare render pointers")
             matrices = [p for p in projections if p['frame'] == frame]
