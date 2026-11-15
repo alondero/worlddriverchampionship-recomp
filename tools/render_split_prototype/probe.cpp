@@ -5,6 +5,7 @@
 #include "boss_rsp.h"
 #include "context.h"
 #include <array>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cstdio>
@@ -14,10 +15,21 @@
 #include <mutex>
 #include <vector>
 
+namespace ultramodern { void wait_for_external_message_timed(uint8_t*, uint32_t); }
+#ifdef WDC_PROTOTYPE_PRESENT
+extern "C" void prototype_set_present(bool);
+#else
+static void prototype_set_present(bool) {}
+#endif
+
 namespace {
 bool extra = false;
 bool one_vi = false;
+bool direct_present = false, inside_swap = false;
+unsigned skipped_vi_waits = 0;
+std::atomic_uint prototype_vi_ticks{0};
 unsigned skipped_publish = 0, skipped_consume = 0;
+unsigned skipped_audio_build = 0, skipped_audio_retire = 0, preserved_flare_history = 0;
 unsigned race_frame = 0;
 unsigned draw_number = 0;
 struct Label { unsigned frame; unsigned draw; };
@@ -31,11 +43,84 @@ const char* mode() {
 bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
+bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0; }
 uint32_t word(uint8_t* rdram, uint32_t address) {
     return uint32_t(MEM_W(0, int32_t(address)));
 }
 }
 extern "C" {
+void prototype_vi_observed() { ++prototype_vi_ticks; }
+void prototype_present_observed(uint32_t origin) {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    std::lock_guard lock(output_mutex);
+    std::fprintf(stderr, "[prototype-present] {\"us\":%lld,\"origin\":%u,\"vi_ticks\":%u}\n",
+        (long long)std::chrono::duration_cast<std::chrono::microseconds>(now).count(), origin, prototype_vi_ticks.load());
+}
+void __real_func_800013DC(uint8_t*, recomp_context*);
+void __wrap_func_800013DC(uint8_t* rdram, recomp_context* ctx) {
+    inside_swap = direct_present;
+    __real_func_800013DC(rdram, ctx);
+    inside_swap = false;
+}
+void __real_osRecvMesg_recomp(uint8_t*, recomp_context*);
+void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
+    // Only the swap routine's VI queue, not SP_BREAK, DP completion, audio
+    // or the input worker. The ROM supplies a null result pointer here.
+    if (inside_swap && uint32_t(ctx->r4) == 0x800AAA28) {
+        if (ctx->r5 != 0) std::_Exit(7);
+        ++skipped_vi_waits;
+        ctx->r2 = 0;
+        return;
+    }
+    __real_osRecvMesg_recomp(rdram, ctx);
+}
+void __real_osViSwapBuffer_recomp(uint8_t*, recomp_context*);
+void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
+    if (inside_swap) {
+        // Service external messages while pacing: this may schedule the
+        // input worker, but never consumes simulation samples in this thread.
+        static auto deadline = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        if (now > deadline + std::chrono::milliseconds(34)) deadline = now;
+        while (now < deadline) {
+            ultramodern::wait_for_external_message_timed(rdram, 1);
+            now = std::chrono::steady_clock::now();
+        }
+        deadline += std::chrono::nanoseconds(1000000000 / 120);
+    }
+    __real_osViSwapBuffer_recomp(rdram, ctx);
+}
+void __real_func_80043274(uint8_t*, recomp_context*);
+void __wrap_func_80043274(uint8_t* rdram, recomp_context* ctx) {
+    // 24FCC passes its current command cursor in a0 and stores v0 back to
+    // ED84. On a presentation-only draw append no audio commands: identity
+    // cursor result, leaving audio buffers, voice progression and DMA alone.
+    if (extra && render_only()) { ++skipped_audio_build; ctx->r2 = ctx->r4; return; }
+    __real_func_80043274(rdram, ctx);
+}
+void __real_func_80042FA8(uint8_t*, recomp_context*);
+void __wrap_func_80042FA8(uint8_t* rdram, recomp_context* ctx) {
+    if (extra && render_only()) { ++skipped_audio_retire; return; }
+    __real_func_80042FA8(rdram, ctx);
+}
+void __real_func_8002A3A8(uint8_t*, recomp_context*);
+void __wrap_func_8002A3A8(uint8_t* rdram, recomp_context* ctx) {
+    if (!extra || !render_only()) { __real_func_8002A3A8(rdram, ctx); return; }
+    // Game-thread lens-flare object, supplied as a0 by 10ECC. Four u32
+    // screen-position history words +10..1C are shifted at 2A410..2A420 or
+    // 2A5E4..2A5F0. Preserve them around extra emission; the emitted arena
+    // packets and object's +6C/+70 render pointers retain their normal lifetime
+    // (2A280/2A284 stores the freshly allocated packet address into both).
+    // Read/write word-swapped aligned RDRAM; validate the complete object
+    // before access. No scheduler yield occurs between return and restore.
+    const auto object = uint32_t(ctx->r4);
+    if (object < 0x80000000 || object > 0x807FFF84 || (object & 3)) std::_Exit(6);
+    std::array<uint32_t, 4> history;
+    for (unsigned i = 0; i < 4; ++i) history[i] = word(rdram, object + 0x10 + i * 4);
+    __real_func_8002A3A8(rdram, ctx);
+    for (unsigned i = 0; i < 4; ++i) MEM_W(0, int32_t(object + 0x10 + i * 4)) = history[i];
+    ++preserved_flare_history;
+}
 void __real_wdc_projection_normalize(uint8_t*, recomp_context*);
 void __wrap_wdc_projection_normalize(uint8_t* rdram, recomp_context* ctx) {
     __real_wdc_projection_normalize(rdram, ctx);
@@ -162,6 +247,8 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             (scene == 0 || scene == 8 || scene == 9);
     };
     one_vi = settled >= 59 && eligible() && std::strcmp(mode(), "split60") == 0;
+    direct_present = settled >= 59 && trials < 6 && eligible() && std::strcmp(mode(), "present120") == 0;
+    prototype_set_present(direct_present);
     const auto frame_start = std::chrono::steady_clock::now();
     ++race_frame;
     __real_func_8000C560(rdram, ctx);
@@ -209,8 +296,9 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     for (unsigned i = 0; i < camera_snapshot.size(); ++i) camera_snapshot[i] = word(rdram, camera + 4 * i);
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = std::strcmp(mode(), "repeat") == 0 ? 2 : 1;
+    const unsigned repeats = direct_present ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
+        const auto history_before = preserved_flare_history;
         copy_draw_context(draw_context, *ctx);
         func_8000A30C(rdram, &draw_context);
         bool camera_same = word(rdram, 0x800ABE40 + 0x2DC) == camera;
@@ -226,11 +314,11 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         std::lock_guard lock(output_mutex);
         std::fprintf(stderr, "[prototype-snapshot] {\"frame\":%u,\"draw\":%u,\"context_unchanged\":%s,"
             "\"camera_unchanged\":%s,\"car_nonlink_words_unchanged\":%s,\"sample_unchanged\":%s,"
-            "\"matrix_arena_top\":%u,\"geometry_arena_top\":%u,\"next_arena\":%u,\"view_word_changes\":[",
+            "\"matrix_arena_top\":%u,\"geometry_arena_top\":%u,\"next_arena\":%u,\"preserved_flare_calls\":%u,\"view_word_changes\":[",
             race_frame, draw_number, std::memcmp(ctx, caller_snapshot.data(), sizeof(*ctx)) == 0 ? "true" : "false",
             camera_same ? "true" : "false", car_same ? "true" : "false",
             samples == word(rdram, 0x8007E530) ? "true" : "false", word(rdram, 0x8007FE70),
-            word(rdram, 0x8007FE74), word(rdram, 0x8007ED94));
+            word(rdram, 0x8007FE74), word(rdram, 0x8007ED94), preserved_flare_history - history_before);
         unsigned changed = 0;
         for (unsigned i = 0; i < views.size(); ++i) {
             auto after = word(rdram, 0x800ABE40 + 4 * i);
@@ -254,11 +342,12 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         "\"draw_ms\":%.3f,\"frame_ms\":%.3f,\"sample_before\":%u,\"sample_after\":%u,"
         "\"sound_buffer_before\":%u,\"sound_buffer_after\":%u,"
         "\"divider_before\":%u,\"divider_after\":%u,\"ticks_before\":%u,\"ticks_after\":%u,"
-        "\"skipped_publish\":%u,\"skipped_consume\":%u,\"car_word_changes\":[",
+        "\"skipped_publish\":%u,\"skipped_consume\":%u,\"skipped_audio_build\":%u,"
+        "\"skipped_audio_retire\":%u,\"preserved_flare_history\":%u,\"skipped_vi_waits\":%u,\"car_word_changes\":[",
         ++trials, race_frame, gated() ? "true" : "false", scene, ms, frame_ms, samples,
         word(rdram, 0x8007E530), unsigned(list), unsigned(MEM_BU(0, int32_t(0x8007E844))),
         divider, word(rdram, 0x8007FE1C), ticks, word(rdram, 0x8007FDF4),
-        skipped_publish, skipped_consume);
+        skipped_publish, skipped_consume, skipped_audio_build, skipped_audio_retire, preserved_flare_history, skipped_vi_waits);
     unsigned changed = 0;
     for (unsigned i = 0; i < before.size(); ++i) {
         const auto after = word(rdram, 0x800BA7F0 + 4 * i);

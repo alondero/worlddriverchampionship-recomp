@@ -600,8 +600,13 @@ matrices from identical inputs. Rebinding that pointer makes the bounded Hawaii
 normal/extra/extra triangle headers exactly equal without advancing consumed
 simulation samples or rewinding the alternating geometry arenas. An isolated
 ROM-backed projection fixture repeats from frozen memory and catches the old
-copy as a negative control. Per-view history still changes, and full-frame
-snapshot isolation, all-car state equivalence and interpolation remain unproven.
+copy as a negative control. A render-only mode also skips audio build/retirement
+and preserves the lens-flare history; the remaining observed view changes are
+current-arena packet pointers. A copied-runtime presentation experiment delivered
+24 renderer callbacks averaging 117.5 Hz across 12 VI ticks, with exact repeated
+geometry and no sample consumption during extras. That is callback timing,
+not physical scanout or intermediate motion. Full-frame snapshot isolation,
+all-car state equivalence and interpolation remain unproven.
 The prototype README records the car-list, per-view and arena ownership evidence.
 
 ## Tools and methods

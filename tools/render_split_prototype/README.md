@@ -6,7 +6,7 @@ must be separated before those frames can be interpolated?
 
 This is a native experiment, not a shipping graphics option. It relinks an
 already-built Windows/MinGW player with a small probe. The reference build and
-generated code are read-only; no submodule or player source is patched. GNU
+generated code are read-only; no submodule or player source is patched in place. GNU
 linker wrappers intercept the dispatcher, two sound-list boundaries, task
 submission and BOSS output. Runtime counters check interception actually took
 place. The executable, settings, logs and ROM-derived observations stay under
@@ -34,6 +34,13 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
 in this worktree. It compiles only `probe.cpp` and relinks into a separate
 executable. It does not perform a full player rebuild.
+The `present120` mode additionally compiles a copied `events.cpp` with guarded
+substitutions from `runtime.py`, linked ahead of the reference runtime archive.
+This copy uses the current source named by the reference compile database;
+unbuilt changes to that file will therefore affect this mode.
+Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
+The substitutions fail on unexpected source structure; other modes use the
+unmodified runtime archive.
 
 The run opens Hawaii practice at 1x resolution, waits for 60 eligible race
 frames, performs six trials, drains the last extra graphics task through the
@@ -46,6 +53,8 @@ settings/save directories and does not load the user's normal saves.
 | `raw` | One additional original draw, including sound-list side effects |
 | `sound-gated` | Skip sound-list rollover and consumption only on the extra draw |
 | `repeat` | Two consecutive sound-gated extra draws without simulation between them |
+| `render-only` | Two extra draws also skipping audio command generation/retirement and preserving lens-flare screen-position history |
+| `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
 | `camera-offset` | Sound-gated extra draw with camera eye X temporarily increased by one world unit; restore its three position words afterward |
 | `split60` | Sound-gated extra draw and one-VI presentation waits for normal/extra draws; leave input sampling at 30 Hz |
 
@@ -63,6 +72,11 @@ camera words, first-car words except the four arena links, and an untouched
 caller register context after **each** extra draw. This gate currently expects
 one view. Snapshot observations are immutable host copies used for comparison;
 the live experiment still draws in shared RDRAM and does not restore arenas.
+It supports `repeat`, `render-only` and `present120`. The latter two additionally
+reject view changes outside the lens-flare arena packet pointers. `present120`
+also writes `presents.json`, counts actual renderer callbacks and VI ticks,
+and requires 24 callbacks at an average 105–135 Hz with 9–14 VI ticks. These
+broad bounds detect a remaining 60 Hz ceiling, not precise frame pacing.
 
 ## What was observed
 
@@ -105,6 +119,15 @@ Bounded Hawaii practice on Windows D3D12/RTX 3080, 1x resolution, divider 1 /
 - Corrected `camera-offset` changed triangle counts/headers in all six trials
   and 13 first-car words. Restoring camera position alone still leaves
   derived car state changed; this controlled perturbation is not interpolation.
+- `render-only` passed all six normal/extra/extra groups (439, 444, 464, 473,
+  493, 531 triangles), with audio build/retire skipped on every extra. The
+  remaining per-view changes were only the newly allocated flare packet links.
+- `present120 --require-repeatable` passed six normal/extra/extra/extra groups
+  (444, 439, 436, 422, 418, 414 triangles). It delivered 24 renderer callbacks
+  averaging 117.5 Hz (6.59–10.71 ms intervals), spanning 12 VI ticks. Consumed
+  samples advanced once per group, 60 through 65, and never during extras.
+  An earlier run averaged 119.8 Hz. This measures calls to `update_screen`,
+  not physical scanout or new motion between the repeated frames.
 
 `test_context.py` extracts the unchanged translated `80070DB0` projection,
 `80071250`/`80071410` trig and `80077390` identity functions. Four executions
@@ -130,6 +153,7 @@ establish these boundaries (hex addresses/offsets):
 | Car `+B80/+B88`, associated `+B84/+B8C` | `28314` waits at `28344` for SP_BREAK, then `283C8..28428` finds signed lane-0 minima/maxima over four 16-byte transformed records and stores their associated signed `+E` lanes; `28448..2845C` may subtract 8 from the associated values. Derived view bounds, not car motion. |
 | Car `+B90/+B94`, `+B98/+B9C` | Two geometry-list head/tail pairs. `284CC` initializes the first head to `10000000`; `28C04` saves its final tail. `28F10..28FA0` builds the second pair. `29D6C..29DD8` splices both into sort buckets. Addresses depend on the current arena; never interpolate or restore them independently of their lists. |
 | Per-view record `800ABE40`, stride `1418` | `10A5C` clears its list via `F8BC` (`+68` head, `+6C` append link), builds the camera and transform requests, saves matrix `+1C..+5B`, normalization `+5C` and transform base `+18`. `10ECC` restores these values and walks the newly built list. |
+| Lens-flare object, view `+2F4` | `2A3A8` shifts four screen-position history words at object `+10..+1C`; render-only extras preserve these around the call. Object `+6C/+70` are newly allocated packet pointers written at `2A280/2A284`, so view `+360/+364` must retain the current arena addresses. |
 | Matrix/transform arena `8007FE70`, counter `FE78` | `24038 -> 2D730` resets from `ED50 + ED54*8`; `2CF30` allocates 64-byte matrices downwards. The transform command stream grows upwards from `ED50`. |
 | Geometry arena `8007FE74` | `24D38 -> 2D768` resets from `800B3830[ED94] + ED90*8`. `28314` and cache-transform helpers allocate/link packets. `24FCC` toggles `ED94` after submission; the original SP/DP/VI and SP_BREAK handshakes remain essential. |
 
@@ -154,7 +178,7 @@ visual-quality comparison was measured.
 
 ## Limits and next experiment
 
-The prototype does not interpolate cars or camera rotation, run above 60 Hz,
+The prototype does not interpolate cars or camera rotation,
 or isolate rendering from authoritative RDRAM. Camera offset is a controlled
 perturbation, not interpolation. The six-trial, stationary practice route
 does not establish gameplay equivalence, audio fidelity, sustained stability,
@@ -166,7 +190,7 @@ Input and graphics workers can run during swap waits. Car differences are
 observations across the draw interval, not a complete attribution of every
 write. Only the first car is inspected; the sample counter is not a full
 simulation-state checksum. Audio synthesis and DMA remain in the original
-combined BOSS submission even when sound-event processing is gated. Geometry
+combined BOSS submission except on render-only/present120 extras. Geometry
 collection itself adds work, so these timings are not a performance benchmark.
 
 Next: recover an explicit full-frame snapshot interface, including remaining
@@ -174,6 +198,11 @@ per-view/HUD history and all cars/effects. The corrected probe establishes
 repeatable geometry for this frozen simulation sample, and the projection
 fixture provides isolated frozen-memory coverage; neither establishes full
 authoritative-state equivalence. Keep interpolation behind that ownership work.
-Then separate the 60 Hz VI/AI clock from presentation scheduling to test
-non-integer display ratios. Do not promote these wrappers into a shipping
+The direct-presentation experiment is bounded to progressive single-view racing;
+it skips only swap routine `013DC` receives on VI queue `800AAA28`, retaining
+SP_BREAK and DP completion waits. Its copied runtime locks VI state transitions
+and queues owned VI register values on the existing serialized graphics queue.
+Pacing services external messages, allowing input/audio workers to run. It
+still needs non-integer ratios, transition handling and sustained validation.
+Do not promote these wrappers into a shipping
 option; recover explicit interfaces after the experiment establishes ownership.
