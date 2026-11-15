@@ -81,6 +81,13 @@ reject view changes outside the lens-flare arena packet pointers. `present120`
 also writes `presents.json`, counts actual renderer callbacks and VI ticks,
 and requires 24 callbacks at an average 105–135 Hz with 9–14 VI ticks. These
 broad bounds detect a remaining 60 Hz ceiling, not precise frame pacing.
+`phases.json` separates transform setup, view passes, submission and swap/pacing
+wall times. Geometry records also include BOSS task wall time and time spent
+inside the downstream RDP sink. These overlap across CPU/graphics threads;
+do not add them or interpret them as CPU-only costs.
+`sync_chunk_sink_ms` counts sink calls whose accumulated command stream completes
+a full-sync command. A chunk can also contain other commands, so this is an
+upper bound on full-sync time, not an isolated function measurement.
 
 ## What was observed
 
@@ -140,6 +147,17 @@ Bounded Hawaii practice on Windows D3D12/RTX 3080, 1x resolution, divider 1 /
   geometry and every active car's non-link words. It **failed** the timing
   gate at 62.0 renderer callbacks/s (10.77–23.53 ms intervals); sustained
   high-rate performance is not established by the lighter practice result.
+- Timing instrumentation on the same later Arcade route measured 93.4 callbacks/s:
+  mean extra-task time 7.69 ms, including 5.19 ms in the downstream RDP sink.
+  Mean swap time was 0.60 ms, including 0.28 ms pacing/queue time; submission
+  `24FCC` averaged 6.52 ms including its completion waits. Another run reached
+  107.9 callbacks/s. The evidence points to variable rendering throughput,
+  rather than a remaining fixed 60 Hz swap wait; it does not isolate the sink's
+  CPU cost from its own worker waits or establish sustained 120 Hz performance.
+  A follow-up measured 5.34 ms sink time, of which 3.62 ms occurred in chunks
+  completing full-sync commands. The renderer's full-sync path includes workload
+  preparation and uploader/worker waits; removing the game's swap waits cannot
+  eliminate that cost.
 
 `test_context.py` extracts the unchanged translated `80070DB0` projection,
 `80071250`/`80071410` trig and `80077390` identity functions. Four executions

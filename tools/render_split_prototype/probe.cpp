@@ -53,8 +53,30 @@ bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strc
 uint32_t word(uint8_t* rdram, uint32_t address) {
     return uint32_t(MEM_W(0, int32_t(address)));
 }
+unsigned rdp_words(unsigned op) {
+    return op >= 8 && op <= 15 ? 8 + ((op & 4) ? 16 : 0) +
+        ((op & 2) ? 16 : 0) + ((op & 1) ? 4 : 0) : (op == 0x24 || op == 0x25 ? 4 : 2);
+}
 }
 extern "C" {
+// Bounded diagnostic timings include scheduler/graphics waits, not CPU time.
+#define TIME_DRAW_PHASE(name) \
+void __real_##name(uint8_t*, recomp_context*); \
+void __wrap_##name(uint8_t* rdram, recomp_context* ctx) { \
+    const auto start = std::chrono::steady_clock::now(); \
+    __real_##name(rdram, ctx); \
+    if (extra) { \
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(); \
+        std::lock_guard lock(output_mutex); \
+        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"" #name "\",\"ms\":%.3f}\n", race_frame, draw_number, ms); \
+    } \
+}
+TIME_DRAW_PHASE(func_80024038)
+TIME_DRAW_PHASE(func_80010A5C)
+TIME_DRAW_PHASE(func_80010ECC)
+TIME_DRAW_PHASE(func_80024FCC)
+TIME_DRAW_PHASE(func_80025350)
+#undef TIME_DRAW_PHASE
 void __real_func_8001FC64(uint8_t*, recomp_context*);
 void __wrap_func_8001FC64(uint8_t* rdram, recomp_context* ctx) {
     // 218F0's near-car branch (21994) publishes vehicle sound parameters.
@@ -80,9 +102,15 @@ void prototype_present_observed(uint32_t origin) {
 }
 void __real_func_800013DC(uint8_t*, recomp_context*);
 void __wrap_func_800013DC(uint8_t* rdram, recomp_context* ctx) {
+    const auto start = std::chrono::steady_clock::now();
     inside_swap = direct_present;
     __real_func_800013DC(rdram, ctx);
     inside_swap = false;
+    if (extra) {
+        std::lock_guard lock(output_mutex);
+        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"swap\",\"ms\":%.3f}\n", race_frame, draw_number,
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    }
 }
 void __real_osRecvMesg_recomp(uint8_t*, recomp_context*);
 void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
@@ -98,6 +126,7 @@ void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
 }
 void __real_osViSwapBuffer_recomp(uint8_t*, recomp_context*);
 void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
+    const auto start = std::chrono::steady_clock::now();
     if (inside_swap) {
         // Service external messages while pacing: this may schedule the
         // input worker, but never consumes simulation samples in this thread.
@@ -111,6 +140,11 @@ void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
         deadline += std::chrono::nanoseconds(1000000000 / 120);
     }
     __real_osViSwapBuffer_recomp(rdram, ctx);
+    if (extra) {
+        std::lock_guard lock(output_mutex);
+        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"pace_and_queue\",\"ms\":%.3f}\n", race_frame, draw_number,
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    }
 }
 void __real_func_80043274(uint8_t*, recomp_context*);
 void __wrap_func_80043274(uint8_t* rdram, recomp_context* ctx) {
@@ -190,7 +224,11 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         wdc::rsp::RdpSink sink;
         void* context;
         std::vector<uint32_t> words;
-    } capture{sink, context, {}};
+        double sink_ms = 0;
+        double sync_sink_ms = 0;
+        size_t parsed = 0;
+    } capture{sink, context, {}, 0, 0, 0};
+    const auto task_start = std::chrono::steady_clock::now();
     original_rsp(rdram, task, [](void* opaque, uint8_t* memory, uint32_t begin, uint32_t end) {
         auto& c = *static_cast<Collector*>(opaque);
         // The BOSS bridge validates these aligned word-swapped ranges. Copy
@@ -200,8 +238,21 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
             std::memcpy(&value, memory + at, 4);
             c.words.push_back(value);
         }
+        bool full_sync = false;
+        while (c.parsed < c.words.size()) {
+            const unsigned op = (c.words[c.parsed] >> 24) & 63;
+            const unsigned length = rdp_words(op);
+            if (c.parsed + length > c.words.size()) break;
+            full_sync |= op == 0x29;
+            c.parsed += length;
+        }
+        const auto start = std::chrono::steady_clock::now();
         c.sink(c.context, memory, begin, end);
+        const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        c.sink_ms += ms;
+        if (full_sync) c.sync_sink_ms += ms;
     }, &capture);
+    const auto task_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - task_start).count();
     if (label.frame < 60) return;
     uint64_t hash = 14695981039346656037ull;
     unsigned triangles = 0;
@@ -210,8 +261,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     for (size_t i = 0; i < capture.words.size();) {
         const unsigned op = (capture.words[i] >> 24) & 63;
         const bool triangle = op >= 8 && op <= 15;
-        const unsigned length = triangle ? 8 + ((op & 4) ? 16 : 0) +
-            ((op & 2) ? 16 : 0) + ((op & 1) ? 4 : 0) : (op == 0x24 || op == 0x25 ? 4 : 2);
+        const unsigned length = rdp_words(op);
         if (i + length > capture.words.size()) { complete = false; break; }
         if (triangle) {
             ++triangles;
@@ -232,8 +282,8 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     if (!label.draw) { normal_frame = label.frame; normal_headers = headers; }
     const bool same = normal_frame == label.frame && headers == normal_headers;
     std::fprintf(stderr, "[prototype-rdp] {\"frame\":%u,\"draw\":%u,\"extra\":%s,\"triangles\":%u,"
-        "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s}\n", label.frame,
-        label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false", same ? "true" : "false");
+        "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s,\"task_ms\":%.3f,\"sink_ms\":%.3f,\"sync_chunk_sink_ms\":%.3f}\n", label.frame,
+        label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false", same ? "true" : "false", task_ms, capture.sink_ms, capture.sync_sink_ms);
 }
 void __wrap_func_8001F9CC(uint8_t* rdram, recomp_context* ctx) {
     if (extra && gated()) { ++skipped_publish; return; }

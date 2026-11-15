@@ -65,6 +65,7 @@ def main():
     wrapped = ["func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
+               "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
                "func_800013DC", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     link = [*objects, str(probe), *runtime, *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),
@@ -113,6 +114,13 @@ def main():
     presents = [json.loads(line.split("[prototype-present] ", 1)[1])
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-present] " in line]
     (run_dir / "presents.json").write_text(json.dumps(presents, indent=2))
+    phases = [json.loads(line.split("[prototype-phase] ", 1)[1])
+              for line in log.read_text(errors="replace").splitlines() if "[prototype-phase] " in line]
+    (run_dir / "phases.json").write_text(json.dumps(phases, indent=2))
+    if phases:
+        for name in sorted({p['phase'] for p in phases}):
+            values = [p['ms'] for p in phases if p['phase'] == name]
+            print(f"{name}: mean {statistics.mean(values):.3f} ms, max {max(values):.3f} ms ({len(values)} calls)")
     for row in rows:
         print(f"trial {row['trial']}: extra draw {row['draw_ms']:.1f} ms; "
               f"samples {row['sample_before']} -> {row['sample_after']}; "
