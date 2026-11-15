@@ -12,6 +12,9 @@
 #include "vectors.h"
 #include "cadence.h"
 #include "render_bank.h"
+#ifdef WDC_PROTOTYPE_SAMPLE_WORKER
+#include "worker_samples.h"
+#endif
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -37,6 +40,9 @@ static void prototype_set_present(bool) {}
 #endif
 
 namespace {
+#ifdef WDC_PROTOTYPE_SAMPLE_WORKER
+prototype::WorkerSamples worker_samples;
+#endif
 bool extra = false;
 bool one_vi = false;
 bool direct_present = false, inside_swap = false;
@@ -776,6 +782,9 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         size_t parsed = 0;
     } capture{sink, context, {}, 0, 0, 0};
     const auto task_start = std::chrono::steady_clock::now();
+#ifdef WDC_PROTOTYPE_SAMPLE_WORKER
+    if (label.draw && rdram == render_ram.data()) worker_samples.begin();
+#endif
     original_rsp(rdram, task, [](void* opaque, uint8_t* memory, uint32_t begin, uint32_t end) {
         auto& c = *static_cast<Collector*>(opaque);
         // The BOSS bridge validates these aligned word-swapped ranges. Copy
@@ -799,6 +808,9 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         c.sink_ms += ms;
         if (full_sync) c.sync_sink_ms += ms;
     }, &capture);
+#ifdef WDC_PROTOTYPE_SAMPLE_WORKER
+    worker_samples.end();
+#endif
     active_rsp_label = {};
     const auto task_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - task_start).count();
     if (label.frame < 60) return;
@@ -930,6 +942,9 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         if (early_pending) std::_Exit(18); // Required dispatcher seam was not reached.
         if (early_trials == trial_count()) {
             finish_present_audit();
+#ifdef WDC_PROTOTYPE_SAMPLE_WORKER
+            worker_samples.finish();
+#endif
             std::lock_guard lock(output_mutex);
             std::fflush(stderr);
             std::_Exit(0);
@@ -954,6 +969,9 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             drain_renderer(rdram);
         }
         finish_present_audit();
+#ifdef WDC_PROTOTYPE_SAMPLE_WORKER
+        worker_samples.finish();
+#endif
         std::lock_guard lock(output_mutex);
         std::fflush(stderr);
         std::_Exit(0);

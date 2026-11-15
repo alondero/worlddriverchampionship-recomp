@@ -16,6 +16,7 @@ import shlex
 import shutil
 import statistics
 import subprocess
+import sys
 import tempfile
 from runtime import build_runtime
 from shadow import build_shadow_renderer
@@ -55,6 +56,7 @@ def main():
     parser.add_argument("--present-dequeue-delay-ms", type=int, default=0, help="Slow-consumer fixture: delay dequeue notification 0..100 ms; requires explicit present and six trials without capture")
     parser.add_argument("--audit-present", action="store_true", help="Observe actual RT64 swap calls and bind presentation IDs to prototype labels")
     parser.add_argument("--profile-rt64", action="store_true", help="Compile copied RT64 full-sync phase timers")
+    parser.add_argument("--sample-render-worker", action="store_true", help="Windows diagnostic: sample the graphics worker during owned BOSS tasks")
     parser.add_argument("--no-owned-readback", action="store_true", help="Experiment: disable RT64 RAM readback only for owned tasks")
     parser.add_argument("--shadow-eye-offset", type=float, default=0,
                         help="Controlled eye-X perturbation in owned RAM only (shadow-snapshot or shadow120)")
@@ -127,6 +129,8 @@ def main():
     if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "motion-samples", "endpoint120"):
         parser.error("--require-repeatable requires a repeat, render-only, presentation or snapshot mode")
     reference = args.reference_build.resolve()
+    if args.sample_render_worker and not owned_ram:
+        parser.error("--sample-render-worker requires an owned-RAM mode")
     if args.capture_boss_tasks and not (reference / "wdc_boss_bench.exe").is_file():
         parser.error("--capture-boss-tasks requires wdc_boss_bench.exe in the reference build")
     rom = args.rom.resolve()
@@ -152,6 +156,7 @@ def main():
                     *(["-DWDC_PROTOTYPE_PRESENT"] if independent_present else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE"] if args.capture_frames else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE_BOSS"] if args.capture_boss_tasks else []),
+                    *(["-DWDC_PROTOTYPE_SAMPLE_WORKER"] if args.sample_render_worker else []),
                     *(["-DWDC_PROTOTYPE_PRESENT_ADMISSION"] if args.pace_present_queue else []),
                     "-I", str(source / "lib/N64ModernRuntime/N64Recomp/include"),
                     "-I", str(source / "lib/N64ModernRuntime/ultramodern/include"),
@@ -197,6 +202,8 @@ def main():
     mode_dir = output / args.mode
     mode_dir.mkdir(exist_ok=True)
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=mode_dir))
+    if args.sample_render_worker:
+        shutil.copy2(exe, run_dir / "sampled-renderer.exe")
     if args.fast_texture_hash:
         shutil.copy2(output / "fast-hash-source.json", run_dir / "fast-hash-source.json")
     if endpoint_mode:
@@ -253,6 +260,7 @@ def main():
                                                   "wheel_poses": args.wheel_poses,
                                                   "shadow_inputs": args.shadow_inputs,
                                                   "profile_rt64": args.profile_rt64,
+                                                  "sample_render_worker": args.sample_render_worker,
                                                   "audit_present": args.audit_present,
                                                   "explicit_present": args.explicit_present,
                                                   "pace_present_queue": args.pace_present_queue,
@@ -287,6 +295,27 @@ def main():
                   f"backlog {sum(s['backlog'] for s in skips)}, empty swap chain {sum(s['empty_swapchain'] for s in skips)}")
     if result.returncode:
         raise SystemExit(f"Probe exited {result.returncode}; inspect {log}")
+    if args.sample_render_worker:
+        samples = run_dir / "worker.samples"
+        binary = run_dir / "sampled-renderer.exe"
+        symbol_env = dict(env)
+        symbol_env["PATH"] = str(Path(compiler).parent) + os.pathsep + symbol_env.get("PATH", "")
+        report = subprocess.run([sys.executable, str(here.parent / "boss/profile_report.py"), str(samples),
+                                 "--exe", str(binary), "--asp", str(source / "src/aspMain.cpp"), "--top", "30"],
+                                env=symbol_env, capture_output=True, text=True)
+        (run_dir / "worker-profile.txt").write_text(report.stdout + report.stderr)
+        (run_dir / "worker-profile.json").write_text(json.dumps({
+            "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+            "samples_sha256": hashlib.sha256(samples.read_bytes()).hexdigest(),
+            "symbolication_returncode": report.returncode}, indent=2))
+        if report.returncode:
+            raise SystemExit("Worker sample symbolication failed; inspect worker-profile.txt")
+        functions = subprocess.run([sys.executable, str(here / "worker_profile.py"), str(samples),
+                                    "--exe", str(binary)], env=symbol_env, capture_output=True, text=True)
+        (run_dir / "worker-functions.txt").write_text(functions.stdout + functions.stderr)
+        if functions.returncode:
+            raise SystemExit("Worker function symbolication failed; inspect worker-functions.txt")
+        print("Worker sampling is diagnostic; timing includes suspension overhead")
     if args.capture_boss_tasks:
         captures = sorted(run_dir.glob("owned-task-*.boss"))
         if len(captures) != 2:

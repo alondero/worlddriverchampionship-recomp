@@ -34,6 +34,27 @@ RT64, live CPU handshakes and RDRAM reset; other DMA output is not compared by
 the existing benchmark. A faster offline replay alone does not qualify live
 performance, pixel equivalence or audio fidelity.
 
+`--sample-render-worker` is a Windows-only diagnostic for owned-RAM modes.
+It requests instruction-pointer samples about every 250 microseconds while
+owned BOSS tasks and their synchronous RT64 sink execute. A helper thread
+briefly suspends the graphics worker; it resumes that worker before allocating,
+aggregating, logging or acquiring application locks. The game thread stops and
+joins the collector only after the existing renderer-completion fence.
+Setup, timer, resume, output or zero-sample failures abort with exit 28.
+
+`worker.samples` records executable-relative instruction offsets plus counts
+outside the executable and failed observations. The run retains the exact
+`sampled-renderer.exe`, hashes and `worker-profile.txt`, using the existing BOSS
+symbolication tool. Reference RT64 objects may lack line information; function
+and inlining attribution is approximate. `worker-functions.txt` adds nearest
+text-symbol intervals for samples without DWARF function information and marks
+those rows explicitly; symbol intervals can include padding and do not recover
+inline call stacks. DLL code and blocked waits can fall
+outside the executable, so percentages in the symbol report describe only
+in-image samples, not total task time. This is a sampled instruction pointer,
+not a call-stack profile. Suspension perturbs scheduling and timing; all swap
+and timing gates remain enabled, but a sampled run is not performance acceptance.
+
 This is a native experiment, not a shipping graphics option. It relinks an
 already-built Windows/MinGW player with a small probe. The reference build and
 generated code are read-only; no submodule or player source is patched in place. GNU
