@@ -6,7 +6,7 @@ import shlex
 import subprocess
 
 
-def build_shadow_renderer(reference, output, compiler):
+def build_shadow_renderer(reference, output, compiler, audit_present=False):
     entries = json.loads((reference / "compile_commands.json").read_text())
     entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/src/renderer.cpp"))
     original = Path(entry["file"]).read_bytes()
@@ -36,6 +36,9 @@ def build_shadow_renderer(reference, output, compiler):
         prototype_renderer_finished();''')
     replace('    void update_screen() override {', '''    void update_screen() override {
         std::lock_guard memory_lock(prototype_memory_mutex());''')
+    if audit_present:
+        source = '#include <cstdint>\nextern "C" void prototype_present_bound(uint64_t, uint64_t);\n' + source
+        replace("        app->updateScreen();", "        const auto previous_present_id = app->state->presentId;\n        app->updateScreen();\n        prototype_present_bound(previous_present_id, app->state->presentId);")
     copied = output / "shadow_renderer.cpp"
     copied.write_text(source)
     obj = output / "shadow_renderer.o"

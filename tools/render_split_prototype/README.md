@@ -12,6 +12,27 @@ submission and BOSS output. Runtime counters check interception actually took
 place. The executable, settings, logs and ROM-derived observations stay under
 ignored `build/render-split-prototype/`.
 
+**Presentation audit:** callback cadence does not establish displayed cadence.
+The opt-in `--audit-present` check currently exposes missing presentations:
+a 30-group 144 Hz practice run with owned readback disabled produced 143
+callbacks but only 30 RT64 swap calls. The extras in each group reused one
+presentation ID. RT64 `State::updateScreen` only queues a present when VI or
+framebuffer RAM changes (or its early-present path is used); new GPU contents
+alone do not satisfy that condition. With readback enabled, a separate run
+produced 142 callbacks and 139 swaps: three identical initial poses were still
+deduplicated. These are failed audit controls, not high-refresh acceptance.
+Explicit presentation of each selected render remains required.
+
+`--audit-present` requires an owned-RAM independent-presentation mode. It builds
+a copied RT64 present-queue object and records `present-audit-source.json`,
+`present-bindings.json` and `swaps.json`. Each callback must increment RT64's
+presentation ID and match exactly one successful, ordered swap call. Startup
+swaps are retained but excluded from the selected sequence. Final shutdown
+waits up to ten seconds for the last bound present event's entire swap loop,
+not merely its first swap. This final diagnostic drain does not pace individual
+frames. The audit adds logging overhead; swap completion still does not measure
+physical scanout or prove pixel identity. It does not capture images.
+
 ## Run
 
 Requires a completed Ninja/MinGW player build with its object files, static

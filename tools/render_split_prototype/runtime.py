@@ -28,6 +28,7 @@ def build_runtime(reference, output, compiler):
             "    ultramodern::renderer::ViRegs regs;\n    bool prototype = false;")
     replace("uint64_t total_vis = 0;", """uint64_t total_vis = 0;
 extern "C" void prototype_present_observed(uint32_t);
+extern "C" void prototype_screen_begin(bool);
 extern "C" void prototype_vi_observed();
 // Protected by message_mutex, including the VI thread's state transition.
 static bool prototype_present = false;
@@ -56,7 +57,9 @@ extern "C" void prototype_set_present(bool enabled) {
                 'extern "C" PTR(void) osViGet' + name + 'Framebuffer() {\n'
                 '    std::lock_guard lock{events_context.message_mutex};')
     # Observe actual renderer callbacks, not only game-side queue requests.
-    replace("                renderer_context->update_screen();", """                renderer_context->update_screen();
+    replace("                renderer_context->update_screen();", """                prototype_screen_begin(screen_update_action->prototype);
+                renderer_context->update_screen();
+                prototype_screen_begin(false);
                 if (screen_update_action->prototype)
                     prototype_present_observed(screen_update_action->regs.VI_ORIGIN_REG);""")
     copied = output / "prototype_events.cpp"

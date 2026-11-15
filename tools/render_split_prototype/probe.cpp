@@ -19,6 +19,7 @@
 #include <deque>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -41,6 +42,16 @@ unsigned skipped_vi_waits = 0;
 std::atomic_uint prototype_vi_ticks{0};
 std::atomic_uint submitted_tasks{0}, completed_tasks{0};
 std::atomic_uint requested_presents{0}, completed_presents{0};
+std::atomic_uint64_t last_bound_present{0}, last_finished_present{0};
+thread_local bool binding_screen = false;
+void finish_present_audit() {
+    // Final diagnostic drain only; do not add a per-frame pacing fence.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (last_finished_present.load() < last_bound_present.load()) {
+        if (std::chrono::steady_clock::now() >= deadline) std::_Exit(22);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
 std::mutex render_memory_mutex;
 uint8_t* authoritative_memory = nullptr;
 std::vector<uint8_t> frozen_ram, render_ram;
@@ -302,6 +313,31 @@ void __wrap_func_8001F7F8(uint8_t* rdram, recomp_context* ctx) {
     __real_func_8001F7F8(rdram, ctx);
 }
 void prototype_vi_observed() { ++prototype_vi_ticks; }
+// Host-only telemetry: graphics worker binds RT64's monotonic presentation ID
+// to its queued label. RT64's present worker reports after swapChain->present.
+// No guest access. Separate locks avoid holding label state during log writes.
+void prototype_screen_begin(bool enabled) { binding_screen = enabled; }
+void prototype_present_bound(uint64_t previous, uint64_t id) {
+    if (!binding_screen) return;
+    Label label;
+    {
+        std::lock_guard lock(label_mutex);
+        if (presentation_labels.empty()) std::_Exit(22);
+        label = presentation_labels.front();
+    }
+    std::lock_guard lock(output_mutex);
+    log_record("[prototype-present-id] {\"previous\":%llu,\"id\":%llu,\"frame\":%u,\"draw\":%u}\n",
+        (unsigned long long)previous, (unsigned long long)id, label.frame, label.draw);
+    last_bound_present = id;
+}
+void prototype_swap_observed(uint64_t id, uint32_t index, bool valid) {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    std::lock_guard lock(output_mutex);
+    log_record("[prototype-swap] {\"id\":%llu,\"index\":%u,\"valid\":%s,\"us\":%lld}\n",
+        (unsigned long long)id, index, valid ? "true" : "false",
+        (long long)std::chrono::duration_cast<std::chrono::microseconds>(now).count());
+}
+void prototype_swap_batch_finished(uint64_t id) { last_finished_present = id; }
 void prototype_present_observed(uint32_t origin) {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
     Label label;
@@ -661,6 +697,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         __real_func_8000C560(rdram, ctx);
         if (early_pending) std::_Exit(18); // Required dispatcher seam was not reached.
         if (early_trials == trial_count()) {
+            finish_present_audit();
             std::lock_guard lock(output_mutex);
             std::fflush(stderr);
             std::_Exit(0);
@@ -684,6 +721,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             func_800252D0(rdram, &drain_context);
             drain_renderer(rdram);
         }
+        finish_present_audit();
         std::lock_guard lock(output_mutex);
         std::fflush(stderr);
         std::_Exit(0);

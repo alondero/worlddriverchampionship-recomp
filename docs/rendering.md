@@ -6,6 +6,15 @@ measured facts, the rules learned while measuring them, and the questions that
 are still open. RT64 integration details (clipping, aspect, HUD fixes) live in
 the [renderer reference](reference/renderer.md).
 
+The prototype's high-rate renderer callbacks are not equivalent to high-rate
+display. An RT64 swap audit found that unchanged VI registers and framebuffer
+RAM cause `State::updateScreen` to omit a presentation even after a new GPU
+draw. With owned readback disabled, a 144 Hz practice experiment produced 143
+callbacks but only 30 swap calls; readback enabled still omitted three initial
+identical poses. The prototype now has an opt-in strict presentation-ID/swap
+audit. Explicit submission of each selected frame remains unresolved, and
+earlier callback timing results must not be read as achieved display rates.
+
 All addresses are for the USA ROM (SHA-256
 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`).
 Functions are named as in the generated `RecompiledFuncs/`.

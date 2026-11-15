@@ -22,6 +22,7 @@ from shadow import build_shadow_renderer
 from rt64_profile import build_rt64_profile
 from fast_hash_build import build_fast_hash
 from draw_boundary import build_draw_boundary
+from present_audit import build_present_audit, validate_swaps
 
 
 def main():
@@ -42,6 +43,7 @@ def main():
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop collecting palette indices once the set is full")
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
+    parser.add_argument("--audit-present", action="store_true", help="Observe actual RT64 swap calls and bind presentation IDs to prototype labels")
     parser.add_argument("--profile-rt64", action="store_true", help="Compile copied RT64 full-sync phase timers")
     parser.add_argument("--no-owned-readback", action="store_true", help="Experiment: disable RT64 RAM readback only for owned tasks")
     parser.add_argument("--shadow-eye-offset", type=float, default=0,
@@ -75,6 +77,8 @@ def main():
         args.require_repeatable = True
     owned_ram = args.mode in ("shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "motion-samples", "endpoint120")
     independent_present = args.mode in ("present120", "shadow120", "shadow-rate", "motion120", "motion-rate", "motion-samples", "endpoint120")
+    if args.audit_present and not (owned_ram and independent_present):
+        parser.error("--audit-present requires owned RAM and independent presentation")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
     if args.no_authority_scan and not owned_ram:
         parser.error("--no-authority-scan requires an owned-RAM mode")
@@ -116,11 +120,13 @@ def main():
     exe = output / "render_split_prototype.exe"
     if args.fast_texture_hash:
         objects.append(build_fast_hash(reference, output, compiler))
+    if args.audit_present:
+        objects.append(build_present_audit(reference, output, compiler))
     if args.profile_rt64:
         objects.append(build_rt64_profile(reference, output, compiler))
     runtime = [str(build_runtime(reference, output, compiler))] if independent_present else []
     if owned_ram:
-        replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler)
+        replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler, args.audit_present)
         if original_object not in [o.replace("\\", "/") for o in objects]:
             raise SystemExit("Reference renderer object missing from executable link")
         objects = [replacement if o.replace("\\", "/") == original_object else o for o in objects]
@@ -155,6 +161,8 @@ def main():
         shutil.copy2(output / "fast-hash-source.json", run_dir / "fast-hash-source.json")
     if endpoint_mode:
         shutil.copy2(output / "draw-boundary-source.json", run_dir / "draw-boundary-source.json")
+    if args.audit_present:
+        shutil.copy2(output / "present-audit-source.json", run_dir / "present-audit-source.json")
     if args.profile_rt64:
         shutil.copy2(output / "rt64-profile-source.json", run_dir / "rt64-profile-source.json")
     if runtime:
@@ -194,6 +202,7 @@ def main():
                                                   "wheel_poses": args.wheel_poses,
                                                   "shadow_inputs": args.shadow_inputs,
                                                   "profile_rt64": args.profile_rt64,
+                                                  "audit_present": args.audit_present,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
@@ -264,6 +273,19 @@ def main():
     presents = [json.loads(line.split("[prototype-present] ", 1)[1])
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-present] " in line]
     (run_dir / "presents.json").write_text(json.dumps(presents, indent=2))
+    if args.audit_present:
+        bindings = [json.loads(line.split("[prototype-present-id] ", 1)[1])
+                    for line in log.read_text(errors="replace").splitlines() if "[prototype-present-id] " in line]
+        swaps = [json.loads(line.split("[prototype-swap] ", 1)[1])
+                 for line in log.read_text(errors="replace").splitlines() if "[prototype-swap] " in line]
+        (run_dir / "present-bindings.json").write_text(json.dumps(bindings, indent=2))
+        (run_dir / "swaps.json").write_text(json.dumps(swaps, indent=2))
+        selected = validate_swaps(bindings, swaps, presents)
+        intervals = [(b["us"]-a["us"])/1000 for a, b in zip(selected, selected[1:])]
+        print(f"RT64 swap audit: {len(selected)} successful ordered swaps; "
+              f"{1000/statistics.mean(intervals):.1f}/s; "
+              f"intervals {min(intervals):.2f}..{max(intervals):.2f} ms (not physical scanout)")
+
     queue_tests = [json.loads(line.split("[prototype-queue-test] ", 1)[1])
                    for line in log.read_text(errors="replace").splitlines() if "[prototype-queue-test] " in line]
     if owned_ram and queue_tests != [{
