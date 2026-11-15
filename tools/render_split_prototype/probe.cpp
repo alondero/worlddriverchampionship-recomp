@@ -14,6 +14,7 @@
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace ultramodern { void wait_for_external_message_timed(uint8_t*, uint32_t); }
@@ -30,6 +31,7 @@ bool direct_present = false, inside_swap = false;
 unsigned skipped_vi_waits = 0;
 std::atomic_uint prototype_vi_ticks{0};
 std::atomic_uint submitted_tasks{0}, completed_tasks{0};
+std::atomic_uint requested_presents{0}, completed_presents{0};
 std::mutex render_memory_mutex;
 uint8_t* authoritative_memory = nullptr;
 std::vector<uint8_t> frozen_ram, render_ram;
@@ -46,6 +48,16 @@ unsigned camera_copies = 0;
 struct Label { unsigned frame; unsigned draw; uint8_t* memory; };
 std::mutex label_mutex;
 std::mutex output_mutex;
+struct PhaseTimer {
+    const char* name;
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    ~PhaseTimer() {
+        std::lock_guard lock(output_mutex);
+        std::fprintf(stderr, "[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"%s\",\"ms\":%.3f}\n",
+            race_frame, draw_number, name,
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    }
+};
 std::deque<Label> labels;
 const char* mode() {
     const char* value = std::getenv("WDC_RENDER_PROTOTYPE_MODE");
@@ -59,13 +71,16 @@ bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
-bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0; }
+bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || std::strcmp(mode(), "shadow120") == 0; }
 bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode() || shadow_mode(); }
 uint8_t* queue_memory(uint8_t* memory) {
     return !render_ram.empty() && memory == render_ram.data() ? authoritative_memory : memory;
 }
 void drain_renderer(uint8_t* memory) {
-    while (completed_tasks.load() < submitted_tasks.load())
+    // A queued screen update can still read RAM after its graphics task ends.
+    // Retain the bank through that callback as well as BOSS/RT64 task cleanup.
+    while (completed_tasks.load() < submitted_tasks.load() ||
+           completed_presents.load() < requested_presents.load())
         ultramodern::wait_for_external_message_timed(memory, 1);
 }
 uint32_t word(uint8_t* rdram, uint32_t address) {
@@ -164,6 +179,7 @@ void prototype_present_observed(uint32_t origin) {
     std::lock_guard lock(output_mutex);
     std::fprintf(stderr, "[prototype-present] {\"us\":%lld,\"origin\":%u,\"vi_ticks\":%u}\n",
         (long long)std::chrono::duration_cast<std::chrono::microseconds>(now).count(), origin, prototype_vi_ticks.load());
+    ++completed_presents;
 }
 void __real_func_800013DC(uint8_t*, recomp_context*);
 void __wrap_func_800013DC(uint8_t* rdram, recomp_context* ctx) {
@@ -258,11 +274,14 @@ void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
         auto now = std::chrono::steady_clock::now();
         if (now > deadline + std::chrono::milliseconds(34)) deadline = now;
         while (now < deadline) {
-            ultramodern::wait_for_external_message_timed(rdram, 1);
+            // The scheduler owns the live queue/thread records even when
+            // this presentation was generated from the frozen render bank.
+            ultramodern::wait_for_external_message_timed(queue_memory(rdram), 1);
             now = std::chrono::steady_clock::now();
         }
         deadline += std::chrono::nanoseconds(1000000000 / 120);
     }
+    if (inside_swap) ++requested_presents;
     __real_osViSwapBuffer_recomp(rdram, ctx);
     if (extra) {
         std::lock_guard lock(output_mutex);
@@ -451,7 +470,8 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             (scene == 0 || scene == 3 || scene == 5 || scene == 8 || scene == 9);
     };
     one_vi = settled + 1 >= settle_frames() && eligible() && std::strcmp(mode(), "split60") == 0;
-    direct_present = settled + 1 >= settle_frames() && trials < 6 && eligible() && std::strcmp(mode(), "present120") == 0;
+    direct_present = settled + 1 >= settle_frames() && trials < 6 && eligible() &&
+        (std::strcmp(mode(), "present120") == 0 || (std::strcmp(mode(), "shadow120") == 0 && trials > 0));
     prototype_set_present(direct_present);
     const auto frame_start = std::chrono::steady_clock::now();
     ++race_frame;
@@ -477,6 +497,13 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     const auto scene = word(rdram, 0x800923E4);
     if (++settled < settle_frames()) return;
+    if (std::strcmp(mode(), "shadow120") == 0) {
+        // Activate after the first normal draw returns: its earlier swap
+        // presents the preceding warm-up frame. The drain below presents the
+        // current normal frame, followed by each owned extra's own drain.
+        direct_present = true;
+        prototype_set_present(true);
+    }
     if (shadow_mode()) {
         authoritative_memory = rdram;
         recomp_context drain_context;
@@ -551,6 +578,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         copy_draw_context(draw_context, *ctx);
         auto* drawing_ram = rdram;
         if (shadow_mode()) {
+            PhaseTimer timer{"owned_reset"};
             std::lock_guard lock(render_memory_mutex);
             std::memcpy(render_ram.data(), frozen_ram.data(), frozen_ram.size());
             drawing_ram = render_ram.data();
@@ -566,15 +594,27 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         }
         func_8000A30C(drawing_ram, &draw_context);
         if (shadow_mode()) {
-            func_800252D0(drawing_ram, &draw_context);
-            drain_renderer(rdram);
+            {
+                PhaseTimer timer{"owned_drain"};
+                func_800252D0(drawing_ram, &draw_context);
+                drain_renderer(rdram);
+            }
             // Observe all authoritative words, without restoring any of them.
             // Runtime queue/input workers legitimately advance during waits;
             // these ranges are attribution evidence, not an equivalence gate.
-            std::lock_guard lock(output_mutex);
-            std::fprintf(stderr, "[prototype-authority] {\"frame\":%u,\"draw\":%u,\"changed_ranges\":[", race_frame, draw_number);
+            PhaseTimer timer{"authority_scan"};
+            std::string report = "[prototype-authority] {\"frame\":" + std::to_string(race_frame) +
+                ",\"draw\":" + std::to_string(draw_number) + ",\"changed_ranges\":[";
             unsigned count = 0, ranges = 0;
             for (unsigned at = 0; at < 0x800000;) {
+                // Preserve the exact word-range report while avoiding scalar
+                // reads over unchanged pages. Ranges crossing page boundaries
+                // still use the word loop below and remain contiguous.
+                if ((at & 0xFFF) == 0 &&
+                    std::memcmp(frozen_ram.data() + at, rdram + at, 0x1000) == 0) {
+                    at += 0x1000;
+                    continue;
+                }
                 uint32_t before_word, after_word;
                 std::memcpy(&before_word, frozen_ram.data() + at, 4);
                 std::memcpy(&after_word, rdram + at, 4);
@@ -586,9 +626,12 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
                     std::memcpy(&before_word, frozen_ram.data() + at, 4);
                     std::memcpy(&after_word, rdram + at, 4);
                 } while (before_word != after_word);
-                std::fprintf(stderr, "%s[%u,%u]", ranges++ ? "," : "", 0x80000000u + first, (at - first) / 4);
+                if (ranges++) report += ',';
+                report += '[' + std::to_string(0x80000000u + first) + ',' + std::to_string((at - first) / 4) + ']';
             }
-            std::fprintf(stderr, "],\"changed_words\":%u}\n", count);
+            report += "],\"changed_words\":" + std::to_string(count) + "}\n";
+            std::lock_guard lock(output_mutex);
+            std::fwrite(report.data(), 1, report.size(), stderr);
         }
         if (redirected_camera) {
             // 10A5C publishes the current camera in ED6C for CPU culling.

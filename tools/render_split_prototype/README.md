@@ -34,14 +34,14 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
 in this worktree. Ordinary modes compile only `probe.cpp` and relink into a separate
 executable. It does not perform a full player rebuild.
-The `present120` mode additionally compiles a copied `events.cpp` with guarded
+The `present120` and `shadow120` modes additionally compile a copied `events.cpp` with guarded
 substitutions from `runtime.py`, linked ahead of the reference runtime archive.
 This copy uses the current source named by the reference compile database;
 unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-`shadow-snapshot` is a separate experiment: it compiles copied renderer and
+`shadow-snapshot` and `shadow120` compile copied renderer and
 runtime message-queue sources via `shadow.py`, replacing the renderer object
 and queue archive member. `shadow-source.json` records both current-source and
 copy hashes and compile commands; unbuilt reference-source edits affect this
@@ -67,6 +67,7 @@ Each run retains `setup.json` alongside its evidence.
 | `camera-snapshot` | Two render-only extras using a frozen 128-byte camera copy in owned transform-arena space; restore view/current-camera references after each draw |
 | `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
+| `shadow120` | Combine owned RAM with independent presentation; three frozen extras and a native drain per frame, with both copied-source provenance records |
 | `camera-offset` | Sound-gated extra draw with camera eye X temporarily increased by one world unit; restore its three position words afterward |
 | `split60` | Sound-gated extra draw and one-VI presentation waits for normal/extra draws; leave input sampling at 30 Hz |
 
@@ -83,26 +84,28 @@ equality against the normal draw, identical projection matrices, unchanged
 camera words, every active car's words except the four arena links, and an untouched
 caller register context after **each** extra draw. This gate currently expects
 one view. Snapshot observations are immutable host copies used for comparison;
-all modes except `shadow-snapshot` still draw in shared RDRAM. None rewinds
+all modes except `shadow-snapshot` and `shadow120` still draw in shared RDRAM. None rewinds
 live arenas; the owned bank is reset only after its pipeline has drained.
-It supports `repeat`, `render-only`, `camera-snapshot`, `shadow-snapshot` and `present120`. The render-only variants additionally
-reject view changes outside the lens-flare arena packet pointers. `present120`
+It supports `repeat`, `render-only`, `camera-snapshot`, `shadow-snapshot`, `shadow120` and `present120`. The render-only variants additionally
+reject view changes outside the lens-flare arena packet pointers. Both independent-presentation modes
 also writes `presents.json`, counts actual renderer callbacks and VI ticks,
 and requires 24 callbacks at an average 105–135 Hz with 9–14 VI ticks. These
 broad bounds detect a remaining 60 Hz ceiling, not precise frame pacing.
 `camera-snapshot` requires exactly one copy per extra and permits only the
 expected 128-byte displacement of view zero's transform base/list links
 (`+18/+68/+6C`), in addition to the previously established flare packet links.
-`shadow-snapshot` additionally checks owned-memory task routing, one bootstrap
+Both owned-RAM modes additionally check owned-memory task routing, one bootstrap
 and one full-frame task per extra, and a live non-null message-receive sentinel
 test. `--shadow-eye-offset 1` changes only the owned camera eye X: with the strict
-gate, normal geometry must differ and both extras must match exactly, while
+gate, normal geometry must differ and all extras must match exactly, while
 original camera/car state stays unchanged. This is a negative control, not
 interpolation. `authority.json` records all changed authoritative word ranges
 across each extra, including runtime queue and input activity; these ranges
 are diagnostic evidence and are not yet a complete permitted-write policy.
 `phases.json` separates transform setup, view passes, submission and swap/pacing
-wall times. Geometry records also include BOSS task wall time and time spent
+wall times, plus owned-bank reset, pipeline drain and full-RAM diagnostic scan.
+The scan skips byte-identical 4 KiB pages and batches its output while retaining
+the complete contiguous changed-word ranges. Geometry records also include BOSS task wall time and time spent
 inside the downstream RDP sink. These overlap across CPU/graphics threads;
 do not add them or interpret them as CPU-only costs.
 `sync_chunk_sink_ms` counts sink calls whose accumulated command stream completes
@@ -240,7 +243,7 @@ visual-quality comparison was measured.
 
 ## Limits and next experiment
 
-The prototype does not interpolate cars or camera rotation. The shadow mode
+The prototype does not interpolate cars or camera rotation. The shadow modes
 uses owned render RAM; other modes still borrow authoritative RDRAM (the camera
 copy mode isolates only that record). Camera offset is a controlled
 perturbation, not interpolation. The six-trial, stationary practice route
@@ -263,17 +266,33 @@ batch. A fresh bank starts via the normal `2523C` bootstrap. The copied renderer
 selects task memory for both BOSS and RT64's core/state RAM pointers. A mutex
 serializes bank refresh with renderer task processing and VI screen updates;
 completion is signalled only after held RDP chunks and task cleanup finish.
+The combined mode also waits for all requested presentation callbacks before
+reusing a bank: RT64 reads framebuffer RAM during `update_screen`, which is
+queued after task completion. Mutual exclusion alone would permit reset before
+that queued read.
 `osSendMesg`/`osRecvMesg` use authoritative queue/thread structures. A thread-local
 receive-store adapter writes a non-null result directly into the owned bank,
 without first touching the corresponding authoritative address. The image is
 never copied back into authoritative RAM.
 
 Next: classify remaining authoritative changed ranges, qualify the snapshot
-handoff across transitions and combine it with independent presentation.
+handoff across transitions and reduce the combined path's measured overhead.
 The bounded owned-RAM geometry proof and projection fixture do not establish
 full gameplay/audio equivalence or snapshot behavior in every scene. The
-drain/bootstrap experiment retains stock VI waits and is not a high-rate
-scheduler. Interpolation, rotations, discontinuities and effect handling still
+`shadow-snapshot` drain/bootstrap experiment retains stock VI waits;
+`shadow120` combines it with independent presentation and services live runtime
+queues while pacing owned frames. Initial combined practice runs preserved
+exact normal/extra/extra/extra geometry but averaged only 70.7–76.2 callbacks/s.
+The camera-offset negative control also passed geometry/state checks, including
+all three matching extras, but failed the timing gate. Scan diagnostics measured
+3.8 ms per extra before page comparison and batched output, and 1.3 ms afterward;
+these separate bounded runs are not a controlled performance benchmark.
+The combined path is not an accepted high-rate scheduler.
+After adding the presentation-completion fence, another practice run retained
+exact geometry/state checks across all six groups and measured 76.1 callbacks/s
+across 18 VI ticks. The owned drain averaged 5.9 ms and the scan 1.4 ms per extra;
+the 120 Hz timing gate correctly failed.
+Interpolation, rotations, discontinuities and effect handling still
 need explicit policies before this can become a shipping option.
 The direct-presentation experiment is bounded to progressive single-view racing;
 it skips only swap routine `013DC` receives on VI queue `800AAA28`, retaining

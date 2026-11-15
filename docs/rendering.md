@@ -615,6 +615,11 @@ untouched. Eight-car geometry repeats exactly; changing only the owned camera
 changes geometry without changing original camera/car records. Whole-RAM
 changed-range evidence still includes unclassified queue/input activity, so
 complete authoritative-state equivalence and interpolation remain unproven.
+The combined `shadow120` mode preserves exact frozen geometry across three
+owned extra draws while presenting independently, but initial practice runs
+measured only 70.7–76.2 renderer callbacks/s and failed its 120 Hz timing gate.
+Per-phase evidence now separates bank reset, native pipeline drain and full-RAM
+diagnostic scanning; this instrumented prototype is not a sustained-rate benchmark.
 An eight-car Arcade extension found sound-ramp updates inside `218F0 -> 1FC64`,
 including car halfword `+A0E`. Skipping that call and the distant-car sound
 retirement path on extras preserves every observed car non-link word in the
