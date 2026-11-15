@@ -34,14 +34,14 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
 in this worktree. Ordinary modes compile only `probe.cpp` and relink into a separate
 executable. It does not perform a full player rebuild.
-The `present120`, `shadow120` and `motion120` modes additionally compile a copied `events.cpp` with guarded
+The `present120`, `shadow120`, `motion120` and `endpoint120` modes additionally compile a copied `events.cpp` with guarded
 substitutions from `runtime.py`, linked ahead of the reference runtime archive.
 This copy uses the current source named by the reference compile database;
 unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-`shadow-snapshot`, `shadow120`, `pose-snapshot` and `motion120` compile copied renderer and
+`shadow-snapshot`, `shadow120`, `pose-snapshot`, `motion120` and `endpoint120` compile copied renderer and
 runtime message-queue sources via `shadow.py`, replacing the renderer object
 and queue archive member. `shadow-source.json` records both current-source and
 copy hashes and compile commands; unbuilt reference-source edits affect this
@@ -70,6 +70,7 @@ Use `--trials 120` for a longer bounded run (6..300, default 6); increase
 | `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
 | `shadow120` | Combine owned RAM with independent presentation; three frozen extras and a native drain per frame, with both copied-source provenance records |
+| `endpoint120` | At the original draw call, present three owned blends followed by the original authoritative draw/audio as the current endpoint; remove the redundant owned endpoint |
 | `motion120` | Suppress normal-draw presentation and present four owned camera/body blends at alpha 0.25, 0.5, 0.75 and 1; validate callback order and current endpoint |
 | `pose-snapshot` | Interpolate owned camera and car-body poses between captured samples; render the midpoint twice and current endpoint once, with mandatory geometry/state checks |
 | `camera-offset` | Sound-gated extra draw with camera eye X temporarily increased by one world unit; restore its three position words afterward |
@@ -88,7 +89,7 @@ equality against the normal draw, identical projection matrices, unchanged
 camera words, every active car's words except the four arena links, and an untouched
 caller register context after **each** extra draw. This gate currently expects
 one view. Snapshot observations are immutable host copies used for comparison;
-The four owned-RAM modes are `shadow-snapshot`, `shadow120`, `pose-snapshot` and `motion120`;
+Owned-RAM modes are `shadow-snapshot`, `shadow120`, `pose-snapshot`, `motion120` and `endpoint120`;
 other modes still draw in shared RDRAM. None rewinds
 live arenas; the owned bank is reset only after its pipeline has drained.
 It supports `repeat`, `render-only`, `camera-snapshot`, `shadow-snapshot`, `shadow120` and `present120`. The render-only variants additionally
@@ -269,6 +270,45 @@ The geometry-repeat mode remains separate: consecutive quarter steps are
 expected to differ. The alpha-1 endpoint must still match normal geometry.
 Wheel/shadow/effect interpolation, robust cut handling, arbitrary display rates,
 and sustained performance remain incomplete; run evidence is in draft PR #61.
+
+## Reusing the original endpoint draw
+
+```powershell
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode endpoint120 --no-owned-readback
+```
+
+`endpoint120` runs its snapshot experiment at the dispatcher's original
+`8000C870 -> 8000A30C` call. It presents three owned blends at 0.25, 0.5 and
+0.75, then executes and presents the original authoritative draw at the current
+endpoint. The normal audio path and original post-draw dispatcher calls remain
+in order. Four full-frame tasks replace `motion120`'s five. The readback flag is
+optional and retains the limitations described below.
+
+The dispatcher and draw root share a generated object, so a linker wrapper
+cannot reliably intercept their internal call. `draw_boundary.py` compiles an
+ignored copy of the current reference `funcs_3.c` with exactly that one call
+redirected to the harness, using the reference C compiler and flags. It links
+ahead of the translation archive. The reference generated file is never edited;
+`draw-boundary-source.json` records source/copy hashes and the compile command.
+Unbuilt changes to that reference source affect this mode.
+
+The live caller context and stack remain in scope until the original draw
+returns. Extra draws and native drains use correctly rebound context copies.
+The snapshot is captured before the normal draw, so immutable original-state
+observations cover only the three owned draws. The authoritative endpoint is
+expected to perform its normal state writes. `endpoints.json` requires one
+original sound-list publish/consume and audio build/retire per group, with no
+simulation samples consumed across the drawing interval. This is lifecycle
+coverage, not audio-fidelity proof.
+
+Task gates require three owned bootstrap/full-frame pairs and one authoritative
+pair. Callback order must be `1,2,3,0`: the endpoint is the original draw itself,
+not a second rendering compared against it. The separate `pose-snapshot` mode
+retains the independent endpoint equality check. The first group's pipeline
+drain can add two VI receives; subsequent groups require eight mandatory
+receives plus at most the documented optional framebuffer receive. Per-trial
+`report.json` timings stop before the original endpoint, while callback timing
+spans the full presented sequence.
 
 ## Full-sync profiling and owned readback experiment
 

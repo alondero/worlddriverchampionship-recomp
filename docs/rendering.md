@@ -635,6 +635,11 @@ and a bit-exact current endpoint must reproduce normal geometry. `motion120` pre
 suppressing the normal-draw presentation. Callback labels verify their order,
 and the endpoint still matches normal geometry. Wheel/shadow/effect
 interpolation, full discontinuity handling and sustained performance remain open.
+`endpoint120` moves that experiment to the original race draw call: three
+owned blends precede the original authoritative draw, which supplies both the
+current endpoint and normal audio work. Task/callback gates verify this four-draw
+sequence and one original audio lifecycle. It removes a redundant graphics pass
+but does not by itself establish sustained high-rate performance or audio fidelity.
 The prototype can also instrument a copied RT64 full-sync path and optionally
 disable framebuffer readback for disposable owned tasks. Normal task readback
 is retained. This remains an opt-in performance experiment because geometry

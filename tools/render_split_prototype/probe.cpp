@@ -31,6 +31,10 @@ namespace {
 bool extra = false;
 bool one_vi = false;
 bool direct_present = false, inside_swap = false;
+bool early_pending = false, normal_endpoint = false;
+unsigned early_trials = 0, early_settled = 0;
+std::chrono::steady_clock::time_point early_frame_start;
+unsigned normal_publish = 0, normal_consume = 0, normal_audio_build = 0, normal_audio_retire = 0;
 unsigned skipped_vi_waits = 0;
 std::atomic_uint prototype_vi_ticks{0};
 std::atomic_uint submitted_tasks{0}, completed_tasks{0};
@@ -102,7 +106,8 @@ bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
-bool motion_mode() { return std::strcmp(mode(), "motion120") == 0; }
+bool endpoint_mode() { return std::strcmp(mode(), "endpoint120") == 0; }
+bool motion_mode() { return std::strcmp(mode(), "motion120") == 0 || endpoint_mode(); }
 bool pose_mode() { return std::strcmp(mode(), "pose-snapshot") == 0 || motion_mode(); }
 bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || std::strcmp(mode(), "shadow120") == 0 || pose_mode(); }
 bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode() || shadow_mode(); }
@@ -329,7 +334,7 @@ void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
     // The normal draw supplies current-state evidence and audio. In motion
     // mode only the subsequent owned poses are presented, in increasing alpha.
     // Calling the real swap here would display the endpoint before its blends.
-    if (inside_swap && motion_mode() && !extra) return;
+    if (inside_swap && motion_mode() && !extra && !normal_endpoint) return;
     if (inside_swap) {
         // Service external messages while pacing: this may schedule the
         // input worker, but never consumes simulation samples in this thread.
@@ -362,11 +367,13 @@ void __wrap_func_80043274(uint8_t* rdram, recomp_context* ctx) {
     // ED84. On a presentation-only draw append no audio commands: identity
     // cursor result, leaving audio buffers, voice progression and DMA alone.
     if (extra && render_only()) { ++skipped_audio_build; ctx->r2 = ctx->r4; return; }
+    if (!extra) ++normal_audio_build;
     __real_func_80043274(rdram, ctx);
 }
 void __real_func_80042FA8(uint8_t*, recomp_context*);
 void __wrap_func_80042FA8(uint8_t* rdram, recomp_context* ctx) {
     if (extra && render_only()) { ++skipped_audio_retire; return; }
+    if (!extra) ++normal_audio_retire;
     __real_func_80042FA8(rdram, ctx);
 }
 void __real_func_8002A3A8(uint8_t*, recomp_context*);
@@ -512,10 +519,12 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
 }
 void __wrap_func_8001F9CC(uint8_t* rdram, recomp_context* ctx) {
     if (extra && gated()) { ++skipped_publish; return; }
+    if (!extra) ++normal_publish;
     __real_func_8001F9CC(rdram, ctx);
 }
 void __wrap_func_800214C8(uint8_t* rdram, recomp_context* ctx) {
     if (extra && gated()) { ++skipped_consume; return; }
+    if (!extra) ++normal_consume;
     __real_func_800214C8(rdram, ctx);
 }
 
@@ -534,6 +543,30 @@ void __wrap_func_800214C8(uint8_t* rdram, recomp_context* ctx) {
 // observations, not a complete attribution of writes to the draw function.
 // Null/transition/unexpected scene fails closed. Host copies die after each
 // observation. Remove the whole probe after the rendering seam is recovered.
+void run_render_trial(uint8_t*, recomp_context*, unsigned, std::chrono::steady_clock::time_point, unsigned&);
+// Invoked only by the copied dispatcher's original 8000C870 call. The caller's
+// stack and register context remain live until its one authoritative draw
+// returns; all original post-draw calls stay in their original order.
+void prototype_race_draw(uint8_t* rdram, recomp_context* ctx) {
+    if (!endpoint_mode() || !early_pending) { func_8000A30C(rdram, ctx); return; }
+    early_pending = false;
+    if (word(rdram, 0x8007DF44)) std::_Exit(18);
+    const auto samples = word(rdram, 0x8007E530);
+    const auto publish = normal_publish, consume = normal_consume;
+    const auto build = normal_audio_build, retire = normal_audio_retire;
+    run_render_trial(rdram, ctx, word(rdram, 0x800923E4), early_frame_start, early_trials);
+    normal_endpoint = true;
+    func_8000A30C(rdram, ctx);
+    recomp_context drain_context;
+    copy_draw_context(drain_context, *ctx);
+    func_800252D0(rdram, &drain_context);
+    drain_renderer(rdram);
+    normal_endpoint = false;
+    std::lock_guard lock(output_mutex);
+    log_record("[prototype-endpoint] {\"frame\":%u,\"sample_before\":%u,\"sample_after\":%u,\"publish\":%u,\"consume\":%u,\"audio_build\":%u,\"audio_retire\":%u,\"skipped_vi_waits\":%u}\n",
+        race_frame, samples, word(rdram, 0x8007E530), normal_publish-publish, normal_consume-consume,
+        normal_audio_build-build, normal_audio_retire-retire, skipped_vi_waits);
+}
 void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     if (!rdram || !ctx) return;
     static unsigned settled = 0, trials = 0;
@@ -543,6 +576,22 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             !word(rdram, 0x8007DF44) && word(rdram, 0x80080D90) != 0 &&
             (scene == 0 || scene == 3 || scene == 5 || scene == 8 || scene == 9);
     };
+    if (endpoint_mode()) {
+        if (!eligible()) { early_settled = 0; previous_poses.clear(); previous_pose_identity.clear(); }
+        early_pending = eligible() && ++early_settled >= settle_frames();
+        direct_present = early_pending;
+        prototype_set_present(direct_present);
+        early_frame_start = std::chrono::steady_clock::now();
+        ++race_frame;
+        __real_func_8000C560(rdram, ctx);
+        if (early_pending) std::_Exit(18); // Required dispatcher seam was not reached.
+        if (early_trials == trial_count()) {
+            std::lock_guard lock(output_mutex);
+            std::fflush(stderr);
+            std::_Exit(0);
+        }
+        return;
+    }
     one_vi = settled + 1 >= settle_frames() && eligible() && std::strcmp(mode(), "split60") == 0;
     direct_present = settled + 1 >= settle_frames() && trials < trial_count() && eligible() &&
         (std::strcmp(mode(), "present120") == 0 || ((std::strcmp(mode(), "shadow120") == 0 || motion_mode()) && trials > 0));
@@ -581,6 +630,10 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         direct_present = true;
         prototype_set_present(true);
     }
+    run_render_trial(rdram, ctx, scene, frame_start, trials);
+}
+void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
+                      std::chrono::steady_clock::time_point frame_start, unsigned& trials) {
     if (shadow_mode()) {
         authoritative_memory = rdram;
         recomp_context drain_context;
@@ -683,7 +736,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
+    const unsigned repeats = endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         const auto receives_before = shadow_receives, sends_before = shadow_sends;
         const auto copies_before = camera_copies;

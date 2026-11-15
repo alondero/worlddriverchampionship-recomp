@@ -20,13 +20,14 @@ import tempfile
 from runtime import build_runtime
 from shadow import build_shadow_renderer
 from rt64_profile import build_rt64_profile
+from draw_boundary import build_draw_boundary
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-build", type=Path, required=True)
     parser.add_argument("--rom", type=Path, required=True)
-    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "pose-snapshot", "motion120"], default="sound-gated")
+    parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "render-only", "split60", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "pose-snapshot", "motion120", "endpoint120"], default="sound-gated")
     parser.add_argument("--require-repeatable", action="store_true",
                         help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
@@ -40,12 +41,13 @@ def main():
     args = parser.parse_args()
     if not 6 <= args.trials <= 300:
         parser.error("--trials must be 6..300; increase --timeout for long runs")
-    motion_mode = args.mode == "motion120"
+    endpoint_mode = args.mode == "endpoint120"
+    motion_mode = args.mode == "motion120" or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
     if pose_mode:
         args.require_repeatable = True
-    owned_ram = args.mode in ("shadow-snapshot", "shadow120", "pose-snapshot", "motion120")
-    independent_present = args.mode in ("present120", "shadow120", "motion120")
+    owned_ram = args.mode in ("shadow-snapshot", "shadow120", "pose-snapshot", "motion120", "endpoint120")
+    independent_present = args.mode in ("present120", "shadow120", "motion120", "endpoint120")
     render_only = owned_ram or independent_present or args.mode in ("render-only", "camera-snapshot")
     if args.no_owned_readback and not owned_ram:
         parser.error("--no-owned-readback requires an owned-RAM mode")
@@ -54,7 +56,7 @@ def main():
         parser.error("--shadow-eye-offset requires shadow-snapshot or shadow120 and a finite value within +/-10")
     if not 60 <= args.settle_frames <= 1800:
         parser.error("--settle-frames must be 60..1800; increase --timeout for long runs")
-    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "pose-snapshot", "motion120"):
+    if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "pose-snapshot", "motion120", "endpoint120"):
         parser.error("--require-repeatable requires a repeat, render-only, presentation or snapshot mode")
     reference = args.reference_build.resolve()
     rom = args.rom.resolve()
@@ -92,6 +94,12 @@ def main():
             raise SystemExit("Reference renderer object missing from executable link")
         objects = [replacement if o.replace("\\", "/") == original_object else o for o in objects]
         objects.append(queue_object)
+    if endpoint_mode:
+        if "libWdcRecompiledFuncs.a" not in variable("LINK_LIBRARIES"):
+            raise SystemExit("Expected reference translation archive in executable link")
+        # This translation lives in an archive, unlike the renderer object.
+        # The complete copied object satisfies its symbols before extraction.
+        objects.append(build_draw_boundary(reference, output))
     wrapped = ["func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
@@ -112,6 +120,8 @@ def main():
     mode_dir = output / args.mode
     mode_dir.mkdir(exist_ok=True)
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=mode_dir))
+    if endpoint_mode:
+        shutil.copy2(output / "draw-boundary-source.json", run_dir / "draw-boundary-source.json")
     if args.profile_rt64:
         shutil.copy2(output / "rt64-profile-source.json", run_dir / "rt64-profile-source.json")
     if runtime:
@@ -208,7 +218,7 @@ def main():
            row['divider_before'] != 1 or row['divider_after'] != 1 or
            row['ticks_before'] != 1562500 or row['ticks_after'] != 1562500 for row in rows):
         raise SystemExit("Simulation counter or stock sampling contract changed")
-    repeats = 4 if motion_mode else 3 if independent_present or pose_mode else (2 if args.mode in ("repeat", "render-only", "camera-snapshot", "shadow-snapshot") else 1)
+    repeats = 3 if endpoint_mode else 4 if motion_mode else 3 if independent_present or pose_mode else (2 if args.mode in ("repeat", "render-only", "camera-snapshot", "shadow-snapshot") else 1)
     if args.mode != "raw" and any(row['skipped_publish'] != row['trial'] * repeats or
                                           row['skipped_consume'] != row['trial'] * repeats for row in rows):
         raise SystemExit("Sound wrappers did not intercept every extra draw")
@@ -229,7 +239,10 @@ def main():
         frames = {row['frame'] for row in rows}
         for frame in frames:
             group = sorted((g for g in geometry if g['frame'] == frame), key=lambda g: g['draw'])
-            if motion_mode:
+            if endpoint_mode:
+                if group[0]['owned_memory']:
+                    raise SystemExit("Current endpoint must use the original authoritative draw")
+            elif motion_mode:
                 if not group[4]['same_headers_as_normal']:
                     raise SystemExit("Motion endpoint must reproduce normal geometry")
             elif pose_mode:
@@ -275,7 +288,7 @@ def main():
                     p['matrix'] != matrices[0]['matrix'] for p in matrices):
                 raise SystemExit("Missing or unequal single-view projection evidence")
         print("PASS: " +
-              ("motion endpoint matches; " if motion_mode else "pose midpoint repeats and endpoint matches; " if pose_mode else
+              ("original endpoint retained; " if endpoint_mode else "motion endpoint matches; " if motion_mode else "pose midpoint repeats and endpoint matches; " if pose_mode else
                "owned eye offset changes normal geometry; " if args.shadow_eye_offset else "normal geometry matches; ") +
               "projection, camera snapshot, all-car non-link words and caller context preserved")
     if pose_mode:
@@ -286,24 +299,42 @@ def main():
         if len(poses) != len(expected) or {(p['frame'], p['draw']) for p in poses} != expected:
             raise SystemExit("Missing pose interpolation observations")
         if any(p['alpha'] != (p['draw'] / 4 if motion_mode else 1 if p['draw'] == 3 else .5) or
-               (p['draw'] == repeats and p['changed_poses']) for p in poses):
+               (not endpoint_mode and p['draw'] == repeats and p['changed_poses']) for p in poses):
             raise SystemExit("Invalid pose alpha or changed current endpoint")
         if not any(p['changed_poses'] for p in poses) or not any(
-                g['draw'] == 1 and not g['same_headers_as_normal'] for g in geometry):
+                (g['draw'] == 0 and not g['same_headers_as_first_extra'] if endpoint_mode else
+                 g['draw'] == 1 and not g['same_headers_as_normal']) for g in geometry):
             raise SystemExit("Pose experiment did not demonstrate intermediate geometry")
-        print("PASS: interpolated camera/body inputs change geometry and current endpoint matches normal")
+        print("PASS: interpolated camera/body inputs change geometry; " +
+              ("original draw supplies current endpoint" if endpoint_mode else "current endpoint matches normal"))
         if motion_mode:
-            expected_order = [(r['frame'], d) for r in rows for d in range(1, 5)]
+            expected_order = [(r['frame'], d) for r in rows for d in ((1, 2, 3, 0) if endpoint_mode else range(1, 5))]
             if [(p['frame'], p['draw']) for p in presents] != expected_order:
                 raise SystemExit("Motion presentations missing, reordered, or include a normal draw")
-            print("PASS: only owned quarter-step poses presented, in chronological order")
+            print("PASS: quarter-step poses and current endpoint presented in chronological order")
+    if endpoint_mode:
+        endpoints = [json.loads(line.split("[prototype-endpoint] ", 1)[1])
+                     for line in log.read_text(errors="replace").splitlines() if "[prototype-endpoint] " in line]
+        (run_dir / "endpoints.json").write_text(json.dumps(endpoints, indent=2))
+        if [e['frame'] for e in endpoints] != [r['frame'] for r in rows] or any(
+                e['sample_before'] != e['sample_after'] or
+                any(e[k] != 1 for k in ('publish', 'consume', 'audio_build', 'audio_retire')) for e in endpoints):
+            raise SystemExit("Each group must retain one original audio lifecycle and consume no samples during drawing")
+        for row in rows:
+            tasks = [g for g in all_geometry if g['frame'] == row['frame'] and g['draw'] == 0]
+            if len(tasks) != 2 or sum(g['triangles'] == 0 for g in tasks) != 1 or any(g['owned_memory'] for g in tasks):
+                raise SystemExit("Expected one authoritative bootstrap and endpoint task")
+        print("PASS: one authoritative endpoint/audio lifecycle replaces the redundant owned endpoint")
     if independent_present:
+        wait_rows = endpoints if endpoint_mode else rows
         skipped_deltas = [b['skipped_vi_waits'] - a for a, b in zip(
-            [0] + [r['skipped_vi_waits'] for r in rows[:-1]], rows)]
+            [0] + [r['skipped_vi_waits'] for r in wait_rows[:-1]], wait_rows)]
         # Suppressing the normal swap can trigger 013DC's additional receive
         # at 015E8 when osViGetCurrentFramebuffer differs from the game target.
         valid_waits = all(10 <= delta <= 11 for delta in skipped_deltas) if motion_mode else all(
             delta == 8 for delta in skipped_deltas)
+        if endpoint_mode:
+            valid_waits = 8 <= skipped_deltas[0] <= 11 and all(8 <= d <= 9 for d in skipped_deltas[1:])
         if len(presents) != 4 * args.trials or not valid_waits:
             raise SystemExit("Missing direct presentation callbacks or swap-wait interception")
         intervals = [(b['us'] - a['us']) / 1000 for a, b in zip(presents, presents[1:])]
