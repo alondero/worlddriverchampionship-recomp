@@ -4,6 +4,9 @@
 // with independent framebuffer presentation in a copied runtime object.
 #include "recomp.h"
 #include "boss_rsp.h"
+#ifdef WDC_PROTOTYPE_CAPTURE_BOSS
+#include "boss_capture.h"
+#endif
 #include "context.h"
 #include "pose.h"
 #include "vectors.h"
@@ -748,6 +751,16 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     }
     if (label.memory != rdram) std::_Exit(12);
     active_rsp_label = label;
+#ifdef WDC_PROTOTYPE_CAPTURE_BOSS
+    // Graphics-worker-only fixture: arm the existing atomic request directly
+    // before run() consumes it. No SDL call. Capture the first owned draw's
+    // bootstrap and full task, with existing journalling/completion handling.
+    static unsigned captured_tasks = 0;
+    if (label.draw == 1 && rdram == render_ram.data() && captured_tasks < 2) {
+        wdc::boss_capture::request();
+        ++captured_tasks;
+    }
+#endif
     rsp_status_reads = rsp_status_repeats = 0;
     rsp_dma_bytes = rsp_audio_dma_bytes = 0;
     texture_calls = texture_verified = 0;

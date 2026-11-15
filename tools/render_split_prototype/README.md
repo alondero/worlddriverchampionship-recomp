@@ -13,6 +13,27 @@ forwards every transfer unchanged on the graphics worker. This measures ring
 writes, not synthesis instruction time or audio fidelity; absence of ring
 writes alone does not prove that every audio-related instruction was skipped.
 
+`--capture-boss-tasks` is a diagnostic fixture for six-trial `pose-snapshot`
+runs. It arms the existing BOSS recorder immediately before the first owned
+draw's bootstrap and full task, on the graphics worker without SDL calls.
+Existing write journalling and completion-signal handling remain intact.
+Both local `.boss` files must pass the reference `wdc_boss_bench.exe` exact RDP
+replay check before the runner accepts the run; `boss-captures.json` records
+capture and benchmark hashes. Capture overhead makes these runs unsuitable for
+timing claims. The reference build must already contain the benchmark.
+
+For an offline code-generation comparison, run
+`python tools/render_split_prototype/benchmark_boss_avx2.py --reference-build build --capture <owned-task-1.boss>`.
+This compiles an unchanged copy of generated BOSS with `-mavx2`, checks host/OS
+AVX2 support, and brackets its replay with two reference-benchmark controls.
+It never replaces the player object or changes generated/reference source.
+Artifacts and provenance stay in a unique ignored
+`build/render-split-prototype/boss-avx2/run-*` directory with explicit run status.
+Every replay must reproduce the captured RDP stream exactly. Timing excludes
+RT64, live CPU handshakes and RDRAM reset; other DMA output is not compared by
+the existing benchmark. A faster offline replay alone does not qualify live
+performance, pixel equivalence or audio fidelity.
+
 This is a native experiment, not a shipping graphics option. It relinks an
 already-built Windows/MinGW player with a small probe. The reference build and
 generated code are read-only; no submodule or player source is patched in place. GNU

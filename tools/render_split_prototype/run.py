@@ -49,6 +49,7 @@ def main():
     parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
     parser.add_argument("--hold-accelerator", action="store_true", help="Input fixture: hold port-0 A with neutral steering during the race")
     parser.add_argument("--capture-frames", action="store_true", help="Capture swap images; requires explicit present and exactly six trials; timing is diagnostic only")
+    parser.add_argument("--capture-boss-tasks", action="store_true", help="Capture and replay the first owned bootstrap/full task pair; requires pose-snapshot and six trials")
     parser.add_argument("--explicit-present", action="store_true", help="Submit every explicit prototype screen update to RT64; requires --audit-present")
     parser.add_argument("--pace-present-queue", action="store_true", help="Experiment: wait for the previous event to be dequeued before submitting another; requires explicit present without capture")
     parser.add_argument("--present-dequeue-delay-ms", type=int, default=0, help="Slow-consumer fixture: delay dequeue notification 0..100 ms; requires explicit present and six trials without capture")
@@ -60,6 +61,8 @@ def main():
     args = parser.parse_args()
     if not 6 <= args.trials <= 300:
         parser.error("--trials must be 6..300; increase --timeout for long runs")
+    if args.capture_boss_tasks and (args.mode != "pose-snapshot" or args.trials != 6):
+        parser.error("--capture-boss-tasks requires pose-snapshot and six trials")
     if args.verify_texture_hash and not args.fast_texture_hash:
         parser.error("--verify-texture-hash requires --fast-texture-hash")
     if args.cache_palette_indices and not args.fast_texture_hash:
@@ -124,6 +127,8 @@ def main():
     if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120", "camera-snapshot", "shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "motion-samples", "endpoint120"):
         parser.error("--require-repeatable requires a repeat, render-only, presentation or snapshot mode")
     reference = args.reference_build.resolve()
+    if args.capture_boss_tasks and not (reference / "wdc_boss_bench.exe").is_file():
+        parser.error("--capture-boss-tasks requires wdc_boss_bench.exe in the reference build")
     rom = args.rom.resolve()
     if hashlib.sha256(rom.read_bytes()).hexdigest() != "e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97":
         raise SystemExit("Expected the USA ROM recorded in rom-analysis.toml")
@@ -146,6 +151,7 @@ def main():
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
                     *(["-DWDC_PROTOTYPE_PRESENT"] if independent_present else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE"] if args.capture_frames else []),
+                    *(["-DWDC_PROTOTYPE_CAPTURE_BOSS"] if args.capture_boss_tasks else []),
                     *(["-DWDC_PROTOTYPE_PRESENT_ADMISSION"] if args.pace_present_queue else []),
                     "-I", str(source / "lib/N64ModernRuntime/N64Recomp/include"),
                     "-I", str(source / "lib/N64ModernRuntime/ultramodern/include"),
@@ -237,6 +243,8 @@ def main():
     if args.no_owned_readback:
         env["WDC_RENDER_PROTOTYPE_NO_READBACK"] = "1"
     env["WDC_RENDER_PROTOTYPE_DEQUEUE_DELAY_MS"] = str(args.present_dequeue_delay_ms)
+    if args.capture_boss_tasks:
+        env["WDC_BOSS_CAPTURE"] = str(run_dir / "owned-task")
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
                                                   "settle_frames": args.settle_frames,
                                                   "trials": args.trials,
@@ -250,6 +258,7 @@ def main():
                                                   "pace_present_queue": args.pace_present_queue,
                                                   "present_dequeue_delay_ms": args.present_dequeue_delay_ms,
                                                   "capture_frames": args.capture_frames,
+                                                  "capture_boss_tasks": args.capture_boss_tasks,
                                                   "hold_accelerator": args.hold_accelerator,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "cache_palette_indices": args.cache_palette_indices,
@@ -278,6 +287,22 @@ def main():
                   f"backlog {sum(s['backlog'] for s in skips)}, empty swap chain {sum(s['empty_swapchain'] for s in skips)}")
     if result.returncode:
         raise SystemExit(f"Probe exited {result.returncode}; inspect {log}")
+    if args.capture_boss_tasks:
+        captures = sorted(run_dir.glob("owned-task-*.boss"))
+        if len(captures) != 2:
+            raise SystemExit("Expected the first owned bootstrap/full BOSS task pair")
+        bench = reference / "wdc_boss_bench.exe"
+        capture_evidence = {"bench_sha256": hashlib.sha256(bench.read_bytes()).hexdigest(), "captures": []}
+        for capture in captures:
+            replay = subprocess.run([str(bench), str(capture), "--iterations", "1"], env=env,
+                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            capture.with_suffix(".replay.log").write_text(replay.stdout)
+            if replay.returncode:
+                raise SystemExit(f"Captured BOSS task failed exact RDP replay; inspect {capture.with_suffix('.replay.log')}")
+            capture_evidence["captures"].append({"file": capture.name,
+                "sha256": hashlib.sha256(capture.read_bytes()).hexdigest(), "replay_returncode": replay.returncode})
+        (run_dir / "boss-captures.json").write_text(json.dumps(capture_evidence, indent=2))
+        print("BOSS capture: bootstrap/full pair passed exact RDP replay")
     rows = [json.loads(line.split("[render-prototype] ", 1)[1])
             for line in log.read_text(errors="replace").splitlines() if "[render-prototype] " in line]
     (run_dir / "report.json").write_text(json.dumps(rows, indent=2))
