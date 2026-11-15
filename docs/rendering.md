@@ -633,8 +633,11 @@ A separate `pose-snapshot` validation now interpolates camera and main car-body
 rigid poses in owned RAM. Two identical midpoint renders must repeat exactly,
 and a bit-exact current endpoint must reproduce normal geometry. `motion120` presents four increasing quarter steps from those poses while
 suppressing the normal-draw presentation. Callback labels verify their order,
-and the endpoint still matches normal geometry. Wheel/shadow/effect
-interpolation, full discontinuity handling and sustained performance remain open.
+and the endpoint still matches normal geometry. Optional wheel-pose capture
+now includes four independent matrices per car; a wheel-only control verifies
+that they affect geometry without changing camera/body inputs. High-speed spin
+phase, shadow/effect interpolation, visual qualification, full discontinuity
+handling and sustained performance remain open.
 `endpoint120` moves that experiment to the original race draw call: three
 owned blends precede the original authoritative draw, which supplies both the
 current endpoint and normal audio work. Task/callback gates verify this four-draw

@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
+    parser.add_argument("--wheel-poses", nargs="?", const="all", choices=["all", "only"], help="Interpolate four wheel matrices per car; only is a pose-snapshot geometry control")
     parser.add_argument("--skip-late-draws", action="store_true", help="motion-samples: skip elapsed group slots before starting another draw")
     parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for cadence modes; other modes retain 120")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
@@ -59,6 +60,10 @@ def main():
     endpoint_mode = args.mode == "endpoint120"
     motion_mode = args.mode == "motion120" or motion_rate or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
+    if args.wheel_poses == "only" and args.mode != "pose-snapshot":
+        parser.error("--wheel-poses only requires pose-snapshot")
+    if args.wheel_poses and not pose_mode:
+        parser.error("--wheel-poses requires a pose interpolation mode")
     if cadence_mode or pose_mode or args.no_authority_scan or args.fast_texture_hash:
         args.require_repeatable = True
     owned_ram = args.mode in ("shadow-snapshot", "shadow120", "shadow-rate", "pose-snapshot", "motion120", "motion-rate", "motion-samples", "endpoint120")
@@ -119,7 +124,7 @@ def main():
         # This translation lives in an archive, unlike the renderer object.
         # The complete copied object satisfies its symbols before extraction.
         objects.append(build_draw_boundary(reference, output))
-    wrapped = ["func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
+    wrapped = ["func_8001A97C", "func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
@@ -158,6 +163,10 @@ def main():
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_PRESENT_HZ=str(args.present_hz),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
+    if args.wheel_poses == "only":
+        env["WDC_RENDER_PROTOTYPE_WHEEL_ONLY"] = "1"
+    if args.wheel_poses:
+        env["WDC_RENDER_PROTOTYPE_WHEEL_POSES"] = "1"
     if args.skip_late_draws:
         env["WDC_RENDER_PROTOTYPE_SKIP_LATE_DRAWS"] = "1"
     if args.verify_texture_hash:
@@ -171,6 +180,7 @@ def main():
                                                   "trials": args.trials,
                                                   "present_hz": args.present_hz,
                                                   "skip_late_draws": args.skip_late_draws,
+                                                  "wheel_poses": args.wheel_poses,
                                                   "profile_rt64": args.profile_rt64,
                                                   "fast_texture_hash": args.fast_texture_hash,
                                                   "verify_texture_hash": args.verify_texture_hash,
@@ -432,6 +442,21 @@ def main():
         expected = {(r['frame'], d) for r in rows for d in range(1, frame_repeats(r['trial']) + 1)}
         if len(poses) != len(expected) or {(p['frame'], p['draw']) for p in poses} != expected:
             raise SystemExit("Missing pose interpolation observations")
+        if args.wheel_poses:
+            wheel_reads = [json.loads(line.split("[prototype-wheel-reads] ", 1)[1])
+                           for line in log.read_text(errors="replace").splitlines() if "[prototype-wheel-reads] " in line]
+            (run_dir / "wheel-reads.json").write_text(json.dumps(wheel_reads, indent=2))
+            if len(wheel_reads) != len(expected) or {(w['frame'], w['draw']) for w in wheel_reads} != expected or not any(w['copies'] for w in wheel_reads):
+                raise SystemExit("Missing owned wheel-matrix copy observations")
+            if args.wheel_poses == 'only' and any(p['changed_camera'] or p['changed_bodies'] for p in poses):
+                raise SystemExit("Wheel-only control changed camera/body poses")
+            if not any(p['changed_wheels'] for p in poses):
+                raise SystemExit("Wheel poses did not interpolate")
+            for p in poses:
+                state = next(s for s in snapshots if (s['frame'],s['draw']) == (p['frame'],p['draw']))
+                if p['poses'] != 1+5*state['car_count'] or p['changed_wheels'] > 4*state['car_count']:
+                    raise SystemExit("Incomplete wheel pose snapshot")
+            print("PASS: four wheel poses per car captured/interpolated; owned wheel copies observed")
         if sample_motion and any(p['reset'] != sample_schedules[trial_by_frame[p['frame']]]['reset'] for p in poses):
             raise SystemExit("Schedule reset differs from pose-history reset")
         if any(not math.isclose(p['alpha'], pose_alpha(p['frame'], p['draw']), rel_tol=0, abs_tol=1e-8) or
@@ -441,7 +466,7 @@ def main():
                 (g['draw'] == 0 and not g['same_headers_as_first_extra'] if endpoint_mode else
                  g['draw'] == 1 and not g['same_headers_as_normal']) for g in geometry):
             raise SystemExit("Pose experiment did not demonstrate intermediate geometry")
-        print("PASS: interpolated camera/body inputs change geometry; " +
+        print("PASS: interpolated pose inputs change geometry; " +
               ("original draw supplies current endpoint" if endpoint_mode else "scheduled endpoints match normal when present" if motion_rate else "current endpoint matches normal"))
         if motion_mode:
             expected_order = [(r['frame'], d) for r in rows for d in ((1, 2, 3, 0) if endpoint_mode else range(1, frame_repeats(r['trial']) + 1))]

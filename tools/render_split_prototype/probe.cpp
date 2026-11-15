@@ -43,6 +43,7 @@ std::atomic_uint requested_presents{0}, completed_presents{0};
 std::mutex render_memory_mutex;
 uint8_t* authoritative_memory = nullptr;
 std::vector<uint8_t> frozen_ram, render_ram;
+enum class PoseKind { Camera, Body, Wheel };
 std::vector<prototype::Pose> previous_poses;
 std::vector<uint32_t> previous_pose_identity;
 uint32_t previous_pose_sample = 0;
@@ -55,7 +56,7 @@ unsigned race_frame = 0;
 unsigned draw_number = 0;
 std::array<uint32_t, 32> frozen_camera{};
 uint32_t redirected_camera = 0;
-unsigned camera_copies = 0;
+unsigned camera_copies = 0, wheel_pose_reads = 0;
 struct Label { unsigned frame; unsigned draw; uint8_t* memory; };
 thread_local Label active_rsp_label{};
 thread_local unsigned texture_calls = 0, texture_verified = 0;
@@ -106,6 +107,14 @@ unsigned trial_count() {
 }
 bool gated() {
     return std::strcmp(mode(), "raw") != 0;
+}
+bool wheel_poses() {
+    static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_WHEEL_POSES") != nullptr;
+    return enabled;
+}
+bool wheel_only_control() {
+    static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_WHEEL_ONLY") != nullptr;
+    return enabled;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
 bool sample_motion_mode() { return std::strcmp(mode(), "motion-samples") == 0; }
@@ -161,6 +170,22 @@ bool prototype_disable_readback(uint8_t* memory) {
             label.frame, label.draw, disabled ? "true" : "false");
     }
     return disabled;
+}
+void __real_func_8001A97C(uint8_t*, recomp_context*);
+void __wrap_func_8001A97C(uint8_t* rdram, recomp_context* ctx) {
+    // 22254 copies 64 raw matrix bytes from a1 for wheels. Observe only:
+    // game thread, guest u32 address, car base BA7F0/stride18A0, four matrices
+    // at +94 + i*84. Validated car span is in 8 MiB; ignore other copy sources.
+    // No guest writes here; original copy owns its destination/lifetime.
+    if (extra && wheel_poses() && rdram == render_ram.data()) {
+        const uint32_t address = uint32_t(ctx->r5), base = 0x800BA7F0;
+        const uint32_t count = word(rdram, 0x80080D90);
+        if (count <= (0x80800000u-base)/0x18A0 && address >= base && address < base+count*0x18A0) {
+            const unsigned offset = (address-base)%0x18A0;
+            if (offset >= 0x94 && offset <= 0x94+3*0x84 && (offset-0x94)%0x84 == 0) ++wheel_pose_reads;
+        }
+    }
+    __real_func_8001A97C(rdram, ctx);
 }
 void prototype_texture_hash_result(bool verified) {
     ++texture_calls; texture_verified += verified;
@@ -727,16 +752,26 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     // 16 raw word-swapped u32s each; math touches only float basis/position.
     // Bounds follow the full camera/car-span checks above. Game thread owns
     // these host copies; only render_ram receives interpolated words. No
-    // authoritative restoration. Shadows/wheels/effects are not covered yet.
+    // authoritative restoration. Optional wheel inputs at +94/+118/+19C/+220
+    // are four 64-byte matrices copied by 218F0 at 22254; the full car-span
+    // bounds above contain them. All finite rigid-pose checks apply. Invalid
+    // poses abort rather than writing guesses. Shadows/effects remain separate.
     std::vector<prototype::Pose> current_poses;
     std::vector<uint32_t> pose_addresses, pose_identity;
+    std::vector<PoseKind> pose_kind;
     bool pose_reset = false;
     if (pose_mode()) {
         pose_addresses.push_back(camera);
+        pose_kind.push_back(PoseKind::Camera);
         pose_identity = {scene, camera, word(rdram, 0x800ABE40 + 0x74)};
         for (unsigned i = 0; i < car_count; ++i) {
             const auto car = 0x800BA7F0 + i * 0x18A0;
             pose_addresses.push_back(car + 0x14);
+            pose_kind.push_back(PoseKind::Body);
+            if (wheel_poses()) for (unsigned wheel = 0; wheel < 4; ++wheel) {
+                pose_addresses.push_back(car + 0x94 + wheel*0x84);
+                pose_kind.push_back(PoseKind::Wheel);
+            }
             pose_identity.push_back(word(rdram, car));
         }
         for (const auto address : pose_addresses) {
@@ -795,6 +830,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 (unsigned long long)(sample_schedule.first_slot + selected_index), selected_index - next);
         }
         const auto receives_before = shadow_receives, sends_before = shadow_sends;
+        const auto wheel_reads_before = wheel_pose_reads;
         const auto copies_before = camera_copies;
         const auto active_camera = word(rdram, 0x8007ED6C);
         const auto history_before = preserved_flare_history;
@@ -810,19 +846,22 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 // pose-snapshot repeats a midpoint to validate determinism;
                 // motion120 presents increasing quarter steps to the endpoint.
                 const double alpha = sample_motion_mode() ? sample_schedule.alpha(skip_late_draws() ? selected_index + 1 : draw_number) : motion_rate_mode() ? prototype::presentation_alpha(trials, draw_number, present_hz()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
-                unsigned changed = 0;
+                unsigned changed = 0, changed_bodies = 0, changed_wheels = 0;
                 bool camera_changed = false;
                 for (unsigned i = 0; i < current_poses.size(); ++i) {
                     prototype::Pose pose;
-                    if (!prototype::interpolate_pose(previous_poses[i], current_poses[i], alpha, pose)) std::_Exit(15);
+                    if (!prototype::interpolate_pose(previous_poses[i], current_poses[i],
+                            wheel_only_control() && pose_kind[i] != PoseKind::Wheel ? 1.0 : alpha, pose)) std::_Exit(15);
                     changed += pose != current_poses[i];
+                    changed_bodies += pose_kind[i] == PoseKind::Body && pose != current_poses[i];
+                    changed_wheels += pose_kind[i] == PoseKind::Wheel && pose != current_poses[i];
                     if (i == 0) camera_changed = pose != current_poses[i];
                     std::memcpy(drawing_ram + (pose_addresses[i] - 0x80000000), pose.data(), sizeof(pose));
                 }
                 std::lock_guard lock(output_mutex);
-                log_record("[prototype-pose] {\"frame\":%u,\"draw\":%u,\"alpha\":%.9f,\"reset\":%s,\"poses\":%u,\"changed_poses\":%u,\"changed_camera\":%s,\"changed_bodies\":%u}\n",
+                log_record("[prototype-pose] {\"frame\":%u,\"draw\":%u,\"alpha\":%.9f,\"reset\":%s,\"poses\":%u,\"changed_poses\":%u,\"changed_camera\":%s,\"changed_bodies\":%u,\"changed_wheels\":%u}\n",
                     race_frame, draw_number, alpha, pose_reset ? "true" : "false", unsigned(current_poses.size()), changed,
-                    camera_changed ? "true" : "false", changed - unsigned(camera_changed));
+                    camera_changed ? "true" : "false", changed_bodies, changed_wheels);
             }
             const char* offset_text = std::getenv("WDC_RENDER_PROTOTYPE_SHADOW_OFFSET");
             const float eye_offset = offset_text ? std::strtof(offset_text, nullptr) : 0.0f;
@@ -884,6 +923,10 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             MEM_W(0, int32_t(0x800ABE40 + 0x2DC)) = redirected_camera;
             MEM_W(0, int32_t(0x8007ED6C)) = active_camera;
             redirected_camera = 0;
+        }
+        if (wheel_poses()) {
+            std::lock_guard lock(output_mutex);
+            log_record("[prototype-wheel-reads] {\"frame\":%u,\"draw\":%u,\"copies\":%u}\n", race_frame, draw_number, wheel_pose_reads-wheel_reads_before);
         }
         bool camera_same = word(rdram, 0x800ABE40 + 0x2DC) == camera;
         for (unsigned i = 0; i < camera_snapshot.size(); ++i)

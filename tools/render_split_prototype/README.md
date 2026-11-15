@@ -370,6 +370,8 @@ establish these boundaries (hex addresses/offsets):
 | Car `+B90/+B94`, `+B98/+B9C` | Two geometry-list head/tail pairs. `284CC` initializes the first head to `10000000`; `28C04` saves its final tail. `28F10..28FA0` builds the second pair. `29D6C..29DD8` splices both into sort buckets. Addresses depend on the current arena; never interpolate or restore them independently of their lists. |
 | Per-view record `800ABE40`, stride `1418` | `10A5C` clears its list via `F8BC` (`+68` head, `+6C` append link), builds the camera and transform requests, saves matrix `+1C..+5B`, normalization `+5C` and transform base `+18`. `10ECC` restores these values and walks the newly built list. |
 | Main car-body pose | `218F0` at `21F78` passes `car+14` to `1A97C`, copying 16 float-matrix words into `800B2B00`; `21FFC` subtracts camera position from its translation before conversion. Body translation is `car+44..4C`; shadow/wheel paths are separate. |
+| Wheel poses | `218F0` at `22254` copies a 64-byte matrix from `car+94`; the four-wheel loop advances the source by `84` at `22370`, giving `+94/+118/+19C/+220`. `17164` generates these matrices, starting at `171F0` and advancing by `84` at `1734C`. Camera-relative conversion follows the copy. |
+| Shadow cache/input ownership | `11BA0` clears `car+9F8/+9FC` each draw. `3062C` rebuilds `car+5E4` when bit 0 of `+9F8` is clear. With `8007DF40 == 0`, it uses `car+360` and body basis `+14`, then copies `+36C` into translation `+614`. The alternate path derives a normal/height from `+C6C/+C78/+C84/+C90`; interpolating the cached matrix before drawing would be overwritten. |
 | Camera snapshot | `11D54` reads the camera basis/position and projection fields, then writes derived `+7C` at `11DCC`. The experiment reserves 128 bytes below `FE70` after the normal arena reset, checks collision against `ED40`, copies the frozen host words and redirects view `+2DC` through both passes. It restores only that reference and current-camera global `ED6C`; the arena is not rewound. |
 | Lens-flare object, view `+2F4` | `2A3A8` shifts four screen-position history words at object `+10..+1C`; render-only extras preserve these around the call. Object `+6C/+70` are newly allocated packet pointers written at `2A280/2A284`, so view `+360/+364` must retain the current arena addresses. |
 | Matrix/transform arena `8007FE70`, counter `FE78` | `24038 -> 2D730` resets from `ED50 + ED54*8`; `2CF30` allocates 64-byte matrices downwards. The transform command stream grows upwards from `ED50`. |
@@ -567,3 +569,29 @@ This is group-relative deadline selection, not an end-to-end display deadline
 or latency guarantee. The existing swap pacing/catch-up policy remains; a
 costly draw can still finish late. Visual and audio qualification are still
 required even if the bounded timing gate passes.
+
+### Wheel pose experiment
+
+`--wheel-poses` includes four wheel matrices per active car alongside the camera
+and body poses. The renderer copies these matrices independently; leaving them
+at the current simulation pose while blending the body can separate their motion.
+The same finite rigid-matrix validation, shortest-arc rotation interpolation,
+linear translation, reset policy and exact endpoints apply. Only the owned bank
+receives blended values. Original car words remain covered by the state gate.
+
+`--wheel-poses only` is a `pose-snapshot` control: camera/body inputs stay exactly
+current while wheel poses blend. The midpoint must repeat, the endpoint must
+match normal geometry, and wheel-only changes must affect ordered triangle
+headers. Runtime observations in `wheel-reads.json` establish that the original
+matrix-copy function reads wheel addresses from the owned bank; invisible/LOD
+wheels need not be copied, so this is not a per-wheel visibility assertion.
+
+```powershell
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode pose-snapshot --warp '1:0:arcade:3' --settle-frames 180 --wheel-poses only
+```
+
+`poses.json` separately counts changed camera, body and wheel poses. The capture
+must contain one camera and five matrices per car. This matrix interpolation
+cannot recover extra wheel revolutions between samples; high-speed spin aliasing
+and visual quality remain unqualified. Shadow ground-contact inputs and effects
+remain separate work. The feature is opt-in for all pose modes.
