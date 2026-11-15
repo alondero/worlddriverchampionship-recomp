@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/render_split_prototype"))
-from present_audit import validate_swaps
+from present_audit import validate_admissions, validate_swaps
 
 
 class PresentAuditTests(unittest.TestCase):
@@ -43,3 +43,17 @@ class PresentAuditTests(unittest.TestCase):
         bindings[0]["previous"] = bindings[0]["id"]
         with self.assertRaises(ValueError):
             validate_swaps(bindings, self.swaps, self.callbacks)
+
+    def test_admission_requires_every_previous_event_dequeued(self):
+        admissions = [dict(previous=p, dequeued=p, wait_us=0) for p in (0, 100, 101)]
+        validate_admissions(admissions, self.bindings)
+        cases = [admissions[:-1], admissions[::-1]]
+        for field, value in [("dequeued", 100), ("previous", 99), ("wait_us", -1)]:
+            changed = copy.deepcopy(admissions)
+            changed[-1][field] = value
+            cases.append(changed)
+        for rows in cases:
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                validate_admissions(rows, self.bindings)
+        with self.assertRaises(ValueError):
+            validate_admissions([], [])

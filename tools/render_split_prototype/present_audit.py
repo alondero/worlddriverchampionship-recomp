@@ -15,7 +15,7 @@ def build_present_audit(reference, output, compiler, capture=False):
     seam = "                swapChainValid = ext.swapChain->present(swapChainIndex, &waitSemaphore, 1);"
     if source.count(seam) != 1:
         raise RuntimeError("RT64 present audit seam changed")
-    source = '#include <cstdint>\nextern "C" void prototype_swap_observed(uint64_t, uint32_t, bool);\nextern "C" void prototype_swap_batch_finished(uint64_t);\nextern "C" void prototype_present_skipped(uint64_t, bool, bool);\n' + source.replace(
+    source = '#include <cstdint>\nextern "C" void prototype_swap_observed(uint64_t, uint32_t, bool);\nextern "C" void prototype_swap_batch_finished(uint64_t);\nextern "C" void prototype_present_skipped(uint64_t, bool, bool);\nextern "C" void prototype_present_dequeued(uint64_t);\n' + source.replace(
         seam, seam + "\n                prototype_swap_observed(present.presentId, i, swapChainValid);")
     skip = "                skipPresent = skipPresent || ext.swapChain->isEmpty();"
     branch = "                if (skipPresent) {\n                    skipInterpolation();"
@@ -26,6 +26,11 @@ def build_present_audit(reference, output, compiler, capture=False):
                 skipPresent = skipPresent || prototype_empty;""").replace(branch, """                if (skipPresent) {
                     prototype_present_skipped(present.presentId, prototype_backlog, prototype_empty);
                     skipInterpolation();""")
+    dequeue = "                Present &present = presents[processCursor];"
+    if source.count(dequeue) != 1:
+        raise RuntimeError("RT64 present dequeue seam changed")
+    source = source.replace(
+        dequeue, dequeue + "\n                prototype_present_dequeued(present.presentId);")
     end = "        }\n    }\n\n    void PresentQueue::skipInterpolation()"
     if source.count(end) != 1:
         raise RuntimeError("RT64 present completion seam changed")
@@ -66,6 +71,16 @@ def build_present_audit(reference, output, compiler, capture=False):
         "compile_command": command,
     }, indent=2))
     return str(obj)
+
+
+def validate_admissions(admissions, bindings):
+    """Each enqueue waits for the previously bound event's dequeue decision."""
+    if not bindings or len(admissions) != len(bindings):
+        raise ValueError("Missing presentation admission observations")
+    previous = [0] + [b["id"] for b in bindings[:-1]]
+    if [a["previous"] for a in admissions] != previous or any(
+            a["dequeued"] < a["previous"] or a["wait_us"] < 0 for a in admissions):
+        raise ValueError("Presentation admitted before its predecessor was dequeued")
 
 
 def validate_swaps(bindings, swaps, callbacks):

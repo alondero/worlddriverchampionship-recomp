@@ -42,6 +42,32 @@ submission prevents enqueue deduplication, but RT64 can still skip queued
 events when the presentation worker falls behind. The strict swap audit rejects
 any resulting loss in the selected sequence.
 
+`--pace-present-queue --explicit-present --audit-present` experiments with
+admission pacing on the graphics worker. Before each prototype screen update,
+it waits until the present worker has dequeued the previously bound event and
+made its backlog decision. This allows one waiting event alongside the active
+presentation. It does not wait for swap completion. A mutex/condition variable
+protects the dequeue predicate; a ten-second timeout aborts with exit 26.
+The present worker signals before waiting on the event's workload, and the
+graphics worker waits before entering `updateScreen`, with no probe locks held.
+VI/AI delivery and the game thread's external-message drain remain unchanged.
+
+`present-admissions.json` records the predecessor, observed dequeue ID and wait
+duration for every selected callback; missing or premature admissions fail.
+Startup events are outside this admission policy, so the first selected frame
+still relies on the swap audit to detect transition loss. Empty swapchains and
+unsuccessful swaps remain failures. The option cannot be combined with image
+capture's separate completion serialization. Timing acceptance remains enabled;
+preventing queue loss alone does not establish sustained high refresh.
+
+For a bounded negative control, `--present-dequeue-delay-ms 40` stalls the
+present worker for 40 ms between its dequeue decision and notification. It
+starts after the first selected event is bound, outside probe locks. Values
+are limited to 0..100 ms, explicit presentation and exactly six trials without
+capture. Compare runs with and without `--pace-present-queue` to exercise queue
+backpressure. `setup.json` records the injected delay; swap and timing gates
+are still enforced, so an intentionally slow run is expected to fail timing.
+
 `--capture-frames --explicit-present --audit-present` captures final swap-chain
 RGB images after VI/UI rendering, before presentation. It requires exactly six
 trials. The copied present queue reads back into a local GPU buffer after the

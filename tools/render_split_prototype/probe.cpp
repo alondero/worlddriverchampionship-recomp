@@ -51,6 +51,11 @@ std::atomic_uint requested_presents{0}, completed_presents{0};
 std::mutex completion_mutex;
 std::condition_variable completion_changed;
 std::atomic_uint64_t last_bound_present{0}, last_finished_present{0};
+#ifdef WDC_PROTOTYPE_PRESENT_ADMISSION
+std::mutex admission_mutex;
+std::condition_variable admission_changed;
+uint64_t last_dequeued_present = 0; // Protected by admission_mutex.
+#endif
 thread_local bool binding_screen = false;
 std::atomic_bool capture_started{false};
 void finish_present_audit() {
@@ -413,7 +418,56 @@ void prototype_vi_observed() { ++prototype_vi_ticks; }
 // Host-only telemetry: graphics worker binds RT64's monotonic presentation ID
 // to its queued label. RT64's present worker reports after swapChain->present.
 // No guest access. Separate locks avoid holding label state during log writes.
-void prototype_screen_begin(bool enabled) { binding_screen = enabled; if (enabled) capture_started = true; }
+void prototype_screen_begin(bool enabled) {
+    binding_screen = enabled;
+    if (!enabled) return;
+    capture_started = true;
+#ifdef WDC_PROTOTYPE_PRESENT_ADMISSION
+    // Graphics worker, before updateScreen/enqueue, with no probe locks held.
+    // Allow one queued event alongside the active one. The present worker
+    // signals after its cursor/skip decision, before waiting on any workload.
+    // No guest access; VI/AI and game-thread message delivery remain running.
+    const auto previous = last_bound_present.load();
+    const auto start = std::chrono::steady_clock::now();
+    uint64_t dequeued;
+    {
+        std::unique_lock lock(admission_mutex);
+        if (!admission_changed.wait_for(lock, std::chrono::seconds(10), [&] {
+                return last_dequeued_present >= previous;
+            })) {
+            std::fprintf(stderr, "[prototype-admission-timeout] previous=%llu dequeued=%llu\n",
+                (unsigned long long)previous, (unsigned long long)last_dequeued_present);
+            std::_Exit(26);
+        }
+        dequeued = last_dequeued_present;
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    std::lock_guard lock(output_mutex);
+    log_record("[prototype-present-admission] {\"previous\":%llu,\"dequeued\":%llu,\"wait_us\":%lld}\n",
+        (unsigned long long)previous, (unsigned long long)dequeued,
+        (long long)std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count());
+#endif
+}
+void prototype_present_dequeued(uint64_t id) {
+    // Bounded slow-consumer fixture, outside probe locks. Leave startup alone.
+    static const unsigned delay_ms = [] {
+        const auto* value = std::getenv("WDC_RENDER_PROTOTYPE_DEQUEUE_DELAY_MS");
+        const int delay = value ? std::atoi(value) : 0;
+        if (delay < 0 || delay > 100) std::_Exit(26);
+        return unsigned(delay);
+    }();
+    if (delay_ms && last_bound_present.load())
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+#ifdef WDC_PROTOTYPE_PRESENT_ADMISSION
+    {
+        std::lock_guard lock(admission_mutex);
+        last_dequeued_present = id;
+    }
+    admission_changed.notify_one();
+#else
+    (void)id;
+#endif
+}
 bool prototype_capture_enabled() { return capture_started.load(); }
 bool prototype_explicit_present() { return binding_screen; }
 void prototype_present_bound(uint64_t previous, uint64_t id) {

@@ -22,7 +22,7 @@ from shadow import build_shadow_renderer
 from rt64_profile import build_rt64_profile
 from fast_hash_build import build_fast_hash
 from draw_boundary import build_draw_boundary
-from present_audit import build_present_audit, validate_swaps
+from present_audit import build_present_audit, validate_admissions, validate_swaps
 
 
 def main():
@@ -49,6 +49,8 @@ def main():
     parser.add_argument("--hold-accelerator", action="store_true", help="Input fixture: hold port-0 A with neutral steering during the race")
     parser.add_argument("--capture-frames", action="store_true", help="Capture swap images; requires explicit present and exactly six trials; timing is diagnostic only")
     parser.add_argument("--explicit-present", action="store_true", help="Submit every explicit prototype screen update to RT64; requires --audit-present")
+    parser.add_argument("--pace-present-queue", action="store_true", help="Experiment: wait for the previous event to be dequeued before submitting another; requires explicit present without capture")
+    parser.add_argument("--present-dequeue-delay-ms", type=int, default=0, help="Slow-consumer fixture: delay dequeue notification 0..100 ms; requires explicit present and six trials without capture")
     parser.add_argument("--audit-present", action="store_true", help="Observe actual RT64 swap calls and bind presentation IDs to prototype labels")
     parser.add_argument("--profile-rt64", action="store_true", help="Compile copied RT64 full-sync phase timers")
     parser.add_argument("--no-owned-readback", action="store_true", help="Experiment: disable RT64 RAM readback only for owned tasks")
@@ -87,6 +89,11 @@ def main():
         parser.error("--capture-frames requires --explicit-present and --trials 6")
     if args.explicit_present and not args.audit_present:
         parser.error("--explicit-present requires --audit-present")
+    if args.pace_present_queue and (not args.explicit_present or args.capture_frames):
+        parser.error("--pace-present-queue requires --explicit-present without --capture-frames")
+    if not 0 <= args.present_dequeue_delay_ms <= 100 or (args.present_dequeue_delay_ms and (
+            not args.explicit_present or args.capture_frames or args.trials != 6)):
+        parser.error("--present-dequeue-delay-ms requires 0..100 ms, --explicit-present, six trials and no capture")
     if args.audit_present:
         args.require_repeatable = True
     if args.audit_present and not (owned_ram and independent_present):
@@ -136,6 +143,7 @@ def main():
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
                     *(["-DWDC_PROTOTYPE_PRESENT"] if independent_present else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE"] if args.capture_frames else []),
+                    *(["-DWDC_PROTOTYPE_PRESENT_ADMISSION"] if args.pace_present_queue else []),
                     "-I", str(source / "lib/N64ModernRuntime/N64Recomp/include"),
                     "-I", str(source / "lib/N64ModernRuntime/ultramodern/include"),
                     "-I", str(source / "src"),
@@ -225,6 +233,7 @@ def main():
         env["WDC_RENDER_PROTOTYPE_VERIFY_WRITE_WATCH"] = "1"
     if args.no_owned_readback:
         env["WDC_RENDER_PROTOTYPE_NO_READBACK"] = "1"
+    env["WDC_RENDER_PROTOTYPE_DEQUEUE_DELAY_MS"] = str(args.present_dequeue_delay_ms)
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
                                                   "settle_frames": args.settle_frames,
                                                   "trials": args.trials,
@@ -235,6 +244,8 @@ def main():
                                                   "profile_rt64": args.profile_rt64,
                                                   "audit_present": args.audit_present,
                                                   "explicit_present": args.explicit_present,
+                                                  "pace_present_queue": args.pace_present_queue,
+                                                  "present_dequeue_delay_ms": args.present_dequeue_delay_ms,
                                                   "capture_frames": args.capture_frames,
                                                   "hold_accelerator": args.hold_accelerator,
                                                   "fast_texture_hash": args.fast_texture_hash,
@@ -376,6 +387,13 @@ def main():
                  for line in log.read_text(errors="replace").splitlines() if "[prototype-swap] " in line]
         (run_dir / "present-bindings.json").write_text(json.dumps(bindings, indent=2))
         (run_dir / "swaps.json").write_text(json.dumps(swaps, indent=2))
+        if args.pace_present_queue:
+            admissions = [json.loads(line.split("[prototype-present-admission] ", 1)[1])
+                          for line in log.read_text(errors="replace").splitlines() if "[prototype-present-admission] " in line]
+            (run_dir / "present-admissions.json").write_text(json.dumps(admissions, indent=2))
+            validate_admissions(admissions, bindings)
+            print(f"Presentation admission wait: {sum(a['wait_us'] for a in admissions) / len(admissions):.1f} us mean; "
+                  f"{max(a['wait_us'] for a in admissions)} us maximum")
         selected = validate_swaps(bindings, swaps, presents)
         if args.capture_frames:
             captures = []
