@@ -22,8 +22,12 @@ def main():
     parser.add_argument("--reference-build", type=Path, required=True)
     parser.add_argument("--rom", type=Path, required=True)
     parser.add_argument("--mode", choices=["raw", "sound-gated", "camera-offset", "repeat", "split60"], default="sound-gated")
+    parser.add_argument("--require-repeatable", action="store_true",
+                        help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()
+    if args.require_repeatable and args.mode != "repeat":
+        parser.error("--require-repeatable requires --mode repeat")
     reference = args.reference_build.resolve()
     rom = args.rom.resolve()
     if hashlib.sha256(rom.read_bytes()).hexdigest() != "e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97":
@@ -51,7 +55,7 @@ def main():
                     "-c", str(here / "probe.cpp"), "-o", str(probe)], check=True)
     exe = output / "render_split_prototype.exe"
     wrapped = ["func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
-               "wdc_framerate_preswap", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
+               "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     link = [*objects, str(probe), *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),
             *("-Wl,--wrap=" + name for name in wrapped), "-o", str(exe)]
     response = output / "link.rsp"
@@ -84,6 +88,12 @@ def main():
     geometry = [json.loads(line.split("[prototype-rdp] ", 1)[1])
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-rdp] " in line]
     (run_dir / "geometry.json").write_text(json.dumps(geometry, indent=2))
+    snapshots = [json.loads(line.split("[prototype-snapshot] ", 1)[1])
+                 for line in log.read_text(errors="replace").splitlines() if "[prototype-snapshot] " in line]
+    (run_dir / "snapshots.json").write_text(json.dumps(snapshots, indent=2))
+    projections = [json.loads(line.split("[prototype-projection] ", 1)[1])
+                   for line in log.read_text(errors="replace").splitlines() if "[prototype-projection] " in line]
+    (run_dir / "projections.json").write_text(json.dumps(projections, indent=2))
     for row in rows:
         print(f"trial {row['trial']}: extra draw {row['draw_ms']:.1f} ms; "
               f"samples {row['sample_before']} -> {row['sample_after']}; "
@@ -109,6 +119,23 @@ def main():
         if repeats == 2:
             print("  consecutive extra draws: " +
                   ("identical" if pair[1]['triangle_header_hash'] == pair[2]['triangle_header_hash'] else "DIFFERENT"))
+    if args.require_repeatable:
+        frames = {row['frame'] for row in rows}
+        for frame in frames:
+            group = sorted((g for g in geometry if g['frame'] == frame), key=lambda g: g['draw'])
+            if any(not g['same_headers_as_normal'] for g in group[1:]):
+                raise SystemExit("Frozen-sample geometry differs (exact ordered triangle headers)")
+            states = [s for s in snapshots if s['frame'] == frame]
+            if len(states) != 2 or {s['draw'] for s in states} != {1, 2}:
+                raise SystemExit("Missing per-draw snapshot observations")
+            if any(not s['context_unchanged'] or not s['camera_unchanged'] or
+                   not s['car_nonlink_words_unchanged'] or not s['sample_unchanged'] for s in states):
+                raise SystemExit("Frozen camera/car/context observation changed")
+            matrices = [p for p in projections if p['frame'] == frame]
+            if len(matrices) != 3 or {p['draw'] for p in matrices} != {0, 1, 2} or any(
+                    p['matrix'] != matrices[0]['matrix'] for p in matrices):
+                raise SystemExit("Missing or unequal single-view projection evidence")
+        print("PASS: exact triangle headers, projection, camera snapshot, first-car non-link words and caller context repeat")
 
 
 if __name__ == "__main__":

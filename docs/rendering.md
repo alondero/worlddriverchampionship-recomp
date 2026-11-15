@@ -593,10 +593,16 @@ a prerequisite for the refactor, not a new player-facing capability.
 
 A [throwaway native prototype](../tools/render_split_prototype/README.md)
 now exercises extra draws in the real player, gates the two sound-list calls,
-and compares emitted triangle geometry. Its one-VI experiment retains 30 Hz
-sampling, but consecutive extra draws still differ without simulation
-advancing. This narrows the next investigation to render state and geometry
-construction; it does not yet establish a repeatable interpolated frame.
+and compares emitted triangle geometry. The original consecutive-draw mismatch
+was traced to a shallow `recomp_context` copy: its `f_odd` self-pointer still
+referenced the caller, corrupting registers and producing different projection
+matrices from identical inputs. Rebinding that pointer makes the bounded Hawaii
+normal/extra/extra triangle headers exactly equal without advancing consumed
+simulation samples or rewinding the alternating geometry arenas. An isolated
+ROM-backed projection fixture repeats from frozen memory and catches the old
+copy as a negative control. Per-view history still changes, and full-frame
+snapshot isolation, all-car state equivalence and interpolation remain unproven.
+The prototype README records the car-list, per-view and arena ownership evidence.
 
 ## Tools and methods
 
@@ -641,11 +647,10 @@ yet.
   keep up at 17 fps, so that measurement does not show a full ring. The
   worker skips `func_8002C0B8` when full; long stalls still need measuring.
 - Which logic advances once per frame instead of by the sample step?
-- Do the CPU's ZSort sublists copy screen-space vertices, or read transformed
-  vertices back? The [SP_BREAK handshake](#2-camera-and-display-lists-cpu)
-  suggests the CPU reads BOSS output back before sorting, but what
-  `func_80025410` / `func_8002703C` read is not confirmed. This only matters
-  for the above-60 Hz route.
+- Which per-view/HUD histories and all-car/effect inputs must be captured for
+  an isolated full-frame render snapshot? The prototype now identifies
+  transformed-buffer reads in `25410` / `2703C` and car-list/arena ownership,
+  but does not establish complete render-state isolation.
 - Do menus, split-screen and other tracks behave like Hawaii racing (task
   cost, SIG0 timeline)?
 

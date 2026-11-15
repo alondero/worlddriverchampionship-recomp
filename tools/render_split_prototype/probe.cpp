@@ -3,6 +3,7 @@
 // sound events? This intentionally retains the original VI/swap/audio clock.
 #include "recomp.h"
 #include "boss_rsp.h"
+#include "context.h"
 #include <array>
 #include <bit>
 #include <chrono>
@@ -35,6 +36,18 @@ uint32_t word(uint8_t* rdram, uint32_t address) {
 }
 }
 extern "C" {
+void __real_wdc_projection_normalize(uint8_t*, recomp_context*);
+void __wrap_wdc_projection_normalize(uint8_t* rdram, recomp_context* ctx) {
+    __real_wdc_projection_normalize(rdram, ctx);
+    if (race_frame < 60) return;
+    // Game-thread read, after the projection builder: 16 float32 bit patterns
+    // at fixed aligned RDRAM 800B2A80..800B2ABF, word-swapped via MEM_W.
+    // Projection scratch belongs to this view pass; retain only host values.
+    std::lock_guard lock(output_mutex);
+    std::fprintf(stderr, "[prototype-projection] {\"frame\":%u,\"draw\":%u,\"matrix\":[", race_frame, draw_number);
+    for (unsigned i = 0; i < 16; ++i) std::fprintf(stderr, "%s%u", i ? "," : "", word(rdram, 0x800B2A80 + i * 4));
+    std::fprintf(stderr, "]}\n");
+}
 void __real_func_8000C560(uint8_t*, recomp_context*);
 void __real_func_8001F9CC(uint8_t*, recomp_context*);
 void __real_func_800214C8(uint8_t*, recomp_context*);
@@ -86,6 +99,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     uint64_t hash = 14695981039346656037ull;
     unsigned triangles = 0;
     bool complete = true;
+    std::vector<uint32_t> headers;
     for (size_t i = 0; i < capture.words.size();) {
         const unsigned op = (capture.words[i] >> 24) & 63;
         const bool triangle = op >= 8 && op <= 15;
@@ -96,14 +110,23 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
             ++triangles;
             // Ordered triangle headers, including opcode/tile/level fields.
             // Ignore shading/texture coefficients and framebuffer addresses.
-            for (unsigned j = 0; j < 8; ++j) { hash ^= capture.words[i + j]; hash *= 1099511628211ull; }
+            for (unsigned j = 0; j < 8; ++j) {
+                headers.push_back(capture.words[i + j]);
+                hash ^= capture.words[i + j]; hash *= 1099511628211ull;
+            }
         }
         i += length;
     }
     std::lock_guard output_lock(output_mutex);
+    // Compare owned vectors, not just hashes. BOSS tasks execute serially on
+    // the graphics worker; the mutex also protects this bounded reference.
+    static unsigned normal_frame = 0;
+    static std::vector<uint32_t> normal_headers;
+    if (!label.draw) { normal_frame = label.frame; normal_headers = headers; }
+    const bool same = normal_frame == label.frame && headers == normal_headers;
     std::fprintf(stderr, "[prototype-rdp] {\"frame\":%u,\"draw\":%u,\"extra\":%s,\"triangles\":%u,"
-        "\"triangle_header_hash\":\"%016llx\",\"complete\":%s}\n", label.frame,
-        label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false");
+        "\"triangle_header_hash\":\"%016llx\",\"complete\":%s,\"same_headers_as_normal\":%s}\n", label.frame,
+        label.draw, label.draw ? "true" : "false", triangles, (unsigned long long)hash, complete ? "true" : "false", same ? "true" : "false");
 }
 void __wrap_func_8001F9CC(uint8_t* rdram, recomp_context* ctx) {
     if (extra && gated()) { ++skipped_publish; return; }
@@ -171,15 +194,51 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     for (unsigned i = 0; i < 3; ++i) eye[i] = word(rdram, camera + 0x30 + 4 * i);
     const bool offset = std::strcmp(mode(), "camera-offset") == 0;
     if (offset) MEM_W(0x30, int32_t(camera)) = std::bit_cast<uint32_t>(std::bit_cast<float>(eye[0]) + 1.0f);
-    auto draw_context = *ctx;
+    recomp_context draw_context;
+    std::array<uint8_t, sizeof(recomp_context)> caller_snapshot;
+    std::memcpy(caller_snapshot.data(), ctx, sizeof(*ctx));
+    // Immutable host observations, not a whole-RDRAM rewind. Four fixed view
+    // records at 800ABE40 (stride 1418), the validated camera's 80 bytes, and
+    // first-car words above. Raw u32 bits, MEM_W byte order, game thread only.
+    // Also observe u32 arena cursors FE70/FE74 and buffer selector ED94; never
+    // restore them while BOSS can own the preceding task. The normal ROM path
+    // resets/recycles arenas and performs its SP_BREAK/completion handshakes.
+    std::vector<uint32_t> views(0x1418 * 4 / 4);
+    for (unsigned i = 0; i < views.size(); ++i) views[i] = word(rdram, 0x800ABE40 + 4 * i);
+    std::array<uint32_t, 32> camera_snapshot;
+    for (unsigned i = 0; i < camera_snapshot.size(); ++i) camera_snapshot[i] = word(rdram, camera + 4 * i);
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    draw_number = 1;
-    func_8000A30C(rdram, &draw_context);
-    if (std::strcmp(mode(), "repeat") == 0) {
-        draw_number = 2;
-        draw_context = *ctx;
+    const unsigned repeats = std::strcmp(mode(), "repeat") == 0 ? 2 : 1;
+    for (draw_number = 1; draw_number <= repeats; ++draw_number) {
+        copy_draw_context(draw_context, *ctx);
         func_8000A30C(rdram, &draw_context);
+        bool camera_same = word(rdram, 0x800ABE40 + 0x2DC) == camera;
+        for (unsigned i = 0; i < camera_snapshot.size(); ++i)
+            camera_same &= camera_snapshot[i] == word(rdram, camera + 4 * i);
+        bool car_same = true;
+        for (unsigned i = 0; i < before.size(); ++i) {
+            // These four words are current-arena list heads/tail links, not
+            // vehicle transforms (28314 -> 28C04/28FA0 -> 29D6C..29DD8).
+            if (i * 4 >= 0xB90 && i * 4 <= 0xB9C) continue;
+            car_same &= before[i] == word(rdram, 0x800BA7F0 + i * 4);
+        }
+        std::lock_guard lock(output_mutex);
+        std::fprintf(stderr, "[prototype-snapshot] {\"frame\":%u,\"draw\":%u,\"context_unchanged\":%s,"
+            "\"camera_unchanged\":%s,\"car_nonlink_words_unchanged\":%s,\"sample_unchanged\":%s,"
+            "\"matrix_arena_top\":%u,\"geometry_arena_top\":%u,\"next_arena\":%u,\"view_word_changes\":[",
+            race_frame, draw_number, std::memcmp(ctx, caller_snapshot.data(), sizeof(*ctx)) == 0 ? "true" : "false",
+            camera_same ? "true" : "false", car_same ? "true" : "false",
+            samples == word(rdram, 0x8007E530) ? "true" : "false", word(rdram, 0x8007FE70),
+            word(rdram, 0x8007FE74), word(rdram, 0x8007ED94));
+        unsigned changed = 0;
+        for (unsigned i = 0; i < views.size(); ++i) {
+            auto after = word(rdram, 0x800ABE40 + 4 * i);
+            if (after != views[i]) std::fprintf(stderr, "%s[%u,%u,%u]", changed++ ? "," : "", i * 4, views[i], after);
+        }
+        std::fprintf(stderr, "],\"car_render_links\":[");
+        for (unsigned i = 0; i < 4; ++i) std::fprintf(stderr, "%s%u", i ? "," : "", word(rdram, 0x800BA7F0 + 0xB90 + i * 4));
+        std::fprintf(stderr, "]}\n");
     }
     draw_number = 0;
     extra = false;
