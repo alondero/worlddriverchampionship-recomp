@@ -57,6 +57,7 @@ uint32_t redirected_camera = 0;
 unsigned camera_copies = 0;
 struct Label { unsigned frame; unsigned draw; uint8_t* memory; };
 thread_local Label active_rsp_label{};
+thread_local unsigned texture_calls = 0, texture_verified = 0;
 thread_local std::vector<std::pair<const char*, double>> rt64_phase_records;
 std::mutex label_mutex;
 std::mutex output_mutex;
@@ -142,6 +143,9 @@ bool prototype_disable_readback(uint8_t* memory) {
             label.frame, label.draw, disabled ? "true" : "false");
     }
     return disabled;
+}
+void prototype_texture_hash_result(bool verified) {
+    ++texture_calls; texture_verified += verified;
 }
 void prototype_rt64_phase(const char* name, double ms) {
     if (!active_rsp_label.draw) return;
@@ -441,6 +445,7 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
     }
     if (label.memory != rdram) std::_Exit(12);
     active_rsp_label = label;
+    texture_calls = texture_verified = 0;
     rt64_phase_records.clear();
     rt64_phase_records.reserve(32);
     struct Collector {
@@ -499,6 +504,8 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         i += length;
     }
     std::lock_guard output_lock(output_mutex);
+    if (texture_calls) log_record("[prototype-texture-hash] {\"frame\":%u,\"draw\":%u,\"calls\":%u,\"verified\":%u}\n",
+        label.frame, label.draw, texture_calls, texture_verified);
     for (const auto& [name, ms] : rt64_phase_records)
         log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"rt64_%s\",\"ms\":%.3f}\n",
             label.frame, label.draw, name, ms);

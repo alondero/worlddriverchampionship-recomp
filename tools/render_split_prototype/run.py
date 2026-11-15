@@ -20,6 +20,7 @@ import tempfile
 from runtime import build_runtime
 from shadow import build_shadow_renderer
 from rt64_profile import build_rt64_profile
+from fast_hash_build import build_fast_hash
 from draw_boundary import build_draw_boundary
 
 
@@ -35,6 +36,8 @@ def main():
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..300")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
+    parser.add_argument("--fast-texture-hash", action="store_true", help="Experiment: stop collecting palette indices once the set is full")
+    parser.add_argument("--verify-texture-hash", action="store_true", help="Compare every optimized hash with the original RT64 hasher")
     parser.add_argument("--profile-rt64", action="store_true", help="Compile copied RT64 full-sync phase timers")
     parser.add_argument("--no-owned-readback", action="store_true", help="Experiment: disable RT64 RAM readback only for owned tasks")
     parser.add_argument("--shadow-eye-offset", type=float, default=0,
@@ -42,10 +45,12 @@ def main():
     args = parser.parse_args()
     if not 6 <= args.trials <= 300:
         parser.error("--trials must be 6..300; increase --timeout for long runs")
+    if args.verify_texture_hash and not args.fast_texture_hash:
+        parser.error("--verify-texture-hash requires --fast-texture-hash")
     endpoint_mode = args.mode == "endpoint120"
     motion_mode = args.mode == "motion120" or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
-    if pose_mode or args.no_authority_scan:
+    if pose_mode or args.no_authority_scan or args.fast_texture_hash:
         args.require_repeatable = True
     owned_ram = args.mode in ("shadow-snapshot", "shadow120", "pose-snapshot", "motion120", "endpoint120")
     independent_present = args.mode in ("present120", "shadow120", "motion120", "endpoint120")
@@ -88,6 +93,8 @@ def main():
                     "-I", str(source / "src"),
                     "-c", str(here / "probe.cpp"), "-o", str(probe)], check=True)
     exe = output / "render_split_prototype.exe"
+    if args.fast_texture_hash:
+        objects.append(build_fast_hash(reference, output, compiler))
     if args.profile_rt64:
         objects.append(build_rt64_profile(reference, output, compiler))
     runtime = [str(build_runtime(reference, output, compiler))] if independent_present else []
@@ -123,6 +130,8 @@ def main():
     mode_dir = output / args.mode
     mode_dir.mkdir(exist_ok=True)
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=mode_dir))
+    if args.fast_texture_hash:
+        shutil.copy2(output / "fast-hash-source.json", run_dir / "fast-hash-source.json")
     if endpoint_mode:
         shutil.copy2(output / "draw-boundary-source.json", run_dir / "draw-boundary-source.json")
     if args.profile_rt64:
@@ -139,6 +148,8 @@ def main():
                WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames),
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
+    if args.verify_texture_hash:
+        env["WDC_RENDER_PROTOTYPE_VERIFY_TEXTURE_HASH"] = "1"
     if args.no_authority_scan:
         env["WDC_RENDER_PROTOTYPE_NO_AUTHORITY_SCAN"] = "1"
     if args.no_owned_readback:
@@ -147,6 +158,8 @@ def main():
                                                   "settle_frames": args.settle_frames,
                                                   "trials": args.trials,
                                                   "profile_rt64": args.profile_rt64,
+                                                  "fast_texture_hash": args.fast_texture_hash,
+                                                  "verify_texture_hash": args.verify_texture_hash,
                                                   "authority_scan": not args.no_authority_scan,
                                                   "no_owned_readback": args.no_owned_readback,
                                                   "shadow_eye_offset": args.shadow_eye_offset}, indent=2))
@@ -165,6 +178,21 @@ def main():
                 for line in log.read_text(errors="replace").splitlines() if "[prototype-rdp] " in line]
     (run_dir / "geometry.json").write_text(json.dumps(geometry, indent=2))
     all_geometry = geometry
+    if args.fast_texture_hash:
+        hash_rows = [json.loads(line.split("[prototype-texture-hash] ", 1)[1])
+                      for line in log.read_text(errors="replace").splitlines() if "[prototype-texture-hash] " in line]
+        (run_dir / "texture-hash.json").write_text(json.dumps(hash_rows, indent=2))
+        trial_frames = {r['frame'] for r in rows}
+        hash_rows = [r for r in hash_rows if r['frame'] in trial_frames]
+        expected = sorted((g['frame'], g['draw']) for g in geometry if g['frame'] in trial_frames and g['triangles'])
+        observed = sorted((r['frame'], r['draw']) for r in hash_rows)
+        if observed != expected:
+            raise SystemExit("Missing texture hash evidence for complete trial tasks")
+        calls = sum(r['calls'] for r in hash_rows)
+        verified = sum(r['verified'] for r in hash_rows)
+        if not calls or (args.verify_texture_hash and verified != calls):
+            raise SystemExit("Texture hasher was not exercised or differential verification was incomplete")
+        print(f"Optimized texture hash: {calls} calls; {verified} original-hasher comparisons")
     if args.no_owned_readback:
         readbacks = [json.loads(line.split("[prototype-readback] ", 1)[1])
                      for line in log.read_text(errors="replace").splitlines() if "[prototype-readback] " in line]

@@ -452,3 +452,30 @@ Pacing services external messages, allowing input/audio workers to run. It
 still needs non-integer ratios, transition handling and sustained validation.
 Do not promote these wrappers into a shipping
 option; recover explicit interfaces after the experiment establishes ownership.
+
+### Palette-index hash experiment
+
+`--fast-texture-hash` compiles a copied `rt64_rdp_tmem.cpp` and copied hasher
+header. It stops collecting palette indices once all 16 (CI4) or 256 (CI8)
+indices have been seen; texture bytes and the selected palette bytes still go
+through the original hash algorithm. Upload residency/eviction remains intact.
+CI8 saturation is checked in blocks of 64 iterations. No cross-frame texture
+cache is introduced. This option forces the existing strict geometry/state gates.
+
+`--verify-texture-hash` additionally recomputes every result with the original
+hasher and aborts on a mismatch. `texture-hash.json` records task-level call and
+comparison counts; the runner requires evidence for every complete trial task.
+Verification changes timing and should be omitted from performance comparisons.
+Its environment setting is read once per process, outside repeated hash work.
+`fast-hash-source.json` records source/header hashes and the compiler command.
+Reference files and production settings remain unchanged.
+
+```powershell
+python tools/render_split_prototype/test_fast_hash.py --reference-build build
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode pose-snapshot --warp '1:0:arcade:3' --settle-frames 180 --fast-texture-hash --verify-texture-hash
+```
+
+The host comparison uses 20,000 synthetic TMEM cases against the reference
+header, including sparse and dense palettes, varying formats, stride/wrap cases
+and hash versions. Native verification covers the actual race inputs. Neither
+comparison establishes general renderer pixel equivalence or production readiness.
