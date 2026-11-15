@@ -1,6 +1,7 @@
 // THROWAWAY native experiment. Linked only by run.py, never into the player.
 // Question: can the race draw root run again without consuming simulation or
-// sound events? This intentionally retains the original VI/swap/audio clock.
+// sound events? Guest VI/audio clocks remain original; present120 experiments
+// with independent framebuffer presentation in a copied runtime object.
 #include "recomp.h"
 #include "boss_rsp.h"
 #include "context.h"
@@ -30,6 +31,7 @@ unsigned skipped_vi_waits = 0;
 std::atomic_uint prototype_vi_ticks{0};
 unsigned skipped_publish = 0, skipped_consume = 0;
 unsigned skipped_audio_build = 0, skipped_audio_retire = 0, preserved_flare_history = 0;
+unsigned skipped_car_sound = 0;
 unsigned race_frame = 0;
 unsigned draw_number = 0;
 struct Label { unsigned frame; unsigned draw; };
@@ -40,6 +42,10 @@ const char* mode() {
     const char* value = std::getenv("WDC_RENDER_PROTOTYPE_MODE");
     return value ? value : "raw";
 }
+unsigned settle_frames() {
+    const char* value = std::getenv("WDC_RENDER_PROTOTYPE_SETTLE");
+    return value ? unsigned(std::strtoul(value, nullptr, 10)) : 60;
+}
 bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
@@ -49,6 +55,22 @@ uint32_t word(uint8_t* rdram, uint32_t address) {
 }
 }
 extern "C" {
+void __real_func_8001FC64(uint8_t*, recomp_context*);
+void __wrap_func_8001FC64(uint8_t* rdram, recomp_context* ctx) {
+    // 218F0's near-car branch (21994) publishes vehicle sound parameters.
+    // This also ramps signed halfword car+A0E by up to 20 per invocation
+    // (1FD38..1FD60), updates gear/event history, and calls 201BC/205F8.
+    // It is void at this boundary; presentation extras must not advance it.
+    if (extra && render_only()) { ++skipped_car_sound; return; }
+    __real_func_8001FC64(rdram, ctx);
+}
+void __real_func_8001F7F8(uint8_t*, recomp_context*);
+void __wrap_func_8001F7F8(uint8_t* rdram, recomp_context* ctx) {
+    // Matching distant-car branch at 219A8 retires sound-slot ownership and
+    // resets car+A08. Preserve the normal-frame audio lifecycle on extras.
+    if (extra && render_only()) { ++skipped_car_sound; return; }
+    __real_func_8001F7F8(rdram, ctx);
+}
 void prototype_vi_observed() { ++prototype_vi_ticks; }
 void prototype_present_observed(uint32_t origin) {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
@@ -227,11 +249,11 @@ void __wrap_func_800214C8(uint8_t* rdram, recomp_context* ctx) {
 // transition 8007DF44, scene 800923E4, car count 80080D90 (all u32), sample
 // counter 8007E530 (u32 samples), and first car 800BA7F0..800BC090 (raw u32
 // words, stride 18A0). Poll divider 8007FE1C is u32 VIs minus one; 8007FDF4
-// is the low u32 of the fixed 46.875 MHz tick interval. Only scenes 0/8/9 are
+// is the low u32 of the fixed 46.875 MHz tick interval. Only scenes 0/3/5/8/9 are
 // accepted, excluding authored demos.
 // Sound list buffer selector 8007E844 is a byte; the other observed sound words
-// are pointers/counts, not host pointers. Only the camera-offset experiment
-// temporarily writes/restores guest state, as documented beside that access.
+// are pointers/counts, not host pointers. Camera-offset and flare-history
+// preservation temporarily write/restore narrowly documented guest words.
 // The real draw call owns its writes and synchronizes with BOSS normally.
 // Other workers can run during waits: reported differences are interval
 // observations, not a complete attribution of writes to the draw function.
@@ -244,10 +266,10 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         const auto scene = word(rdram, 0x800923E4);
         return word(rdram, 0x8007D848) == 0x8000C560 &&
             !word(rdram, 0x8007DF44) && word(rdram, 0x80080D90) != 0 &&
-            (scene == 0 || scene == 8 || scene == 9);
+            (scene == 0 || scene == 3 || scene == 5 || scene == 8 || scene == 9);
     };
-    one_vi = settled >= 59 && eligible() && std::strcmp(mode(), "split60") == 0;
-    direct_present = settled >= 59 && trials < 6 && eligible() && std::strcmp(mode(), "present120") == 0;
+    one_vi = settled + 1 >= settle_frames() && eligible() && std::strcmp(mode(), "split60") == 0;
+    direct_present = settled + 1 >= settle_frames() && trials < 6 && eligible() && std::strcmp(mode(), "present120") == 0;
     prototype_set_present(direct_present);
     const auto frame_start = std::chrono::steady_clock::now();
     ++race_frame;
@@ -262,7 +284,15 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         return;
     }
     const auto scene = word(rdram, 0x800923E4);
-    if (++settled < 60) return;
+    if (++settled < settle_frames()) return;
+    // 11BB8 iterates u32 car count 80080D90 over BA7F0 with stride 18A0.
+    // Read-only game-thread observations, raw word-swapped u32s; reject a
+    // zero count or any span outside 8 MiB before allocating/reading. Other
+    // workers may run during draws; no authoritative words are restored.
+    const auto car_count = word(rdram, 0x80080D90);
+    if (!car_count || car_count > (0x80800000u - 0x800BA7F0u) / 0x18A0) std::_Exit(8);
+    std::vector<uint32_t> all_cars(car_count * (0x18A0 / 4));
+    for (unsigned i = 0; i < all_cars.size(); ++i) all_cars[i] = word(rdram, 0x800BA7F0 + 4 * i);
     std::vector<uint32_t> before(0x18A0 / 4);
     for (unsigned i = 0; i < before.size(); ++i)
         before[i] = word(rdram, 0x800BA7F0 + 4 * i);
@@ -299,6 +329,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     const unsigned repeats = direct_present ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         const auto history_before = preserved_flare_history;
+        const auto car_sound_before = skipped_car_sound;
         copy_draw_context(draw_context, *ctx);
         func_8000A30C(rdram, &draw_context);
         bool camera_same = word(rdram, 0x800ABE40 + 0x2DC) == camera;
@@ -326,6 +357,16 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         }
         std::fprintf(stderr, "],\"car_render_links\":[");
         for (unsigned i = 0; i < 4; ++i) std::fprintf(stderr, "%s%u", i ? "," : "", word(rdram, 0x800BA7F0 + 0xB90 + i * 4));
+        std::fprintf(stderr, "],\"car_count\":%u,\"car_count_unchanged\":%s,\"skipped_car_sound_calls\":%u,\"all_car_nonlink_changes\":[",
+            car_count, word(rdram, 0x80080D90) == car_count ? "true" : "false", skipped_car_sound - car_sound_before);
+        changed = 0;
+        for (unsigned i = 0; i < all_cars.size(); ++i) {
+            const unsigned offset = (i * 4) % 0x18A0;
+            if (offset >= 0xB90 && offset <= 0xB9C) continue;
+            const auto after = word(rdram, 0x800BA7F0 + i * 4);
+            if (after != all_cars[i]) std::fprintf(stderr, "%s[%u,%u,%u,%u]",
+                changed++ ? "," : "", (i * 4) / 0x18A0, offset, all_cars[i], after);
+        }
         std::fprintf(stderr, "]}\n");
     }
     draw_number = 0;

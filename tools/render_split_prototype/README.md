@@ -47,6 +47,10 @@ frames, performs six trials, drains the last extra graphics task through the
 normal game path, then exits. The launcher kills the process after 60 seconds
 if it does not finish. No controller input is required. It uses separate local
 settings/save directories and does not load the user's normal saves.
+Use `--warp '1:0:arcade:3' --settle-frames 180` to audit the eight-car Hawaii
+grid later in the race. `--warp` follows the player's existing race setup
+syntax; `--settle-frames` accepts 60..1800 (increase `--timeout` as needed).
+Each run retains `setup.json` alongside its evidence.
 
 | Mode | Experiment |
 | --- | --- |
@@ -68,7 +72,7 @@ missing trials, failed interception, changed sampling policy, simulation
 sample advancement during extra draws and incomplete RDP evidence.
 `--require-repeatable` additionally requires exact ordered triangle-header
 equality against the normal draw, identical projection matrices, unchanged
-camera words, first-car words except the four arena links, and an untouched
+camera words, every active car's words except the four arena links, and an untouched
 caller register context after **each** extra draw. This gate currently expects
 one view. Snapshot observations are immutable host copies used for comparison;
 the live experiment still draws in shared RDRAM and does not restore arenas.
@@ -128,6 +132,14 @@ Bounded Hawaii practice on Windows D3D12/RTX 3080, 1x resolution, divider 1 /
   samples advanced once per group, 60 through 65, and never during extras.
   An earlier run averaged 119.8 Hz. This measures calls to `update_screen`,
   not physical scanout or new motion between the repeated frames.
+- The later eight-car Arcade audit exposed additional sound work inside car
+  rendering: `218F0 -> 1FC64` ramps car halfword `+A0E` by up to 20 per draw,
+  and updates other sound history. Gating only the draw root's audio calls was
+  insufficient. Render-only extras now skip `1FC64` and its distant-car
+  retirement counterpart `1F7F8`. The same six-trial route then passed exact
+  geometry and every active car's non-link words. It **failed** the timing
+  gate at 62.0 renderer callbacks/s (10.77–23.53 ms intervals); sustained
+  high-rate performance is not established by the lighter practice result.
 
 `test_context.py` extracts the unchanged translated `80070DB0` projection,
 `80071250`/`80071410` trig and `80077390` identity functions. Four executions
@@ -188,8 +200,8 @@ but that is not a stability qualification.
 
 Input and graphics workers can run during swap waits. Car differences are
 observations across the draw interval, not a complete attribution of every
-write. Only the first car is inspected; the sample counter is not a full
-simulation-state checksum. Audio synthesis and DMA remain in the original
+write. Every active car is inspected, but the sample counter and car records
+are not a full simulation-state checksum. Audio synthesis and DMA remain in the original
 combined BOSS submission except on render-only/present120 extras. Geometry
 collection itself adds work, so these timings are not a performance benchmark.
 

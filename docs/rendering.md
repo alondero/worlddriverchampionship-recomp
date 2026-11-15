@@ -607,6 +607,12 @@ current-arena packet pointers. A copied-runtime presentation experiment delivere
 geometry and no sample consumption during extras. That is callback timing,
 not physical scanout or intermediate motion. Full-frame snapshot isolation,
 all-car state equivalence and interpolation remain unproven.
+An eight-car Arcade extension found sound-ramp updates inside `218F0 -> 1FC64`,
+including car halfword `+A0E`. Skipping that call and the distant-car sound
+retirement path on extras preserves every observed car non-link word in the
+bounded run. The heavier scene still failed the 120 Hz timing gate (62.0
+renderer callbacks/s), so the practice timing does not establish sustained
+high-rate performance.
 The prototype README records the car-list, per-view and arena ownership evidence.
 
 ## Tools and methods

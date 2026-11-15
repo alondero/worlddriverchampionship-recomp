@@ -2,8 +2,8 @@
 
 The reference build is read-only. All new objects, executable, settings and
 evidence live under this worktree's ignored build/render-split-prototype.
-GNU --wrap intercepts cross-object calls; runtime skip counters establish that
-the two sound boundaries were actually intercepted rather than optimized away.
+GNU --wrap intercepts cross-object calls; runtime counters establish that the
+sound and presentation boundaries were intercepted rather than optimized away.
 """
 import argparse
 import hashlib
@@ -27,7 +27,11 @@ def main():
     parser.add_argument("--require-repeatable", action="store_true",
                         help="Fail unless repeat's normal and both extra draws have equal triangle headers and frozen camera/car checks pass")
     parser.add_argument("--timeout", type=int, default=60)
+    parser.add_argument("--warp", default="1:0", help="Player race setup: track[:car[:mode[:laps]]]")
+    parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before six trials")
     args = parser.parse_args()
+    if not 60 <= args.settle_frames <= 1800:
+        parser.error("--settle-frames must be 60..1800; increase --timeout for long runs")
     if args.require_repeatable and args.mode not in ("repeat", "render-only", "present120"):
         parser.error("--require-repeatable requires --mode repeat, render-only or present120")
     reference = args.reference_build.resolve()
@@ -60,6 +64,7 @@ def main():
     runtime = [str(build_runtime(reference, output, compiler))] if args.mode == "present120" else []
     wrapped = ["func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
+               "func_8001FC64", "func_8001F7F8",
                "func_800013DC", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     link = [*objects, str(probe), *runtime, *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),
@@ -81,7 +86,10 @@ def main():
     config.mkdir(parents=True, exist_ok=True)
     (config / "graphics.json").write_text(json.dumps({"resolution": 1, "native_60fps": False}))
     env = {key: value for key, value in os.environ.items() if not key.startswith("WDC_")}
-    env.update(WDC_WARP="1:0", WDC_RENDER_PROTOTYPE_MODE=args.mode)
+    env.update(WDC_WARP=args.warp, WDC_RENDER_PROTOTYPE_MODE=args.mode,
+               WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames))
+    (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
+                                                  "settle_frames": args.settle_frames}, indent=2))
     log = run_dir / "run.log"
     print(f"Running {args.mode} probe; local evidence: {log}", flush=True)
     with log.open("w") as stream:
@@ -145,9 +153,14 @@ def main():
             if any(not s['context_unchanged'] or not s['camera_unchanged'] or
                    not s['car_nonlink_words_unchanged'] or not s['sample_unchanged'] for s in states):
                 raise SystemExit("Frozen camera/car/context observation changed")
+            if any(not s['car_count_unchanged'] or s['all_car_nonlink_changes'] for s in states):
+                raise SystemExit("Frozen all-car non-link observation changed")
             if args.mode in ("render-only", "present120") and any(
                     not s['preserved_flare_calls'] for s in states):
                 raise SystemExit("Lens-flare preservation did not intercept each extra draw")
+            if args.mode in ("render-only", "present120") and any(
+                    s['skipped_car_sound_calls'] != s['car_count'] for s in states):
+                raise SystemExit("Single-view car sound gating did not intercept every car per extra draw")
             if args.mode in ("render-only", "present120") and any(
                     change[0] % 0x1418 not in (0x360, 0x364)
                     for s in states for change in s['view_word_changes']):
@@ -156,7 +169,7 @@ def main():
             if len(matrices) != repeats + 1 or {p['draw'] for p in matrices} != set(range(repeats + 1)) or any(
                     p['matrix'] != matrices[0]['matrix'] for p in matrices):
                 raise SystemExit("Missing or unequal single-view projection evidence")
-        print("PASS: exact triangle headers, projection, camera snapshot, first-car non-link words and caller context repeat")
+        print("PASS: exact triangle headers, projection, camera snapshot, all-car non-link words and caller context repeat")
     if args.mode == "present120":
         if len(presents) != 24 or rows[-1]['skipped_vi_waits'] != 48:
             raise SystemExit("Missing direct presentation callbacks or swap-wait interception")
