@@ -1042,8 +1042,14 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         auto* drawing_ram = rdram;
         if (shadow_mode()) {
             PhaseTimer timer{"owned_reset"};
-            std::lock_guard lock(render_memory_mutex);
+            // Defer subphase logs until after measurement; retain the renderer
+            // fence. The enclosing timer includes diagnostic output.
+            std::array<std::chrono::steady_clock::time_point, 4> reset_times;
+            reset_times[0] = std::chrono::steady_clock::now();
+            std::unique_lock memory_lock(render_memory_mutex);
+            reset_times[1] = std::chrono::steady_clock::now();
             std::memcpy(render_ram.data(), frozen_ram.data(), frozen_ram.size());
+            reset_times[2] = std::chrono::steady_clock::now();
             drawing_ram = render_ram.data();
             if (pose_mode()) {
                 // pose-snapshot repeats a midpoint to validate determinism;
@@ -1080,6 +1086,15 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 const uint32_t eye_word = word(drawing_ram, camera + 0x30);
                 const uint32_t shifted = std::bit_cast<uint32_t>(std::bit_cast<float>(eye_word) + eye_offset);
                 std::memcpy(drawing_ram + (camera - 0x80000000) + 0x30, &shifted, 4);
+            }
+            reset_times[3] = std::chrono::steady_clock::now();
+            memory_lock.unlock();
+            const char* names[] = {"owned_reset_lock", "owned_reset_copy", "owned_reset_inputs"};
+            std::lock_guard output_lock(output_mutex);
+            for (unsigned i = 0; i < 3; ++i) {
+                log_record("[prototype-phase] {\"frame\":%u,\"draw\":%u,\"phase\":\"%s\",\"ms\":%.3f}\n",
+                    race_frame, draw_number, names[i],
+                    std::chrono::duration<double, std::milli>(reset_times[i + 1] - reset_times[i]).count());
             }
         }
         func_8000A30C(drawing_ram, &draw_context);

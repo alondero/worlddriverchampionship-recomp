@@ -215,6 +215,11 @@ across each extra, including runtime queue and input activity; these ranges
 are diagnostic evidence and are not yet a complete permitted-write policy.
 `phases.json` separates transform setup, view passes, submission and swap/pacing
 wall times, plus owned-bank reset, pipeline drain and full-RAM diagnostic scan.
+Reset subphases separate waiting for the renderer mutex, copying the bank and
+preparing interpolated inputs. Their timestamps precede diagnostic output;
+input preparation includes its existing pose log, and the enclosing reset
+timer includes all reset logs. The three subphases are nested within reset,
+not additional independent work.
 The scan skips byte-identical 4 KiB pages and batches its output while retaining
 the complete contiguous changed-word ranges. Geometry records also include BOSS task wall time and time spent
 inside the downstream RDP sink. These overlap across CPU/graphics threads;
@@ -742,6 +747,21 @@ successful ordered swaps, 68.2 swaps/s with 6.09..27.74 ms intervals. Callbacks
 averaged 68.5/s over 67 VI ticks. This is not steady 75 Hz delivery. The run used
 sample/deadline scheduling, wheel/shadow interpolation, held accelerator and
 disabled owned readback/whole-RAM diagnostics.
+A longer 120-group driving profile at a 144 Hz target retained all 498 selected
+swaps and passed correctness checks, but failed timing at 77.0 swaps/s with
+5.93..49.52 ms intervals. Owned BOSS tasks averaged 6.355 ms, including 2.767 ms
+in RT64 full sync; owned-bank reset averaged 1.221 ms. A subsequent 30-group
+profile with split reset timers measured 1.236 ms copying, 0.063 ms preparing
+inputs, and less than 0.001 ms waiting for the renderer mutex. It retained all
+119 swaps at 74.1/s and failed timing. These are instrumented wall times on a
+shared host, not isolated throughput benchmarks. The reset measurement supports
+investigating memory copying, not removing renderer completion fences.
+A page-comparison restore experiment compared every 4 KiB page and copied only
+unequal pages. It retained correctness and all 114 swaps, but averaged 1.823 ms
+for restoration versus 1.236 and 1.333 ms in two full-copy controls. It reached
+68.0 swaps/s and failed the 144 Hz timing gate. The comparison implementation
+was rejected; full-bank copying remains. This bounded result does not establish
+that every form of selective restoration would be slower.
 `shadow-inputs.json` records input counts/changes and observed native rebuilds.
 The original `3062C` still rebuilds cached matrices and vertices after `11BA0`
 clears their flags. Invisible shadows need not invoke the rebuild.
