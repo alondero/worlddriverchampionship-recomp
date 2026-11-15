@@ -173,7 +173,7 @@ def main():
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
                "func_800013DC", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
-               "osSendMesg_recomp", "_Z13rsp_read_cop0j",
+               "osSendMesg_recomp", "_Z13rsp_read_cop0j", "_Z18wdc_boss_dma_writePhjjj",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     link = [*objects, str(probe), *runtime, *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),
             *("-Wl,--wrap=" + name for name in wrapped), "-o", str(exe)]
@@ -326,6 +326,10 @@ def main():
         if not expected or observed != expected:
             raise SystemExit("Readback policy must disable only owned tasks and preserve every normal task")
     if owned_ram:
+        if any(not 0 <= g['audio_dma_bytes'] <= g['dma_bytes'] or
+               (g['triangles'] and g['dma_bytes'] == 0) or
+               (g['owned_memory'] and g['audio_dma_bytes'] != 0) for g in geometry):
+            raise SystemExit("Invalid BOSS DMA observations or owned task wrote the audio ring")
         # 252D0 drains each bank; 2523C then bootstraps the next bank with a
         # zero-geometry task. Retain those records in evidence, but compare the
         # actual full-frame tasks rather than treating bootstraps as frames.

@@ -4,6 +4,15 @@ Question: can the real race drawing code produce additional frames while input
 sampling and simulation remain at their original fixed rate, and which state
 must be separated before those frames can be interpolated?
 
+Owned-task audio isolation is checked at the BOSS DMA boundary as well as the
+CPU command helpers. `geometry.json` records rounded DMA bytes and overlap with
+the 16 KiB PCM ring at physical `3F0400..3F4400` for every observed task, including
+bootstrap tasks. Owned tasks must write zero ring bytes; full-frame tasks must
+perform nonzero DMA so a missing observer cannot silently pass. The observer
+forwards every transfer unchanged on the graphics worker. This measures ring
+writes, not synthesis instruction time or audio fidelity; absence of ring
+writes alone does not prove that every audio-related instruction was skipped.
+
 This is a native experiment, not a shipping graphics option. It relinks an
 already-built Windows/MinGW player with a small probe. The reference build and
 generated code are read-only; no submodule or player source is patched in place. GNU
