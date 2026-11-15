@@ -325,6 +325,12 @@ python tools/render_split_prototype/run.py --reference-build build --rom "World 
 
 `--profile-rt64` compiles a copied `rt64_state.cpp` ahead of the reference RT64
 archive. Guarded substitutions time full-sync and its framebuffer/upload waits.
+Six sequential `rt64_stage_*` observations partition preparation, tile/call
+setup, upload setup, framebuffer processing, materials/cache work and final
+workload queuing. Every complete extra task must report all six stages. The
+stages partition full-sync; nested wait timings are included in those stages
+and must not be added to them. Additional nested timings isolate framebuffer
+pair tile processing, pipeline creation waits, command recording and submission.
 `rt64-profile-source.json` records current-source/copy hashes and the compiler
 command; current reference-source edits affect this optional path. Compiler
 output stays in local `rt64-profile-build.log`. The launcher requires a full-sync

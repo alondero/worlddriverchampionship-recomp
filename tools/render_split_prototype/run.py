@@ -213,6 +213,12 @@ def main():
         observed_syncs = sorted((p['frame'], p['draw']) for p in phases if p['phase'] == 'rt64_full_sync')
         if not expected_syncs or observed_syncs != expected_syncs:
             raise SystemExit("Expected one measured RT64 full sync per complete extra frame")
+        for stage in ("prepare", "tiles_and_calls", "upload_setup", "framebuffer_processing",
+                      "materials_and_cache", "queue_and_finish"):
+            observed = sorted((p['frame'], p['draw']) for p in phases
+                              if p['phase'] == 'rt64_stage_' + stage)
+            if observed != expected_syncs:
+                raise SystemExit("Missing RT64 full-sync stage: " + stage)
     if phases:
         for name in sorted({p['phase'] for p in phases}):
             values = [p['ms'] for p in phases if p['phase'] == name]

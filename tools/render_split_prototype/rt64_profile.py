@@ -17,6 +17,12 @@ def build_rt64_profile(reference, output, compiler):
     body = body.replace("    void State::fullSync() {", '    void State::fullSync() {\n        PrototypeRT64Timer full_timer{"full_sync"};')
     for call, count, name in [
         ("ext.textureCache->waitForGPUUploads();", 2, "texture_upload_wait"),
+        ("ext.framebufferGraphicsWorker->execute();", 2, "framebuffer_execute"),
+        ("ext.rasterShaderCache->shaderUber->waitForPipelineCreation();", 1, "pipeline_creation_wait"),
+        ("fullSyncFramebufferPairTiles(workload, workload.fbPairs[f], loadOpCursor, rdpTileCursor);", 1, "pair_tiles"),
+        ("fullSyncFramebufferPairTiles(workload, fbPair, loadOpCursor, rdpTileCursor);", 1, "pair_tiles"),
+        ("ext.drawDataUploader->commandListCopyResources(ext.framebufferGraphicsWorker);", 1, "draw_copy_commands"),
+        ("ext.transformsUploader->commandListCopyResources(ext.framebufferGraphicsWorker);", 1, "transform_copy_commands"),
         ("ext.framebufferGraphicsWorker->wait();", 2, "framebuffer_gpu_wait"),
         ("framebufferRenderer->waitForUploaders();", 1, "framebuffer_upload_wait"),
         ("ext.drawDataUploader->wait();", 1, "draw_upload_wait"),
@@ -25,9 +31,33 @@ def build_rt64_profile(reference, output, compiler):
         if body.count(call) != count:
             raise RuntimeError("RT64 fullSync profiling seam changed: " + call)
         body = body.replace(call, '{ PrototypeRT64Timer timer{"' + name + '"}; ' + call + ' }')
+    # Sequential checkpoints partition fullSync without changing scope or
+    # moving dependency calls. Nested wait timers remain inclusive diagnostics.
+    boundaries = [
+        ("        // Validate all tile copies", "stage_prepare"),
+        ("        // Ensure there's as many GPU tiles", "stage_tiles_and_calls"),
+        ("        // Make sure pipelines for the ubershader", "stage_upload_setup"),
+        ("        // Evict from the texture cache", "stage_framebuffer_processing"),
+        ("        // Advance the workload queue", "stage_materials_and_cache"),
+    ]
+    for marker, name in boundaries:
+        if body.count(marker) != 1:
+            raise RuntimeError("RT64 fullSync stage seam changed: " + marker)
+        body = body.replace(marker, '        stage_timer.checkpoint("' + name + '");\n' + marker)
+    body = body.replace('PrototypeRT64Timer full_timer{"full_sync"};',
+                        'PrototypeRT64Timer full_timer{"full_sync"};\n        PrototypeRT64Stages stage_timer;')
     source = source[:start] + body + source[end:]
     source = '''#include <chrono>
 extern "C" void prototype_rt64_phase(const char*, double);
+struct PrototypeRT64Stages {
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    void checkpoint(const char* name) {
+        const auto end = std::chrono::steady_clock::now();
+        prototype_rt64_phase(name, std::chrono::duration<double, std::milli>(end - start).count());
+        start = end;
+    }
+    ~PrototypeRT64Stages() { checkpoint("stage_queue_and_finish"); }
+};
 struct PrototypeRT64Timer {
     const char* name;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
