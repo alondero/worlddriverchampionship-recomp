@@ -82,6 +82,7 @@ struct PhaseTimer {
     }
 };
 std::deque<Label> labels;
+std::deque<Label> presentation_labels;
 const char* mode() {
     const char* value = std::getenv("WDC_RENDER_PROTOTYPE_MODE");
     return value ? value : "raw";
@@ -98,7 +99,8 @@ bool gated() {
     return std::strcmp(mode(), "raw") != 0;
 }
 bool camera_snapshot_mode() { return std::strcmp(mode(), "camera-snapshot") == 0; }
-bool pose_mode() { return std::strcmp(mode(), "pose-snapshot") == 0; }
+bool motion_mode() { return std::strcmp(mode(), "motion120") == 0; }
+bool pose_mode() { return std::strcmp(mode(), "pose-snapshot") == 0 || motion_mode(); }
 bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || std::strcmp(mode(), "shadow120") == 0 || pose_mode(); }
 bool render_only() { return std::strcmp(mode(), "render-only") == 0 || std::strcmp(mode(), "present120") == 0 || camera_snapshot_mode() || shadow_mode(); }
 uint8_t* queue_memory(uint8_t* memory) {
@@ -204,9 +206,16 @@ void __wrap_func_8001F7F8(uint8_t* rdram, recomp_context* ctx) {
 void prototype_vi_observed() { ++prototype_vi_ticks; }
 void prototype_present_observed(uint32_t origin) {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    Label label;
+    {
+        std::lock_guard lock(label_mutex);
+        if (presentation_labels.empty()) std::_Exit(16);
+        label = presentation_labels.front();
+        presentation_labels.pop_front();
+    }
     std::lock_guard lock(output_mutex);
-    log_record("[prototype-present] {\"us\":%lld,\"origin\":%u,\"vi_ticks\":%u}\n",
-        (long long)std::chrono::duration_cast<std::chrono::microseconds>(now).count(), origin, prototype_vi_ticks.load());
+    log_record("[prototype-present] {\"us\":%lld,\"origin\":%u,\"vi_ticks\":%u,\"frame\":%u,\"draw\":%u}\n",
+        (long long)std::chrono::duration_cast<std::chrono::microseconds>(now).count(), origin, prototype_vi_ticks.load(), label.frame, label.draw);
     ++completed_presents;
 }
 void __real_func_800013DC(uint8_t*, recomp_context*);
@@ -295,6 +304,10 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
 void __real_osViSwapBuffer_recomp(uint8_t*, recomp_context*);
 void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
     const auto start = std::chrono::steady_clock::now();
+    // The normal draw supplies current-state evidence and audio. In motion
+    // mode only the subsequent owned poses are presented, in increasing alpha.
+    // Calling the real swap here would display the endpoint before its blends.
+    if (inside_swap && motion_mode() && !extra) return;
     if (inside_swap) {
         // Service external messages while pacing: this may schedule the
         // input worker, but never consumes simulation samples in this thread.
@@ -309,7 +322,11 @@ void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
         }
         deadline += std::chrono::nanoseconds(1000000000 / 120);
     }
-    if (inside_swap) ++requested_presents;
+    if (inside_swap) {
+        std::lock_guard lock(label_mutex);
+        presentation_labels.push_back({race_frame, draw_number, rdram});
+        ++requested_presents;
+    }
     __real_osViSwapBuffer_recomp(rdram, ctx);
     if (extra) {
         std::lock_guard lock(output_mutex);
@@ -499,7 +516,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     };
     one_vi = settled + 1 >= settle_frames() && eligible() && std::strcmp(mode(), "split60") == 0;
     direct_present = settled + 1 >= settle_frames() && trials < trial_count() && eligible() &&
-        (std::strcmp(mode(), "present120") == 0 || (std::strcmp(mode(), "shadow120") == 0 && trials > 0));
+        (std::strcmp(mode(), "present120") == 0 || ((std::strcmp(mode(), "shadow120") == 0 || motion_mode()) && trials > 0));
     prototype_set_present(direct_present);
     const auto frame_start = std::chrono::steady_clock::now();
     ++race_frame;
@@ -527,10 +544,11 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     const auto scene = word(rdram, 0x800923E4);
     if (++settled < settle_frames()) return;
-    if (std::strcmp(mode(), "shadow120") == 0) {
+    if (std::strcmp(mode(), "shadow120") == 0 || motion_mode()) {
         // Activate after the first normal draw returns: its earlier swap
-        // presents the preceding warm-up frame. The drain below presents the
-        // current normal frame, followed by each owned extra's own drain.
+        // presents the preceding warm-up frame. shadow120 presents the current
+        // normal frame in the drain below; motion120 suppresses that swap and
+        // presents only the subsequent owned quarter steps.
         direct_present = true;
         prototype_set_present(true);
     }
@@ -636,7 +654,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
+    const unsigned repeats = motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         const auto receives_before = shadow_receives, sends_before = shadow_sends;
         const auto copies_before = camera_copies;
@@ -651,9 +669,9 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             std::memcpy(render_ram.data(), frozen_ram.data(), frozen_ram.size());
             drawing_ram = render_ram.data();
             if (pose_mode()) {
-                // Repeated midpoint, then exact current endpoint. This is a
-                // geometry validation sequence, not chronological presentation.
-                const double alpha = draw_number == 3 ? 1.0 : 0.5;
+                // pose-snapshot repeats a midpoint to validate determinism;
+                // motion120 presents increasing quarter steps to the endpoint.
+                const double alpha = motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
                 unsigned changed = 0;
                 bool camera_changed = false;
                 for (unsigned i = 0; i < current_poses.size(); ++i) {
@@ -664,7 +682,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
                     std::memcpy(drawing_ram + (pose_addresses[i] - 0x80000000), pose.data(), sizeof(pose));
                 }
                 std::lock_guard lock(output_mutex);
-                log_record("[prototype-pose] {\"frame\":%u,\"draw\":%u,\"alpha\":%.1f,\"reset\":%s,\"poses\":%u,\"changed_poses\":%u,\"changed_camera\":%s,\"changed_bodies\":%u}\n",
+                log_record("[prototype-pose] {\"frame\":%u,\"draw\":%u,\"alpha\":%.2f,\"reset\":%s,\"poses\":%u,\"changed_poses\":%u,\"changed_camera\":%s,\"changed_bodies\":%u}\n",
                     race_frame, draw_number, alpha, pose_reset ? "true" : "false", unsigned(current_poses.size()), changed,
                     camera_changed ? "true" : "false", changed - unsigned(camera_changed));
             }

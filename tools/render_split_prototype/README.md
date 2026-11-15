@@ -34,14 +34,14 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
 in this worktree. Ordinary modes compile only `probe.cpp` and relink into a separate
 executable. It does not perform a full player rebuild.
-The `present120` and `shadow120` modes additionally compile a copied `events.cpp` with guarded
+The `present120`, `shadow120` and `motion120` modes additionally compile a copied `events.cpp` with guarded
 substitutions from `runtime.py`, linked ahead of the reference runtime archive.
 This copy uses the current source named by the reference compile database;
 unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-`shadow-snapshot`, `shadow120` and `pose-snapshot` compile copied renderer and
+`shadow-snapshot`, `shadow120`, `pose-snapshot` and `motion120` compile copied renderer and
 runtime message-queue sources via `shadow.py`, replacing the renderer object
 and queue archive member. `shadow-source.json` records both current-source and
 copy hashes and compile commands; unbuilt reference-source edits affect this
@@ -70,6 +70,7 @@ Use `--trials 120` for a longer bounded run (6..300, default 6); increase
 | `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
 | `shadow120` | Combine owned RAM with independent presentation; three frozen extras and a native drain per frame, with both copied-source provenance records |
+| `motion120` | Suppress normal-draw presentation and present four owned camera/body blends at alpha 0.25, 0.5, 0.75 and 1; validate callback order and current endpoint |
 | `pose-snapshot` | Interpolate owned camera and car-body poses between captured samples; render the midpoint twice and current endpoint once, with mandatory geometry/state checks |
 | `camera-offset` | Sound-gated extra draw with camera eye X temporarily increased by one world unit; restore its three position words afterward |
 | `split60` | Sound-gated extra draw and one-VI presentation waits for normal/extra draws; leave input sampling at 30 Hz |
@@ -87,11 +88,11 @@ equality against the normal draw, identical projection matrices, unchanged
 camera words, every active car's words except the four arena links, and an untouched
 caller register context after **each** extra draw. This gate currently expects
 one view. Snapshot observations are immutable host copies used for comparison;
-The three owned-RAM modes are `shadow-snapshot`, `shadow120` and `pose-snapshot`;
+The four owned-RAM modes are `shadow-snapshot`, `shadow120`, `pose-snapshot` and `motion120`;
 other modes still draw in shared RDRAM. None rewinds
 live arenas; the owned bank is reset only after its pipeline has drained.
 It supports `repeat`, `render-only`, `camera-snapshot`, `shadow-snapshot`, `shadow120` and `present120`. The render-only variants additionally
-reject view changes outside the lens-flare arena packet pointers. Both independent-presentation modes
+reject view changes outside the lens-flare arena packet pointers. Independent-presentation modes
 write `presents.json`, count actual renderer callbacks and VI ticks,
 and require four callbacks per trial at an average 105–135 Hz. The VI count
 must be within two ticks of 60 Hz over the measured callback interval. These
@@ -241,6 +242,33 @@ camera/car/context/sample, queue, arena and sound gates remain mandatory.
 This proves an intermediate rigid-pose input reaches geometry construction;
 it does not prove complete animated-car consistency, smooth display order or
 pixel quality. Detailed run evidence stays in the draft PR.
+
+## Ordered motion presentation
+
+```powershell
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode motion120
+```
+
+`motion120` combines the rigid-pose math with independent presentation. The
+normal draw still supplies current-state geometry evidence and original audio
+work, but its `osViSwapBuffer` call is suppressed during the experiment. Four
+owned draws then present alpha 0.25, 0.5, 0.75 and 1.0. Each bank remains alive
+until its task and queued screen update finish. This incurs interpolation
+latency and extra normal-draw work; it is not yet an arbitrary-rate scheduler.
+
+Strict state/ownership and endpoint checks are mandatory. `presents.json`
+includes frame/draw labels attached before enqueue and consumed at the actual
+renderer callback. The launcher requires exactly the four owned draws per
+trial, in order, with no normal draw between them. These are renderer callback
+observations, not physical scanout or visual-quality validation. The normal
+swap's omitted framebuffer update can take the extra VI receive at `015E8`;
+the gate allows that documented optional receive in addition to the ten
+ordinary receives per trial (normal drain plus four owned drains).
+
+The geometry-repeat mode remains separate: consecutive quarter steps are
+expected to differ. The alpha-1 endpoint must still match normal geometry.
+Wheel/shadow/effect interpolation, robust cut handling, arbitrary display rates,
+and sustained performance remain incomplete; run evidence is in draft PR #61.
 
 ## Ownership recovered
 

@@ -631,9 +631,10 @@ renderer callbacks/s), so the practice timing does not establish sustained
 high-rate performance.
 A separate `pose-snapshot` validation now interpolates camera and main car-body
 rigid poses in owned RAM. Two identical midpoint renders must repeat exactly,
-and a bit-exact current endpoint must reproduce normal geometry. This is an
-intermediate-motion geometry proof, not chronological high-refresh presentation:
-wheel/shadow/effect interpolation and full discontinuity handling remain open.
+and a bit-exact current endpoint must reproduce normal geometry. `motion120` presents four increasing quarter steps from those poses while
+suppressing the normal-draw presentation. Callback labels verify their order,
+and the endpoint still matches normal geometry. Wheel/shadow/effect
+interpolation, full discontinuity handling and sustained performance remain open.
 The prototype README records the car-list, per-view and arena ownership evidence.
 
 ## Tools and methods
