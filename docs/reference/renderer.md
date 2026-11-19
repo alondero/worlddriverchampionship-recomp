@@ -115,6 +115,82 @@ the reported screenshot remain unverified.
 
 ## Window aspect and border-free racing
 
+### Projection entry contract
+
+The accepted USA ROM maps `func_80011D54` to `.text` section ROM `0x1000`,
+VRAM `0x80011D54`, and file offset `0x12954`. Its 62 instructions end at
+`0x80011E48`, the delay slot of its only return. A scan of the measured CPU
+text `0x1000..0x7D2AF` finds one direct call at `0x80010AEC` in
+`func_80010A5C` and no external direct branch or jump to an interior
+instruction. The preceding function returns before this entry. An aligned
+word scan of the entire ROM found no raw pointers to the entry or its body.
+These scans leave computed and unaligned references unexcluded.
+
+The observed caller passes the scene's `+0x2DC` camera pointer in `a0`, the
+signed pixel dimensions at scene `+8/+0xC` converted to float32 in `a1/a2`,
+and the float32 world distance at scene `+0x60` in `a3`. The inputs in
+`a1..a3` are IEEE-754 bit patterns in the low words of the GPRs. Camera
+`+0x00..+0x28` supplies float32 orientation vectors, `+0x68` the vertical
+half-angle in radians and `+0x74` its tangent. The float32 constant at
+`0x8009A620` (114.591552734375) converts the half-angle to full degrees.
+The u32 at `0x8007D75C` publishes the active descriptor for the frame.
+The descriptor's `+0/+4` are signed logical pixels and `+0x14` is the ROM's
+float32 pixel-aspect correction.
+
+The game render thread consumes these values synchronously from
+runtime-owned 8 MiB word-swapped RDRAM. The guest fields use N64 big-endian
+byte order and natural alignment. The game owns the camera, descriptors,
+scratch matrices and per-frame matrix arena. Both paths use the caller's
+valid o32 stack and retain guest addresses only during the call. The host
+publishes aspect and distance atomically. The game samples each once at
+aspect selection and far-plane construction respectively.
+Enhanced aspect falls back to ROM aspect times output scale for logical
+dimensions outside 1..4096. Invalid host window dimensions reset the width
+scale to 1, and host distance settings clamp to 1..4.
+
+| ROM call order | Inputs and effects |
+| --- | --- |
+| `8001A864` | Builds the 16-float view matrix at `800B2AC0` from the camera orientation. |
+| `80070DB0` | Takes the FOV in degrees, aspect, and three o32 stack arguments. It writes the 16-float perspective matrix at `800B2A80` and the u16 perspective normalization at `8007ED64`. |
+| `8001A79C` | Scales the view matrix's spatial 3×3 terms by 32 in place. |
+| `800710E0` | Multiplies view by projection in the original order into the 16-float matrix at `800B2A40`. |
+| `8002CF30` | Decrements the u32 matrix cursor at `8007FE70` by 64, checks the limit at `8007ED40`, increments the u32 counter at `8007FE78`, and packs a 64-byte split 16.16 `Mtx` into the arena. The ROM diagnostic at or below the limit spills arguments and returns, then allocation continues. |
+
+The builder writes float32 camera `+0x7C` as tangent times aspect and
+publishes the allocator's address from `v0` as a u32 at `0x8007ED68`.
+Perspective uses a near plane of 32, a far plane of original world distance
+times the host setting times 32, and a projection scale of 1. In the enhanced
+path, BOSS normalization is recomputed after perspective from the original
+distance, including at 1x. BOSS also uses it to clamp projected coordinates.
+Negative or non-finite distance skips that correction. The differential
+domain uses finite view inputs, positive viewport dimensions, valid camera
+and stack ranges, and an arena cursor with a writable 64-byte slot. It
+exercises invalid descriptor dimensions with a readable pixel-aspect field,
+finite negative and zero distances, and clamping at a large finite distance.
+The recovered body rejects out-of-range or misaligned descriptor addresses
+before reading their fields. The translated ROM dereferences the original
+pixel-aspect field before the legacy aspect hook checks the address.
+
+The test compares the final GPR, FPR, HI/LO and status state, including stack
+and return link, under the pinned translator's calling semantics. The known
+caller reloads its own scene pointer after return. The comparison excludes
+the original builder's saved return link at incoming `sp-4` and its four
+incoming-argument spills at `sp+0/+4/+8/+0xC`. The five callees do not consume
+or publish these words. Their own spills, perspective's outgoing arguments,
+all fixed outputs and the packet stay in the byte comparison.
+
+The player still enters through the original translated function and its
+three enhancement hooks. The recovered body runs in the differential
+fixture. Switching the player entry requires matched BOSS/RDP and visual
+acceptance plus a runtime entry-registration decision. The pinned runtime
+looks up the exact section ROM and VRAM offset. A registered native entry
+with zero ROM size keeps lookup and explicitly rejects runtime hooks.
+An ordinary ROM-sized trampoline is eligible for regeneration from the stock
+ROM, which would lose its host policy. The port currently leaves
+`GameEntry.mod_game_id` unset.
+
+### Window aspect policy
+
 The USA ROM camera builder `func_80011D54` computes viewport width/height
 times the active display descriptor's pixel-aspect correction (`+0x14`).
 At `0x80011DC4`, `f0` supplies both camera `+0x7C`'s horizontal visibility

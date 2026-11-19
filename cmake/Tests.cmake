@@ -216,6 +216,27 @@ if(BUILD_TESTING)
             add_test(NAME wdc_camera_rom COMMAND wdc_camera_rom_tests
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
             set_tests_properties(wdc_camera_rom PROPERTIES TIMEOUT 30)
+            set(WDC_PROJECTION_REFERENCE "${CMAKE_CURRENT_BINARY_DIR}/projection-reference")
+            add_custom_command(
+                OUTPUT "${WDC_PROJECTION_REFERENCE}/reference.c" "${WDC_PROJECTION_REFERENCE}/candidate_helpers.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_projection_reference.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:N64RecompCLI>" "${WDC_PROJECTION_REFERENCE}"
+                DEPENDS tests/extract_projection_reference.py rom-analysis.toml
+                    "World Driver Championship (USA).z64" worlddriverchampionship.syms.toml
+                    worlddriverchampionship.us.toml N64RecompCLI ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_projection_rom_tests tests/test_projection_rom.cpp
+                src/game_projection.cpp src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp
+                "${WDC_PROJECTION_REFERENCE}/reference.c" "${WDC_PROJECTION_REFERENCE}/candidate_helpers.c")
+            target_include_directories(wdc_projection_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_projection_rom_tests PRIVATE -fno-strict-aliasing -ffp-contract=off)
+            add_test(NAME wdc_projection_rom COMMAND wdc_projection_rom_tests
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            add_test(NAME wdc_projection_descriptor_guard COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_projection_guard.py" "$<TARGET_FILE:wdc_projection_rom_tests>"
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_projection_rom PROPERTIES TIMEOUT 60)
+            set_tests_properties(wdc_projection_descriptor_guard PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/visibility_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_visibility_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/visibility_test_funcs.c"
