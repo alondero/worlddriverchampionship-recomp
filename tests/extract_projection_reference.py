@@ -71,6 +71,12 @@ def translate(work, root, recompiler, rom, variant):
     # instruction patches, if present, still apply under the reference name.
     config = HOOK.sub(lambda m: "" if tomllib.loads(m[0])["patches"]["hook"][0]["func"] == ENTRY
                       else m[0], config)
+    # The player supplies a native entry. Translate the original symbol under
+    # its independent name and keep every other ignored boundary.
+    ignored = [name for name in tomllib.loads(config)["patches"]["ignored"] if name != ENTRY]
+    config, count = re.subn(r"(?m)^ignored = .*?$", lambda _: f"ignored = {json.dumps(ignored)}", config)
+    if count != 1:
+        raise SystemExit("Projection reference expected one ignored list")
     config = config.replace(f'func = "{ENTRY}"', f'func = "{entry}"')
     for key, path in (("output_func_path", work / "functions"),
                       ("symbols_file_path", symbol_path), ("rom_file_path", rom)):

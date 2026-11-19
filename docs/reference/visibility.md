@@ -2,8 +2,10 @@
 
 The verified USA ROM makes visibility decisions before BOSS projects triangles.
 RT64 receives low-level RDP batches, so its high-level display-list LOD settings
-cannot restore omitted cars or track sections. The enhancements are owned by
-`src/game_visibility.cpp`, with injection sites in `rom-symbols.toml`.
+cannot restore omitted cars or track sections. `src/game_visibility.cpp`
+handles the CPU decisions through hooks in `rom-symbols.toml`.
+`src/game_projection.cpp` uses the same distance setting when it builds
+the projection matrix.
 
 ## Title and main-menu previews
 
@@ -51,12 +53,13 @@ the car entirely. Thus a car can disappear even inside the far plane.
 keeping row zero. The real projected size remains available to fading and
 packet generation. It preserves cockpit, near/side and section rejection.
 **Draw distance** multiplies the far comparison operand at `0x800219F0` and
-the matching projection input at `0x80011DE8`. The latter is subsequently
-multiplied by 32 by the ROM. It does not modify the near plane or simulation.
-After the projection builder returns, `0x80011DFC` preserves the normalization
-computed from the original far distance. BOSS also uses this value to clamp
-projected coordinates: allowing the extended far plane to reduce it clamped
-off-screen sky vertices (Hawaii's value fell from 10 to 2 at 4x), producing
+the corresponding far distance in `func_80011D54`. The projection converts
+the extended distance to BOSS units by multiplying by 32. The near plane
+and simulation continue to use their original values.
+The same function recomputes BOSS normalization from the original distance
+after building the extended perspective matrix. BOSS also uses this value
+to clamp projected coordinates. Allowing the extended far plane to reduce
+it clamped off-screen sky vertices (Hawaii's value fell from 10 to 2 at 4x), producing
 large flat sky polygons. The projection matrix still uses the extended range.
 The ROM-backed camera test checks both the depth matrix change and unchanged
 normalization across distance settings, including restoration to 1x.

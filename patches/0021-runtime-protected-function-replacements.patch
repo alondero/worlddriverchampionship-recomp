@@ -1,0 +1,96 @@
+diff --git a/librecomp/include/librecomp/mods.hpp b/librecomp/include/librecomp/mods.hpp
+index 37556bd..ca2097b 100644
+--- a/librecomp/include/librecomp/mods.hpp
++++ b/librecomp/include/librecomp/mods.hpp
+@@ -129,6 +129,7 @@ namespace recomp {
+             OfflineModHooked,
+             NoSpecifiedApiVersion,
+             UnsupportedApiVersion,
++            CannotBeReplaced,
+         };
+ 
+         std::string error_to_string(CodeModLoadError);
+diff --git a/librecomp/include/librecomp/overlays.hpp b/librecomp/include/librecomp/overlays.hpp
+index 35703bd..eb3d9a2 100644
+--- a/librecomp/include/librecomp/overlays.hpp
++++ b/librecomp/include/librecomp/overlays.hpp
+@@ -29,6 +29,10 @@ namespace recomp {
+         void register_base_exports(const FunctionExport* exports);
+         void register_base_events(char const* const* event_names);
+         void register_manual_patch_symbols(const ManualPatchSymbol* manual_patch_symbols);
++        // Opt in at startup for entries that must keep their native implementation.
++        // Protect the host function itself, since replacing it also changes any aliases.
++        void protect_function_from_replacement(recomp_func_t* func);
++        bool is_function_replacement_protected(recomp_func_t* func);
+         void read_patch_data(uint8_t* rdram, gpr patch_data_address);
+ 
+         void init_overlays();
+diff --git a/librecomp/src/mod_manifest.cpp b/librecomp/src/mod_manifest.cpp
+index 04b67e3..b2e8260 100644
+--- a/librecomp/src/mod_manifest.cpp
++++ b/librecomp/src/mod_manifest.cpp
+@@ -1115,6 +1115,8 @@ std::string recomp::mods::error_to_string(CodeModLoadError error) {
+             return "Function to be hooked does not exist";
+         case CodeModLoadError::CannotBeHooked:
+             return "Function is not hookable";
++        case CodeModLoadError::CannotBeReplaced:
++            return "Function is protected from replacement";
+         case CodeModLoadError::FailedToFindReplacement:
+             return "Failed to find replacement function";
+         case CodeModLoadError::BaseRecompConflict:
+diff --git a/librecomp/src/mods.cpp b/librecomp/src/mods.cpp
+index 0f7de83..1ca0920 100644
+--- a/librecomp/src/mods.cpp
++++ b/librecomp/src/mods.cpp
+@@ -2328,6 +2328,16 @@ recomp::mods::CodeModLoadError recomp::mods::ModContext::load_mod_code(uint8_t*
+ 
+     // Scan the replacements to handle hooks on the replaced functions.
+     for (const auto& replacement : mod.recompiler_context->replacements) {
++        auto* target = recomp::overlays::get_func_by_section_rom_function_vram(
++            replacement.original_section_vrom, replacement.original_vram);
++        if (target && recomp::overlays::is_function_replacement_protected(target)) {
++            std::stringstream address;
++            address << std::hex << "section: 0x" << replacement.original_section_vrom
++                    << " func: 0x" << std::setfill('0') << std::setw(8) << replacement.original_vram;
++            error_param = address.str();
++            return CodeModLoadError::CannotBeReplaced;
++        }
++
+         // Check if there's a hook slot for the entry of this function.
+         HookDefinition entry_def {
+             .section_rom = replacement.original_section_vrom,
+diff --git a/librecomp/src/overlays.cpp b/librecomp/src/overlays.cpp
+index 8c8e5d1..da2fdd5 100644
+--- a/librecomp/src/overlays.cpp
++++ b/librecomp/src/overlays.cpp
+@@ -3,6 +3,7 @@
+ #include <cstdio>
+ #include <cstring>
+ #include <unordered_map>
++#include <unordered_set>
+ #include <vector>
+ 
+ #include "ultramodern/ultramodern.hpp"
+@@ -41,6 +42,7 @@ static std::unordered_map<std::string, recomp_func_t*> base_exports{};
+ static std::unordered_map<std::string, recomp_func_ext_t*> ext_base_exports{};
+ static std::unordered_map<std::string, size_t> base_events;
+ static std::unordered_map<uint32_t, recomp_func_t*> manual_patch_symbols_by_vram;
++static std::unordered_set<recomp_func_t*> replacement_protected_functions;
+ 
+ extern "C" {
+ int32_t* section_addresses = nullptr;
+@@ -51,6 +53,14 @@ void recomp::overlays::register_overlays(const overlay_section_table_data_t& sec
+     overlays_info = overlays;
+ }
+ 
++void recomp::overlays::protect_function_from_replacement(recomp_func_t* func) {
++    replacement_protected_functions.insert(func);
++}
++
++bool recomp::overlays::is_function_replacement_protected(recomp_func_t* func) {
++    return replacement_protected_functions.contains(func);
++}
++
+ void recomp::overlays::register_patches(const char* patch, std::size_t size, SectionTableEntry* sections, size_t num_sections) {
+     patch_code_sections = sections;
+     num_patch_code_sections = num_sections;

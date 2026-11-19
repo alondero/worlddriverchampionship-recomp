@@ -81,18 +81,24 @@ ctest --test-dir build --output-on-failure
 every controller snapshot before making the worker runnable, including on
 restart. See [startup ordering](reference/runtime.md#input-worker-startup-ordering).
 
-`wdc_projection_rom` compares the recovered projection body against two
-independently generated translations of the accepted USA ROM. The stock
-translation omits the three enhancement sites for this entry. The enhanced
-translation uses frozen implementations of those hooks. Both preserve the
-production mappings, ROM transforms and other patch inputs. The test checks
+`wdc_projection_rom` compares the production projection entry against the
+frozen enhanced USA ROM translation. It also compares the recovered stock
+policy against the stock translation. Both references are generated
+independently from the accepted USA ROM with the production mappings,
+ROM transforms and patch inputs outside this entry. The test checks
 ordered helper calls, argument bits, helper memory inputs and outputs, the real
 matrix allocator, final registers and independent RDRAM banks. It covers all
 nine descriptors, the layout selector and both split-screen partitions,
 window aspect and distance settings, and the ROM allocator's low-space path.
 Negative controls change a matrix word, normalization, call order and bytes
 outside the write set. `wdc_projection_descriptor_guard` checks deliberate
-address rejection in the recovered body. See the
+address rejection at the production entry. `wdc_projection_runtime` uses
+the production overlay registration and an isolated mod game ID. It checks
+exact lookup and rejection of entry/return hooks and ordinary, forced and
+offline replacements at the projection entry. An ordinary ROM entry verifies
+accepted replacements, hook order, duplicate and offline conflicts, and
+unload restoration. Every case checks that direct and indirect projection
+calls retain aspect, range, normalization and the published matrix. See the
 [projection entry contract](reference/renderer.md#projection-entry-contract).
 
 ```bash

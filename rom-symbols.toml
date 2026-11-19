@@ -88,6 +88,8 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x8001A280 = 0xA0
 
 [native]
+# The port registers this entry at its original ROM and VRAM identity.
+0x80011D54 = "func_80011D54"
 0x80071930 = "wdc_get_count"
 0x80073BEC = "wdc_motor_init"
 0x80073730 = "wdc_motor_stop"
@@ -203,13 +205,6 @@ func = "func_8002CB0C"
 before_vram = 0x8002CD20
 text = "{ extern void osStartThread_recomp(uint8_t*, recomp_context*); ctx->r4 = (int32_t)0x800B7620; osStartThread_recomp(rdram, ctx); }"
 
-# Aspect is consumed by both the horizontal culling extent and perspective.
-# Keep the injection in generator inputs, never in generated CPU code.
-[[hooks]]
-func = "func_80011D54"
-before_vram = 0x80011DC4
-text = "{ extern void wdc_widen_camera(uint8_t*, recomp_context*); wdc_widen_camera(rdram, ctx); }"
-
 [[hooks]]
 func = "func_8000FC18"
 before_vram = 0x8000FEF0
@@ -282,16 +277,6 @@ text = "{ extern void wdc_menu_fill_end(uint8_t*, recomp_context*); wdc_menu_fil
 func = "func_800108B4"
 before_vram = 0x800108D0
 text = "{ extern void wdc_menu_car_visibility(uint8_t*, recomp_context*); wdc_menu_car_visibility(rdram, ctx); }"
-
-[[hooks]]
-func = "func_80011D54"
-before_vram = 0x80011DE8
-text = "{ extern void wdc_projection_distance(uint8_t*, recomp_context*); wdc_projection_distance(rdram, ctx); }"
-
-[[hooks]]
-func = "func_80011D54"
-before_vram = 0x80011DFC
-text = "{ extern void wdc_projection_normalize(uint8_t*, recomp_context*); wdc_projection_normalize(rdram, ctx); }"
 
 [[hooks]]
 func = "func_800218F0"
