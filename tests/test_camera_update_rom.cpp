@@ -31,6 +31,7 @@ constexpr uint32_t vehicle = 0x80146000;
 constexpr uint32_t stack = 0x807FF000;
 constexpr uint32_t update = 0x80012354;
 constexpr uint32_t blend = 0x8001A4C4;
+constexpr uint32_t vector_add = 0x8001A008;
 constexpr std::array<uint32_t, 2> scenes{0x800ABE40, 0x800AE670};
 constexpr std::array<unsigned, 5> offsets{0x94, 0x9C, 0xA0, 0xA4, 0xA8};
 constexpr uint32_t bits(float value) { return std::bit_cast<uint32_t>(value); }
@@ -78,7 +79,7 @@ struct Boundary {
     uint32_t address;
     Registers registers;
     uint32_t f0;
-    Words view;
+    std::optional<std::array<uint32_t, 3>> target_offset;
     std::array<uint8_t, 0x2E4> scene_bytes;
     std::array<uint8_t, 0x180> stack_bytes;
     bool operator==(const Boundary&) const = default;
@@ -88,6 +89,7 @@ struct Trace {
     uint32_t scene;
     bool toggle_at_blend;
     std::vector<Boundary> calls{};
+    std::optional<Words> authored_view{};
 };
 Trace* current_trace;
 }
@@ -126,16 +128,40 @@ extern "C" void camera_update_trace(int reference, uint32_t address, uint8_t* rd
     entry.registers = registers(*ctx);
     entry.f0 = ctx->f0.u32l;
     const uint32_t camera = trace.scene + 0x11C;
+    const Words view = read_view(rdram, camera);
+    if (address == update) trace.authored_view = view;
+    if (!reference && trace.authored_view) assert(view == *trace.authored_view);
     if (address == blend && ctx->r16 != 0) {
         assert(uint32_t(ctx->r16) == camera);
         assert(uint32_t(ctx->r31) == 0x800124F0);
-        assert(ctx->r4 == ctx->r6 && ctx->r7 == bits(0.25f));
-        entry.view = read_view(rdram, uint32_t(ctx->r16));
-    } else {
-        entry.view = read_view(rdram, camera);
+        assert(ctx->r4 == ctx->r6);
     }
     std::copy_n(rdram + (trace.scene - 0x80000000), entry.scene_bytes.size(), entry.scene_bytes.begin());
-    std::copy_n(rdram + (stack - 0x80000000 - 0x160), entry.stack_bytes.size(), entry.stack_bytes.begin());
+    constexpr uint32_t stack_begin = stack - 0x160;
+    std::copy_n(rdram + (stack_begin - 0x80000000), entry.stack_bytes.size(), entry.stack_bytes.begin());
+    if (reference && snapshot) {
+        // Reference-only transient writes. Keep the rest of the scene intact.
+        assert(trace.authored_view);
+        for (size_t i = 0; i < offsets.size(); ++i) {
+            const auto bits = (*trace.authored_view)[i];
+            std::copy_n(reinterpret_cast<const uint8_t*>(&bits), sizeof(bits),
+                        entry.scene_bytes.begin() + 0x11C + offsets[i]);
+        }
+    }
+    if (address == vector_add && trace.authored_view && ctx->r4 == ADD32(ctx->r29, 0x64)) {
+        const gpr authored = ADD32(ctx->r16, 0xA0);
+        assert(ctx->r6 == ADD32(ctx->r16, 0xAC));
+        assert(ctx->r5 == authored || (!reference && ctx->r5 == ctx->r4));
+        const uint32_t source = uint32_t(ctx->r5);
+        entry.target_offset = std::array{word(rdram, source), word(rdram, source + 4), word(rdram, source + 8)};
+        if (ctx->r5 != authored || (reference && snapshot)) {
+            // The re-used destination is completely replaced before the next
+            // call. Compare its effective input above and final bytes later.
+            std::copy_n(reinterpret_cast<const uint8_t*>(&authored), sizeof(authored),
+                        entry.registers.begin() + offsetof(recomp_context, r5));
+            std::fill_n(entry.stack_bytes.begin() + (uint32_t(ctx->r4) - stack_begin), 12, uint8_t{});
+        }
+    }
     if (address == blend && trace.toggle_at_blend) {
         if (reference) {
             reference_top_down = false;
@@ -257,9 +283,8 @@ void compare(const std::vector<uint8_t>& rom, uint32_t scene, const Scenario& sc
         assert(prod_ctx.status_reg == ref_ctx.status_reg && prod_ctx.mips3_float_mode == ref_ctx.mips3_float_mode);
         assert(production == reference); // Includes every stack byte and unrelated RAM.
 
-        const auto begin = std::ranges::find(prod_trace.calls, update, &Boundary::address);
-        assert(begin != prod_trace.calls.end());
-        assert(read_view(production.data(), camera) == begin->view);
+        assert(prod_trace.authored_view && prod_trace.authored_view == ref_trace.authored_view);
+        assert(read_view(production.data(), camera) == *prod_trace.authored_view);
         const auto blend_call = std::ranges::find(prod_trace.calls, blend, &Boundary::address);
         if (first) {
             const bool uses_blend = !scenario.zero_position && !scenario.cut && !scenario.snap_direction;
@@ -274,13 +299,6 @@ void compare(const std::vector<uint8_t>& rom, uint32_t scene, const Scenario& sc
             assert(next != prod_trace.calls.end() && next->address == 0x8001A520);
             const uint32_t coefficient = scenario.racing && scenario.rate_60 ? 0x3E0930A4 : bits(0.25f);
             assert(next->f0 == coefficient);
-            const Words effective{bits(26.0f), bits(22.0f), 0, 0, bits(4.0f)};
-            const bool use_override = !scenario.nonlocal && scenario.racing && scenario.top_down &&
-                scenario.scale == bits(2.0f) && (first || !scenario.toggle_at_blend);
-            // A read at blend entry sees the temporary words. A local-only
-            // implementation without an adapter would expose begin->view.
-            assert(blend_call->view == (use_override ? effective : begin->view));
-            if (use_override) assert(blend_call->view != begin->view);
         }
     }
 }

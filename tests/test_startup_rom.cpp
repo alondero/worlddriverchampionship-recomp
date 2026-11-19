@@ -22,7 +22,7 @@ void wdc_framerate_start(uint8_t*, recomp_context*);
 uint32_t wdc_framerate_preswap();
 void wdc_framerate_wheels(uint8_t*, recomp_context*);
 void wdc_framerate_action_lifetime(uint8_t*, recomp_context*);
-void wdc_framerate_camera(uint8_t*, recomp_context*);
+uint32_t wdc_camera_blend_weight();
 void wdc_framerate_hud_age(uint8_t*, recomp_context*);
 void osCreateMesgQueue_recomp(uint8_t*, recomp_context*) {}
 void osSendMesg_recomp(uint8_t*, recomp_context*) {}
@@ -126,10 +126,9 @@ int main() {
         wdc_framerate_wheels(rdram, &ctx);
         wdc_framerate_action_lifetime(rdram, &ctx);
         assert(ctx.f28.fl == 1.0f / 60.0f && ctx.r8 == 3);
-        ctx.r31 = int32_t(0x800124F0); ctx.r7 = std::bit_cast<uint32_t>(0.25f); ctx.r3 = 66;
-        wdc_framerate_camera(rdram, &ctx);
+        ctx.r3 = 66;
         wdc_framerate_hud_age(rdram, &ctx);
-        assert(ctx.r7 == std::bit_cast<uint32_t>(0.25f) && ctx.r3 == 66);
+        assert(wdc_camera_blend_weight() == std::bit_cast<uint32_t>(0.25f) && ctx.r3 == 66);
         assert(MEM_W(0, scene) == mode);
     }
 

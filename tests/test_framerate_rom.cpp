@@ -40,6 +40,7 @@ void func_8000C164(uint8_t*, recomp_context*);
 void func_80017164(uint8_t*, recomp_context*);
 void func_80017DEC(uint8_t*, recomp_context*);
 void func_8001A4C4(uint8_t*, recomp_context*);
+uint32_t wdc_camera_blend_weight();
 void wdc_framerate_hud_age(uint8_t*, recomp_context*);
 // A controlled decaying force isolates the ROM integrators from collision,
 // track and vehicle setup. It proves timestep handling, not driving fidelity.
@@ -184,18 +185,18 @@ int main(int argc, char** argv) {
             else assert(std::abs(stock_angles[wheel] - angle) < 0.00002f);
         }
     }
-    // Camera smoothing retains the stock decay after two half-steps. The
-    // generic vector helper's other callers must retain their coefficients.
+    // The camera's weight retains the stock decay after two half-steps.
+    // A direct call uses the supplied weight, even with the old camera link.
     constexpr int32_t target = int32_t(0x80400100), camera = target + 8;
-    for (bool native : {false, true}) for (bool caller : {false, true}) {
+    for (bool native : {false, true}) for (bool camera_weight : {false, true}) {
         start(native);
         MEM_W(0, target) = std::bit_cast<uint32_t>(1.0f);
         MEM_W(4, target) = std::bit_cast<uint32_t>(-1.0f);
         MEM_W(0, camera) = MEM_W(4, camera) = 0;
-        for (int sample = 0; sample < (native && caller ? 2 : 1); ++sample) {
+        for (int sample = 0; sample < (native && camera_weight ? 2 : 1); ++sample) {
             auto ctx = context(); ctx.r4 = camera; ctx.r5 = target; ctx.r6 = camera;
-            ctx.r7 = std::bit_cast<uint32_t>(0.25f);
-            ctx.r31 = int32_t(caller ? 0x800124F0 : 0x80012510);
+            ctx.r7 = camera_weight ? wdc_camera_blend_weight() : std::bit_cast<uint32_t>(0.25f);
+            ctx.r31 = int32_t(0x800124F0);
             func_8001A4C4(rdram, &ctx);
         }
         assert(std::abs(std::bit_cast<float>(uint32_t(MEM_W(0, camera))) - 0.25f) < 0.000001f);

@@ -18,7 +18,6 @@ natives = {
     "osViSwapBuffer_recomp", "osViGetCurrentFramebuffer_recomp",
     "func_80019D98", "func_80013B78", "func_8001A000", "func_80013998",
     "wdc_framerate_action_lifetime", "wdc_framerate_wheels",
-    "wdc_framerate_camera",
 }
 functions = {}
 hud_hook = False
@@ -34,7 +33,7 @@ if roots - functions.keys():
 if not hud_hook:
     raise SystemExit("Missing generated HUD sample-age hook")
 for hook in ("wdc_framerate_preswap()", "wdc_framerate_action_lifetime(rdram, ctx)",
-             "wdc_framerate_wheels(rdram, ctx)", "wdc_framerate_camera(rdram, ctx)"):
+             "wdc_framerate_wheels(rdram, ctx)"):
     if not any(hook in body for body in functions.values()):
         raise SystemExit(f"Missing generated frame-rate hook: {hook}")
 calls = set()

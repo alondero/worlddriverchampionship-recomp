@@ -84,16 +84,12 @@ extern "C" void wdc_framerate_action_lifetime(uint8_t*, recomp_context* ctx) {
     if (racing_60.load(std::memory_order_relaxed)) ctx->r8 = 6;
 }
 
-// USA func_8001A4C4 entry, game thread. Only the camera's call at 800124E8
-// uses this correction: a3 is float32 0.25, a per-sample smoothing fraction.
-// Two half-steps retain the original exponential decay: 1-sqrt(1-0.25).
-// Caller identity is the MIPS return address (800124F0); the generator emits
-// real JAL links at every call to this helper. Other callers and coefficients
-// remain stock. Register only; source/destination vectors stay ROM-owned.
-extern "C" void wdc_framerate_camera(uint8_t*, recomp_context* ctx) {
-    if (racing_60.load(std::memory_order_relaxed) && uint32_t(ctx->r31) == 0x800124F0 &&
-        uint32_t(ctx->r7) == std::bit_cast<uint32_t>(0.25f))
-        ctx->r7 = std::bit_cast<uint32_t>(1.0f - std::sqrt(0.75f));
+// USA camera update's own blend call, on the game thread. Two half-steps
+// retain the original exponential decay. Return the float32 weight bits for
+// a3 without reading guest RAM or coupling policy to the helper's caller.
+extern "C" uint32_t wdc_camera_blend_weight() {
+    return std::bit_cast<uint32_t>(racing_60.load(std::memory_order_relaxed)
+        ? 1.0f - std::sqrt(0.75f) : 0.25f);
 }
 
 // USA func_8002E13C before 8002E24C, game thread. v1 is the unsigned age

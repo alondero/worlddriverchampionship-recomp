@@ -107,8 +107,7 @@ def extract(source, destination, reference):
     functions[DISPATCH_CALL] = (f"RECOMP_FUNC void {DISPATCH_CALL}(uint8_t* rdram, recomp_context* ctx) {{\n"
                                 f"{call[1]}    return;\n}}\n")
 
-    host_hooks = ({hook for _, _, hook in FROZEN_HOOKS} if reference else
-                  {"wdc_cheat_top_down_begin", "wdc_cheat_top_down_end", "wdc_framerate_camera"})
+    host_hooks = {hook for _, _, hook in FROZEN_HOOKS} if reference else set()
     pending, closure = list(ROOTS), set()
     while pending:
         name = pending.pop()
@@ -129,9 +128,17 @@ def extract(source, destination, reference):
     for name in sorted(closure):
         body = replace_name.sub(lambda match: names[match[0]], functions[name])
         signature, rest = body.split("{", 1)
-        output.append(f"{signature}{{\n"
-                      f"    camera_update_trace({int(reference)}, 0x{name.removeprefix('func_')}u, rdram, ctx);"
-                      f"{rest}")
+        trace = f"camera_update_trace({int(reference)}, 0x{name.removeprefix('func_')}u, rdram, ctx);"
+        if reference and name == BLEND:
+            # Compare the register inputs consumed by the shared arithmetic.
+            # The frozen image applies its weight inside the helper's hook.
+            hook_call = "camera_reference_rate(rdram, ctx);"
+            if rest.count(hook_call) != 1:
+                raise SystemExit("Expected one frozen camera blend policy hook")
+            rest = rest.replace(hook_call, f"{hook_call} {trace}")
+        else:
+            rest = f"\n    {trace}{rest}"
+        output.append(f"{signature}{{{rest}")
     destination.write_text("\n".join(output), encoding="utf-8")
 
 
