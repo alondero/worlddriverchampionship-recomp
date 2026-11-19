@@ -81,6 +81,25 @@ ctest --test-dir build --output-on-failure
 every controller snapshot before making the worker runnable, including on
 restart. See [startup ordering](reference/runtime.md#input-worker-startup-ordering).
 
+`wdc_projection_rom` compares the recovered projection body against two
+independently generated translations of the accepted USA ROM. The stock
+translation omits the three enhancement sites for this entry. The enhanced
+translation uses frozen implementations of those hooks. Both preserve the
+production mappings, ROM transforms and other patch inputs. The test checks
+ordered helper calls, argument bits, helper memory inputs and outputs, the real
+matrix allocator, final registers and independent RDRAM banks. It covers all
+nine descriptors, the layout selector and both split-screen partitions,
+window aspect and distance settings, and the ROM allocator's low-space path.
+Negative controls change a matrix word, normalization, call order and bytes
+outside the write set. `wdc_projection_descriptor_guard` checks deliberate
+address rejection in the recovered body. See the
+[projection entry contract](reference/renderer.md#projection-entry-contract).
+
+```bash
+cmake --build build --target wdc_projection_rom_tests
+ctest --test-dir build -R "wdc_projection_" --output-on-failure
+```
+
 `wdc_warp` checks strict request parsing, invalid-input preservation and guards
 against boot/transition writes. `wdc_warp_rom` compares all 6,090 combinations
 of 58 layouts, 35 models and three Quick Race modes against the translated

@@ -11,11 +11,11 @@
 namespace {
 std::atomic<unsigned> policy{1};
 unsigned settings() { return policy.load(std::memory_order_relaxed); }
-float distance_scale() { return float(settings() & 7); }
 bool node_valid(uint32_t address) {
     return address >= 0x80000400u && address <= 0x80800000u - 0x24 && !(address & 3);
 }
 }
+float wdc::visibility::distance_scale() { return float(settings() & 7); }
 void wdc::visibility::configure(bool full_cars, bool full_track, int distance) {
     policy.store(unsigned(std::clamp(distance, 1, 4)) |
         (full_cars ? 8u : 0u) | (full_track ? 16u : 0u), std::memory_order_relaxed);
@@ -49,7 +49,7 @@ extern "C" void wdc_menu_car_visibility(uint8_t* rdram, recomp_context* ctx) {
 // option immediately restores original behavior without cumulative scaling.
 extern "C" void wdc_projection_distance(uint8_t*, recomp_context* ctx) {
     // 80011DE8: f10 is scene far distance, before multiplication by 32.
-    ctx->f10.fl *= distance_scale();
+    ctx->f10.fl *= wdc::visibility::distance_scale();
 }
 // USA 80011DFC, after guPerspectiveF: BOSS uses perspNorm both for reciprocal
 // W and as a projected-coordinate clamp. A larger far plane reduces it (Hawaii
@@ -72,7 +72,7 @@ extern "C" void wdc_projection_normalize(uint8_t* rdram, recomp_context* ctx) {
 }
 extern "C" void wdc_car_distance(uint8_t*, recomp_context* ctx) {
     // 800219F0: f8 is far threshold, f0 remains actual camera depth.
-    ctx->f8.fl *= distance_scale();
+    ctx->f8.fl *= wdc::visibility::distance_scale();
 }
 extern "C" void wdc_car_detail(uint8_t*, recomp_context* ctx) {
     // 80021BE8: compare the next detail threshold against projected size.
