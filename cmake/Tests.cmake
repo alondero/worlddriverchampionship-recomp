@@ -146,6 +146,22 @@ if(BUILD_TESTING)
             add_test(NAME wdc_framerate_rom COMMAND wdc_framerate_rom_tests
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
             set_tests_properties(wdc_framerate_rom PROPERTIES TIMEOUT 30)
+            set(WDC_CAMERA_UPDATE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/camera_update_production.c"
+                "${CMAKE_CURRENT_BINARY_DIR}/camera_update_reference.c")
+            add_custom_command(OUTPUT ${WDC_CAMERA_UPDATE_SOURCES}
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_camera_update_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}" "$<TARGET_FILE:N64RecompCLI>" "${CMAKE_CURRENT_BINARY_DIR}"
+                DEPENDS tests/extract_camera_update_test.py rom-analysis.toml
+                    worlddriverchampionship.us.toml worlddriverchampionship.syms.toml
+                    "World Driver Championship (USA).z64" ${WDC_FUNC_C_SOURCES} N64RecompCLI
+                VERBATIM)
+            add_executable(wdc_camera_update_rom_tests tests/test_camera_update_rom.cpp
+                src/game_cheat_camera.cpp src/game_cheats.cpp src/game_framerate.cpp ${WDC_CAMERA_UPDATE_SOURCES})
+            target_include_directories(wdc_camera_update_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_camera_update_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_camera_update_rom COMMAND wdc_camera_update_rom_tests
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_camera_update_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_cheats_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/cheats_test_funcs.c"

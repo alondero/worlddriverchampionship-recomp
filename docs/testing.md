@@ -140,6 +140,19 @@ and rejects missing generated hooks. The frontend tests also cover Driving
 defaults/persistence/reset and virtual-gamepad pedal release gating. These
 checks do not validate physical pedal compatibility or racing feel.
 
+`wdc_camera_update_rom` compares production camera updates with a separately
+translated USA ROM reference whose top-down and blend-rate hooks are frozen.
+It executes the update's real helper closure on independent RDRAM banks and
+compares call order, guest registers, camera and stack bytes at helper entry,
+and all RDRAM after return. It uses both local camera records, runs the
+translated `8000FAE8` initializer, and runs the translated dispatcher slice
+through the call at `8000F684` using a fixture for the dispatcher's saved
+arguments. Cases cover position initialization, heading fallback, cuts,
+obstruction-ring hits and misses, settings changes at blend entry, invalid
+scales and consecutive updates. The blend observer
+reads the substituted words through the live camera pointer in `s0`. See
+[camera update and hook visibility](rendering.md#camera-update-and-hook-visibility).
+
 `wdc_results_rom` runs the translated results drawer, text blitter and frame
 packet allocator with prebuilt text objects; texture loading and unrelated
 menu branches are stubbed. It compares the title and every field of eight
