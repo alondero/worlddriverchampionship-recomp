@@ -94,7 +94,9 @@ the Pak scan and skip interactive dialogs. These are setup checks, not completed
 
 With the frontend enabled, `wdc_input` exercises SDL virtual-gamepad hotplug,
 native profile evaluation/remapping/persistence, analog axes and overlay input
-gating without a ROM or GPU. `wdc_frontend_settings` checks staged host-owned
+gating without a ROM or GPU. Its startup fixture checks mapping file discovery
+and precedence, registration of already-connected devices and handle release
+after a duplicate add. `wdc_frontend_settings` checks staged host-owned
 graphics/enhancement settings, the session Cheats tab, and the pending-open
 gate. Build these targets
 explicitly if only frontend checks are needed:

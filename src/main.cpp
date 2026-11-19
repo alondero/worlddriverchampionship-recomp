@@ -134,6 +134,16 @@ int main(int argc, char** argv) {
     if (recomp::select_rom(rom_path, game.game_id) != recomp::RomValidationError::Good) return 1;
 #ifdef WDC_PLAYER
     wdc::ui::install();
+#ifdef WDC_ENABLE_FRONTEND
+    std::filesystem::path executable_dir;
+#ifndef __ANDROID__
+    if (char* base = SDL_GetBasePath()) {
+        executable_dir = std::filesystem::path(reinterpret_cast<const char8_t*>(base));
+        SDL_free(base);
+    }
+#endif
+    wdc::input::initialize_controllers(executable_dir, config_path);
+#endif
 #endif
     recomp::Configuration cfg{};
     cfg.project_version = {0, 1, 0};

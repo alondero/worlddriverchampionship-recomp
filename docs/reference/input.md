@@ -77,6 +77,14 @@ Fullscreen, quit and file-drop handling stay with WDC. The Controls tab is
 the native editor, with WDC action names; General exposes its deadzone and
 background-input and rumble-strength settings without advertising unsupported aiming.
 
+On startup, WDC imports optional SDL mapping files after SDL initializes and
+before the runtime starts. It then flushes pending controller-add events and
+registers the current SDL controllers through `process_event()` under the
+joystick lock. Patch 0017 closes extra opens for instances already
+registered and closes the owned handle on removal. The
+[upstream event handler](https://github.com/N64Recomp/RecompFrontend/blob/2ddbfc8adcfe9ba26520441f14488861fdcefef7/recompinput/src/input_events.cpp#L67-L99)
+still registers every successful open.
+
 The main thread and presentation callback acquire the same recursive mutex
 before accessing native input/profile state. It precedes the frontend's UI
 lock. Runtime input callbacks read a single atomic snapshot containing the

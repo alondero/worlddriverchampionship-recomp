@@ -237,7 +237,8 @@ Linux generation currently requires the default filename at the repository root.
 The player stores runtime data under ignored `build/user-data`. Native
 RecompFrontend profiles persist in `controls.json`; rumble strength, deadzone and background
 input preferences persist in `general.json`. See [Controllers](controllers.md)
-for defaults and remapping. An audio volume control remains future work. The overlay
+for defaults, remapping and [optional SDL mapping files](controllers.md#custom-controller-mappings).
+An audio volume control remains future work. The overlay
 exposes the configuration options currently supported by the port.
 
 Controller Pak saves are enabled on controller port 1 and stored as a raw

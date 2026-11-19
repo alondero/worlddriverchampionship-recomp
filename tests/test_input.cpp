@@ -12,8 +12,10 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 SDL_Window* window = nullptr;
 std::vector<recomp::GameEntry> supported_games;
@@ -45,6 +47,61 @@ static void drain() {
     while (SDL_PollEvent(&event)) wdc::input::handle_event(event);
     wdc::input::sample(capture);
 }
+
+static void test_startup_mappings(const std::filesystem::path& settings_dir) {
+    const auto executable_dir = settings_dir / "player";
+    std::filesystem::create_directory(executable_dir);
+    std::ofstream executable_db(executable_dir / "gamecontrollerdb.txt");
+    std::ofstream settings_db(settings_dir / "gamecontrollerdb.txt");
+    auto attach = [&](Uint16 product, int executable_button, int settings_button) {
+        SDL_VirtualJoystickDesc desc{};
+        desc.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+        desc.type = SDL_JOYSTICK_TYPE_UNKNOWN;
+        desc.nbuttons = 6;
+        desc.vendor_id = 0x1234;
+        desc.product_id = product;
+        desc.name = "WDC Startup Test Joystick";
+        const int device = SDL_JoystickAttachVirtualEx(&desc);
+        require(device >= 0 && !SDL_IsGameController(device), "test joystick must start unmapped");
+        char guid[33]{};
+        SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(device), guid, sizeof(guid));
+        executable_db << guid << ",Startup Pad,a:b" << executable_button << ",platform:" << SDL_GetPlatform() << ",\n";
+        if (settings_button >= 0) {
+            settings_db << guid << ",Startup Pad,a:b" << settings_button << ",platform:" << SDL_GetPlatform() << ",\n";
+        }
+        return device;
+    };
+    const int executable_only = attach(0x5678, 5, -1);
+    const int overridden = attach(0x5679, 5, 4);
+    executable_db.close();
+    settings_db.close();
+    require(executable_db && settings_db, "could not write test mapping files");
+
+    SDL_Event added{};
+    added.type = SDL_CONTROLLERDEVICEADDED;
+    added.cdevice.which = overridden;
+    require(SDL_PushEvent(&added) == 1, "could not seed startup add event");
+    wdc::input::initialize_controllers(executable_dir, settings_dir);
+    require(!SDL_HasEvent(SDL_CONTROLLERDEVICEADDED), "startup add events were not flushed");
+
+    // Detach in reverse index order. Force a second add through the hotplug
+    // path and check the single removal releases SDL's last open reference.
+    for (const auto [device, expected_button] : {std::pair{overridden, 4}, {executable_only, 5}}) {
+        const auto id = SDL_JoystickGetDeviceInstanceID(device);
+        auto* controller = recompinput::get_controller_from_joystick_id(id);
+        require(controller != nullptr, "startup did not register an imported controller");
+        const auto binding = SDL_GameControllerGetBindForButton(controller, SDL_CONTROLLER_BUTTON_A);
+        require(binding.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON && binding.value.button == expected_button,
+                "startup mapping file or override precedence failed");
+        added.cdevice.which = device;
+        wdc::input::handle_event(added);
+        require(SDL_JoystickDetachVirtual(device) == 0, "startup joystick detach failed");
+        drain();
+        require(recompinput::get_controller_from_joystick_id(id) == nullptr &&
+                SDL_GameControllerFromInstanceID(id) == nullptr, "duplicate add leaked an SDL controller handle");
+    }
+}
+
 int main() {
     using namespace recompinput;
     using G = GameInput;
@@ -68,6 +125,7 @@ int main() {
         require(profiles::get_input_binding(kb, G::A, 0) == F::keyboard(SDL_SCANCODE_X) &&
             profiles::get_input_binding(kb, G::X_AXIS_POS, 0) == F::keyboard(SDL_SCANCODE_RIGHT) &&
             profiles::get_input_binding(kb, G::X_AXIS_POS, 1) == F::keyboard(SDL_SCANCODE_D), "keyboard defaults changed");
+        test_startup_mappings(dir);
         SDL_VirtualJoystickDesc descriptor{};
         descriptor.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
         descriptor.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;

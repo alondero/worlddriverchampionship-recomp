@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdio>
 #include <unordered_map>
 
 namespace wdc::input {
@@ -22,6 +23,19 @@ std::atomic<uint64_t> snapshot{};
 bool wait_for_release{}; // SDL thread only.
 bool focused = true;
 std::unordered_map<SDL_JoystickID, RumbleOutput> rumble_outputs;
+
+void load_controller_database(const std::filesystem::path& file) {
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(file, error)) return;
+
+    const auto path = file.u8string();
+    const auto* utf8 = reinterpret_cast<const char*>(path.c_str());
+    if (SDL_GameControllerAddMappingsFromFile(utf8) < 0) {
+        std::fprintf(stderr, "[wdc] Could not load controller mappings from %s: %s\n",
+                     utf8, SDL_GetError());
+    }
+}
+
 void apply_rumble(uint16_t strength) {
     // This is WDC's only SDL rumble sender. Do not call recompinput::update_rumble
     // alongside it: its smoothing and long duration conflict with the ROM pulses
@@ -113,6 +127,37 @@ void configure() {
     set_game_input_name(G::START, "Start / Pause");
     set_game_input_description(G::TOGGLE_MENU,
         "Open or close settings. Pause the race with Start first; settings do not pause the game. Escape or F1 also opens settings.");
+}
+
+void initialize_controllers(const std::filesystem::path& executable_dir,
+                            const std::filesystem::path& settings_dir) {
+    constexpr auto database = "gamecontrollerdb.txt";
+    const auto settings_file = settings_dir / database;
+    std::error_code error;
+    if (!executable_dir.empty()) {
+        const auto executable_file = executable_dir / database;
+        if (settings_dir.empty() || !std::filesystem::equivalent(executable_file, settings_file, error)) {
+            load_controller_database(executable_file);
+        }
+    }
+    if (!settings_dir.empty()) load_controller_database(settings_file);
+
+    std::lock_guard lock(input_mutex);
+    SDL_PumpEvents();
+    // SDL2 can leave an already-connected joystick unannounced after mapping
+    // import. Replace pending adds with the current list and consume each
+    // device index under the native SDL2 joystick lock.
+    SDL_LockJoysticks();
+    SDL_FlushEvent(SDL_CONTROLLERDEVICEADDED);
+    const int devices = SDL_NumJoysticks();
+    for (int index = 0; index < devices; ++index) {
+        if (!SDL_IsGameController(index)) continue;
+        SDL_Event event{};
+        event.type = SDL_CONTROLLERDEVICEADDED;
+        event.cdevice.which = index;
+        recompinput::process_event(event);
+    }
+    SDL_UnlockJoysticks();
 }
 
 void stop_rumble() {

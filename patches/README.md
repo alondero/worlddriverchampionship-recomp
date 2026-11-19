@@ -55,7 +55,7 @@ the WDC runtime demonstrates the same need.
 | `0015-rt64-raw-triangle-scissor.patch` | RT64 | All | Scale raw-triangle scissors in the same framebuffer space as their vertices. |
 | `0016-rt64-rdp-edge-trapezoids.patch` | RT64 | All | Rebuild raw RDP triangles from their H/M/L edges instead of three extrapolated corners. |
 | `0020-rt64-opaque-subpixel-coverage.patch` | RT64 | All | Bound opaque-surface coverage expansion to conceal subpixel background slivers when upscaling. |
-| `0017-frontend-host-input.patch` | RecompFrontend | Desktop | Expose single-event/batch handling for the host SDL loop; handle failed opens/disconnects, use the controller profile for binding cancellation and bound deadzone. |
+| `0017-frontend-host-input.patch` | RecompFrontend | Desktop | Expose single-event/batch handling for the host SDL loop; handle failed or duplicate opens and disconnects, use the controller profile for binding cancellation and bound deadzone. |
 | `0018-runtime-rsp-dma-rounding.patch` | N64ModernRuntime | All | Round inclusive RSP DMA lengths to eight-byte words; prevents stale stereo frames at BOSS audio block boundaries. |
 | `0019-runtime-developer-thread-snapshots.patch` | N64ModernRuntime | All | Validate the live thread roster and remove/repair native context pointers for developer RAM checkpoints. |
 
