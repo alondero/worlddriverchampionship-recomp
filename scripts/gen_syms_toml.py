@@ -211,7 +211,13 @@ def main() -> int:
         f'rom_file_path = "{config["filename"]}"', "", "[patches]",
         f"stubs = {stubs_toml}", "ignored = []", "",
     ]
-    hooks = symbol_config.get("hooks", [])
+    instructions = symbol_config.get("instructions", [])
+    # An instruction replacement may supply the translated operation at that
+    # same address, including when the instruction occupies a delay slot.
+    hooks = symbol_config.get("hooks", []) + [
+        {"func": patch["func"], "before_vram": patch["vram"], "text": patch["text"]}
+        for patch in instructions if "text" in patch
+    ]
     try:
         hooks = hooks + link_register_hooks(
             rom, symbol_config.get("link_register_targets", []), functions,
@@ -222,7 +228,7 @@ def main() -> int:
         output.extend(['[[patches.hook]]', f'func = "{hook["func"]}"',
                        f'before_vram = {hook["before_vram"]:#x}',
                        f'text = \'{hook["text"]}\'', ''])
-    for patch in symbol_config.get("instructions", []):
+    for patch in instructions:
         address = patch["vram"]
         if not any(name == patch["func"] and start <= address < start + size
                    for name, start, size in functions) or address % 4:

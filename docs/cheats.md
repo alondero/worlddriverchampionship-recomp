@@ -191,14 +191,15 @@ memory access. Off preserves the exact original register value.
 The overlay's red-skid option changes only the color producer. It deliberately
 omits the original handler's permanent material-table mutation. Blur overrides
 only the two framebuffer consumers, leaving the shared fade timers unchanged.
-Camera hook ownership, bounded temporary fields, and restore behavior are
-documented next to `src/game_cheat_camera.cpp`.
+Camera eligibility and local parameter selection are documented next to
+`src/game_cheat_camera.cpp`. The update keeps the native camera fields in
+guest RAM and consumes effective parameters for the current call. See
+[camera update inputs and helper calls](rendering.md#camera-update-inputs-and-helper-calls).
 
 `wdc_cheats_rom` executes the translated accessor/setter closure and requires
 the generated hooks to exist. It checks original loads, caller isolation,
 on/off behavior, one-shot consumption and preservation of the complete career
 in each permutation. A representative accessor scenario additionally checks
 all synthetic RDRAM once. `wdc_cheat_camera` checks both camera records,
-bounds, restoration, and recovery from missing or invalid exits without heap
-allocation. The nonrecursive camera routine uses one fixed snapshot; disabled
-entry leaves it untouched, and every exit consumes any active snapshot.
+eligibility, pointer and scale bounds, and preservation of the authored
+words. `wdc_camera_update_rom` exercises the complete translated update.

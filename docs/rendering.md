@@ -274,6 +274,66 @@ The frame-count audit currently establishes these boundaries:
 | Sample counter/HUD flash | `8000C6DC` increments `8007E530`; `8002E230..8002E254` uses its age for a delay and flashing mask | Halve the unsigned age in this reader, preserving stock hold and flash cadence |
 | Replay/ghost input | `80003DA4` and `80003E74` advance stream `+0x70` once per consumed sample | Original intro/demo scenes stay at stock 30 Hz; player replay/ghost compatibility still requires validation |
 
+### Camera update inputs and helper calls
+
+The USA update at `80012354` takes the camera at `scene+0x11C` in `a0`, a
+direction snap flag in `a1`, and an optional vehicle record pointer in `a2`.
+The dispatcher call at `8000F684` loads the flag from its saved second argument
+and the vehicle pointer from `scene+0x2E0`. The initializer call at `8000FBC0` sets
+that scene pointer, sets native camera parameters, and passes a zero flag.
+The ROM scan finds those two direct calls, no direct incoming interior
+edge, and no aligned pointer word into the update. Computed targets are
+outside that scan's coverage.
+
+The game thread owns these word-aligned records in 8 MiB KSEG0 RDRAM.
+The ROM uses a vehicle transform pointer at camera `+0x80`. With a zero
+camera position at `+0x30`, it initializes that position and goes straight
+to the epilogue. The general path derives the two camera bases and position
+from the transform and previous camera state. It writes the basis vectors
+at `+0x00/+0x10/+0x20` and `+0xB8/+0xC8/+0xD8`, positions at `+0x30` and
+`+0xE8`, and the accumulated float32 at `+0xF0`. The direction cut path
+clears the word at `+0xF8`. With the word at `8007DF40` and `a2` both nonzero,
+the ROM walks the vehicle's obstruction ring at `+0xF18/+0xF1C/+0xF20` before
+publishing the position at `+0x30`. The translated closure calls synchronous
+vector, trigonometry and obstruction helpers through direct calls.
+
+At `800124E8` the blend receives destination `sp+0x88` in `a0`, source
+`sp+0x94` in `a1`, the destination again in `a2`, and float32 weight bits
+in `a3`. The update selects the weight at the call using the active race
+rate latch. `8001A4C4` reads two float32 components from each source and
+stores two in the destination, evaluating `((source - old) * weight) + old`
+in that order. The caller still supplies the original `800124F0` link in
+`ra` for the helper ABI. Policy uses the rate latch only.
+
+The update samples the top-down setting at entry and accepts the two local
+cameras during the active race callback only. It reads the positive finite
+float32 scale at `+0x8C`. The eight verified scalar load sites select between
+the authored `+0x94/+0x9C` values and the local effective distance and height
+in world units. Invalid pointers and scales select the authored loads. These
+reads use word-swapped storage for N64 big-endian words.
+
+At `80012858`, `8001A008` adds the three float32 words at `a1` and `a2`.
+The authored path passes `camera+0xA0` as `a1`. The top-down path uses the
+existing destination at `sp+0x64` to supply `(0, 0, 4)` in world units. It
+is an aligned 12-byte span in the update's game-thread frame. The helper
+loads all six components before any store and replaces all three destination
+words. The next helper consumes the resulting vector at `sp+0x64` and reads
+the camera basis and position only through `+0x38`. The camera's five
+authored words stay in guest RAM with their original contents throughout.
+
+The original generated entry and both shared helper calls retain their ROM
+addresses. Hooks observing guest memory during top-down would see the authored
+words and, at this vector call, an aliased input pointer. Runtime mod loading
+is inactive in startup. Lookup, live hook order and replacement conflicts
+remain subject to the checks in [issue #64](https://github.com/alondero/worlddriverchampionship-recomp/issues/64).
+The ROM fixture ends at the update boundary. Matched visual captures and the
+full projection and geometry stream matrix remain separate acceptance work.
+Issues [#60](https://github.com/alondero/worlddriverchampionship-recomp/issues/60)
+and [draft PR #61](https://github.com/alondero/worlddriverchampionship-recomp/pull/61)
+track render snapshots and interpolated poses.
+
+### Replay and player verification
+
 Replay compatibility is a known implementation gap, not just a missing visual
 check for player recordings. `func_80003C38` records action/steering bytes
 without timestep metadata;

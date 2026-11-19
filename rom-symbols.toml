@@ -5,7 +5,6 @@
 link_register_targets = [
     0x800565E0, 0x800565EC, 0x80056974, 0x80057000, 0x80057420,
     0x80056B90, 0x8006663C, 0x80066648, 0x8006969C, 0x800696A8,
-    0x8001A4C4, # Frame-rate correction of the scoped camera smoothing call.
 ]
 
 [symbols]
@@ -175,11 +174,6 @@ text = "{ extern void wdc_framerate_wheels(uint8_t*, recomp_context*); wdc_frame
 func = "func_8000C0D0"
 before_vram = 0x8000C140
 text = "{ extern void wdc_framerate_action_lifetime(uint8_t*, recomp_context*); wdc_framerate_action_lifetime(rdram, ctx); }"
-
-[[hooks]]
-func = "func_8001A4C4"
-before_vram = 0x8001A4C4
-text = "{ extern void wdc_framerate_camera(uint8_t*, recomp_context*); wdc_framerate_camera(rdram, ctx); }"
 
 [[hooks]]
 func = "func_8002E13C"
@@ -471,12 +465,88 @@ text = "{ extern void wdc_audio_oneshot_pitch(uint8_t*, recomp_context*); wdc_au
 [[hooks]]
 func = "func_80012354"
 before_vram = 0x80012354
-text = "{ extern void wdc_cheat_top_down_begin(uint8_t*, recomp_context*); wdc_cheat_top_down_begin(rdram, ctx); }"
+text = "extern int wdc_camera_top_down(uint8_t*, uint64_t, uint32_t*, uint32_t*); uint32_t top_down_distance, top_down_height; const int top_down = wdc_camera_top_down(rdram, ctx->r4, &top_down_distance, &top_down_height);"
 
+# The vector adder reads all inputs before any stores and supports aliasing
+# its destination with the first input. Seed the complete output at sp+64
+# for this call only. Native input is camera+A0. The caller replaces a1 at
+# 80012864 before the next call; no intervening instruction reads it.
 [[hooks]]
 func = "func_80012354"
-before_vram = 0x80012870
-text = "{ extern void wdc_cheat_top_down_end(uint8_t*, recomp_context*); wdc_cheat_top_down_end(rdram, ctx); }"
+before_vram = 0x80012858
+text = "if (top_down) { ctx->r5 = ctx->r4; MEM_W(0, ctx->r4) = 0; MEM_W(4, ctx->r4) = 0; MEM_W(8, ctx->r4) = 0x40800000u; }"
+
+# The camera owns the coefficient placed in a3 by the JAL delay slot. Keep
+# the real link for the helper ABI without using it as a policy selector.
+[[hooks]]
+func = "func_80012354"
+before_vram = 0x800124E8
+text = "ctx->r31 = (int32_t)0x800124F0u;"
+
+[[instructions]]
+func = "func_80012354"
+vram = 0x800124EC
+expected = 0x3C073E80 # lui a3, 0x3e80
+value = 0
+text = "{ extern uint32_t wdc_camera_blend_weight(void); ctx->r7 = wdc_camera_blend_weight(); }"
+
+# Effective scalar loads. Preserve the native load at its original timing
+# when the entry policy chooses the authored view.
+[[instructions]]
+func = "func_80012354"
+vram = 0x800123AC
+expected = 0xC60A0094 # lwc1 f10, 0x94(s0)
+value = 0
+text = "ctx->f10.u32l = top_down ? top_down_distance : MEM_W(0x94, ctx->r16);"
+
+[[instructions]]
+func = "func_80012354"
+vram = 0x800123D0
+expected = 0xC604009C # lwc1 f4, 0x9c(s0)
+value = 0
+text = "ctx->f4.u32l = top_down ? top_down_height : MEM_W(0x9C, ctx->r16);"
+
+[[instructions]]
+func = "func_80012354"
+vram = 0x800124BC
+expected = 0xC6080094 # lwc1 f8, 0x94(s0), branch delay slot
+value = 0
+text = "ctx->f8.u32l = top_down ? top_down_distance : MEM_W(0x94, ctx->r16);"
+
+[[instructions]]
+func = "func_80012354"
+vram = 0x800124F8
+expected = 0xC6080094 # lwc1 f8, 0x94(s0)
+value = 0
+text = "ctx->f8.u32l = top_down ? top_down_distance : MEM_W(0x94, ctx->r16);"
+
+[[instructions]]
+func = "func_80012354"
+vram = 0x80012510
+expected = 0xC610009C # lwc1 f16, 0x9c(s0)
+value = 0
+text = "ctx->f16.u32l = top_down ? top_down_height : MEM_W(0x9C, ctx->r16);"
+
+[[instructions]]
+func = "func_80012354"
+vram = 0x8001255C
+expected = 0xC6100094 # lwc1 f16, 0x94(s0)
+value = 0
+text = "ctx->f16.u32l = top_down ? top_down_distance : MEM_W(0x94, ctx->r16);"
+
+[[instructions]]
+func = "func_80012354"
+vram = 0x80012620
+expected = 0xC6080094 # lwc1 f8, 0x94(s0)
+value = 0
+text = "ctx->f8.u32l = top_down ? top_down_distance : MEM_W(0x94, ctx->r16);"
+
+[[instructions]]
+func = "func_80012354"
+vram = 0x80012664
+expected = 0xC610009C # lwc1 f16, 0x9c(s0)
+value = 0
+text = "ctx->f16.u32l = top_down ? top_down_height : MEM_W(0x9C, ctx->r16);"
 
 [[hooks]]
 func = "func_8000E1F4"

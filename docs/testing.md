@@ -130,15 +130,31 @@ See the [input reference](reference/input.md) for ownership and test limits.
 `wdc_driving` checks pedal publication and guest-hook bounds with synthetic
 RDRAM. `wdc_cheats` checks the session unlock hooks against synthetic car, team
 and track records, original effect flags and ending requests, checking that
-guest bytes stay unchanged. `wdc_cheat_camera` checks temporary camera fields
-and restoration; `wdc_cheats_rom` executes the translated cheat accessor and
-restart setter closure, including save-reader isolation. `wdc_driving_rom`
+guest bytes stay unchanged. `wdc_cheat_camera` checks local camera eligibility,
+parameter values and preservation of native fields. `wdc_cheats_rom` executes
+the translated cheat accessor and restart setter closure, including save-reader
+isolation. `wdc_driving_rom`
 runs the translated input, gearbox and drivetrain
 closure against USA ROM constants and controlled car parameters. It verifies
 progressive throttle/brake torque, reverse and full-power digital overrides,
 and rejects missing generated hooks. The frontend tests also cover Driving
 defaults/persistence/reset and virtual-gamepad pedal release gating. These
 checks do not validate physical pedal compatibility or racing feel.
+
+`wdc_camera_update_rom` compares production camera updates with a separately
+translated USA ROM reference whose top-down and blend-rate hooks are frozen.
+It executes the update's real helper closure on independent RDRAM banks and
+compares call order, guest registers, camera and stack bytes at helper entry,
+and all RDRAM after return. It uses both local camera records, runs the
+translated `8000FAE8` initializer, and runs the translated dispatcher slice
+through the call at `8000F684` using a fixture for the dispatcher's saved
+arguments. Cases cover position initialization, heading fallback, cuts,
+obstruction-ring hits and misses, settings changes at blend entry, invalid
+scales and consecutive updates. At helper boundaries it compares the
+effective vector inputs and blend weight, accounting for the top-down source
+alias and the frozen reference's temporary fields. It verifies the untouched
+authored words at every production boundary and compares all stack bytes after
+each update. See [camera update inputs and helper calls](rendering.md#camera-update-inputs-and-helper-calls).
 
 `wdc_results_rom` runs the translated results drawer, text blitter and frame
 packet allocator with prebuilt text objects; texture loading and unrelated
