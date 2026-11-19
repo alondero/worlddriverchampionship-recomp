@@ -1,6 +1,7 @@
 #undef NDEBUG
 #include "game_camera.h"
 #include "game_hud.h"
+#include "game_projection.h"
 #include "game_visibility.h"
 #include "vi_presentation.h"
 #include "recomp.h"
@@ -13,7 +14,6 @@
 #include <utility>
 #include <vector>
 
-extern "C" void func_80011D54(uint8_t*, recomp_context*);
 extern "C" void func_8000FC18(uint8_t*, recomp_context*);
 extern "C" void func_8002D99C(uint8_t*, recomp_context*);
 extern "C" void func_800006E0(uint8_t*, recomp_context*);

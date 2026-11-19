@@ -111,3 +111,7 @@ void wdc::camera::setup_projection(uint8_t* rdram, recomp_context* ctx, Projecti
     ctx->r29 = caller_stack;
     ctx->r31 = return_address;
 }
+
+extern "C" void func_80011D54(uint8_t* rdram, recomp_context* ctx) {
+    wdc::camera::setup_projection(rdram, ctx, wdc::camera::ProjectionPolicy::Enhanced);
+}

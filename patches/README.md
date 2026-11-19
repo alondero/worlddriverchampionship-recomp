@@ -58,17 +58,26 @@ the WDC runtime demonstrates the same need.
 | `0017-frontend-host-input.patch` | RecompFrontend | Desktop | Expose single-event/batch handling for the host SDL loop; handle failed or duplicate opens and disconnects, use the controller profile for binding cancellation and bound deadzone. |
 | `0018-runtime-rsp-dma-rounding.patch` | N64ModernRuntime | All | Round inclusive RSP DMA lengths to eight-byte words; prevents stale stereo frames at BOSS audio block boundaries. |
 | `0019-runtime-developer-thread-snapshots.patch` | N64ModernRuntime | All | Validate the live thread roster and remove/repair native context pointers for developer RAM checkpoints. |
+| `0021-runtime-protected-function-replacements.patch` | N64ModernRuntime | Desktop | Reject ordinary and forced replacements for host functions explicitly protected by the port. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0014, 0015, 0016, 0020, 0017 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0014, 0015, 0016, 0020, 0017 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0014, 0015, 0016, 0020, 0017 (not runtime-tested) |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0014, 0015, 0016, 0020, 0017 |
 | Android | none yet |
 
 The BOSS options default off; existing runtime renderers retain their original
 interrupt behavior. Patches are checked against the pinned dependency commits.
+
+Patch 0021 adds opt-in protection for native host functions. Both the pin
+and [upstream mod loader](https://github.com/N64Recomp/N64ModernRuntime/blob/main/librecomp/src/mods.cpp)
+use zero ROM size to reject rebuilding a base function with hooks. Their
+replacement path can still redirect that function and attach hooks to a live
+replacement. The port protects its projection entry before overlay loading.
+`wdc_projection_runtime` exercises the pinned loader with synthetic code
+mods and verifies that an ordinary ROM entry retains the normal lifecycle.
 
 Patch 0013 has a synthetic DMEM reproducer in
 `tests/test_rsp_packed_loads.cpp`. The pinned runtime and upstream

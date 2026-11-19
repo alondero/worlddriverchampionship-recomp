@@ -19,6 +19,9 @@
 #include <utility>
 #include <vector>
 
+int test_projection_runtime(const char* rom_path, const char* mods_path,
+                            std::span<const uint8_t> initial, const recomp_context& input);
+
 extern "C" {
 void projection_reference_stock(uint8_t*, recomp_context*);
 void projection_reference_enhanced(uint8_t*, recomp_context*);
@@ -228,7 +231,10 @@ void compare(const Bank& initial, Bank& reference, Bank& candidate, const recomp
     auto* entry = policy == stock ? projection_reference_stock : projection_reference_enhanced;
     entry(reference.ram(), &ref);
     active_trace = &actual;
-    wdc::camera::setup_projection(candidate.ram(), &got, policy);
+    if (policy == stock)
+        wdc::camera::setup_projection(candidate.ram(), &got, stock);
+    else
+        func_80011D54(candidate.ram(), &got);
     active_trace = nullptr;
     assert(expected.size() == 5);
     for (unsigned callee = 0; callee < expected.size(); ++callee) assert(expected[callee].callee == callee);
@@ -295,7 +301,8 @@ extern "C" void projection_reference_normalize(uint8_t* rdram, recomp_context* c
 }
 
 int main(int argc, char** argv) {
-    assert(argc == 2 || (argc == 4 && std::string_view(argv[2]) == "--invalid-descriptor"));
+    assert(argc == 2 || (argc == 4 && (std::string_view(argv[2]) == "--invalid-descriptor" ||
+                                     std::string_view(argv[2]) == "--runtime-mods")));
     Bank initial, reference, candidate;
     auto* rdram = initial.ram();
     std::fill_n(rdram, ram_size, 0);
@@ -342,12 +349,18 @@ int main(int argc, char** argv) {
     input.f18.u64 = 0x8765ABCD40000000;
     input.f20.u64 = 0x123456789ABCDEF0;
     if (argc == 4) {
-        MEM_W(0, active_display) = int32_t(std::strtoul(argv[3], nullptr, 16));
         input.r5 = std::bit_cast<int32_t>(320.0f);
         input.r6 = std::bit_cast<int32_t>(240.0f);
         input.r7 = std::bit_cast<int32_t>(400.0f);
+        if (std::string_view(argv[2]) == "--runtime-mods") {
+            MEM_W(0, active_display) = int32_t(descriptor_table);
+            wdc::camera::set_output_size(1280, 720);
+            wdc::visibility::configure(false, false, 4);
+            return test_projection_runtime(argv[1], argv[3], {rdram, ram_size}, input);
+        }
+        MEM_W(0, active_display) = int32_t(std::strtoul(argv[3], nullptr, 16));
         std::signal(SIGABRT, [](int) { std::_Exit(73); });
-        wdc::camera::setup_projection(rdram, &input, enhanced);
+        func_80011D54(rdram, &input);
         return 0;
     }
     auto compare_viewport = [&](float width, float height, float distance,

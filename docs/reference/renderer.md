@@ -179,34 +179,33 @@ incoming-argument spills at `sp+0/+4/+8/+0xC`. The five callees do not consume
 or publish these words. Their own spills, perspective's outgoing arguments,
 all fixed outputs and the packet stay in the byte comparison.
 
-The player still enters through the original translated function and its
-three enhancement hooks. The recovered body runs in the differential
-fixture. Switching the player entry requires matched BOSS/RDP and visual
-acceptance plus a runtime entry-registration decision. The pinned runtime
-looks up the exact section ROM and VRAM offset. A registered native entry
-with zero ROM size keeps lookup and explicitly rejects runtime hooks.
-An ordinary ROM-sized trampoline is eligible for regeneration from the stock
-ROM, which would lose its host policy. The port currently leaves
+The player calls the recovered body in `src/game_projection.cpp` through the
+original recomp ABI symbol `func_80011D54`. The symbol input keeps the ROM
+extent for independent reference generation. `src/register_overlays.cpp`
+inserts a zero-ROM-size native entry at the original section and offset so
+direct calls and guest address lookup use the same function. The pinned
+runtime explicitly rejects hooks on a zero-size entry. Patch 0021 lets the
+port protect this function from ordinary and forced mod replacements,
+including when a mod also requests hooks. The player leaves
 `GameEntry.mod_game_id` unset.
 
 ### Window aspect policy
 
-The USA ROM camera builder `func_80011D54` computes viewport width/height
-times the active display descriptor's pixel-aspect correction (`+0x14`).
-At `0x80011DC4`, `f0` supplies both camera `+0x7C`'s horizontal visibility
-extent and `guPerspectiveF`'s aspect argument. The hook in `src/game_camera.cpp`
-maps the viewport's fraction of the full logical picture to the output aspect,
-preserving vertical FOV, depth, viewport partitions and CPU/RSP projection
-agreement. It computes `viewport_aspect / logical_picture_aspect * output_aspect`.
+The original USA camera builder computes viewport width/height times the
+active display descriptor's pixel-aspect correction (`+0x14`). The native
+`func_80011D54` maps the viewport's fraction of the full logical picture to
+the output aspect, preserving vertical FOV, depth, viewport partitions and
+CPU/RSP projection agreement. It computes
+`viewport_aspect / logical_picture_aspect * output_aspect` and supplies
+that factor to camera `+0x7C` and `guPerspectiveF`.
 The ROM's pixel correction alone is insufficient: cinematic modes assume a
 letterboxed VI, while the pinned RT64 presenter fills the output with the sampled
 picture. Keeping that assumption squeezed cars to half their intended width,
 including at Original 4:3.
 
-At this hook, `f8` holds viewport width/height and `t6` already holds the active
-descriptor loaded from `0x8007D75C`. The hook reads its signed 32-bit logical
-width/height at `+0/+4`, in pixels, through word-swapped RDRAM helpers. These are
-ROM-owned values initialized by `func_800006E0`, which populates the entire
+The entry reads the active descriptor at `0x8007D75C` and its signed 32-bit
+logical width/height at `+0/+4`, in pixels, through word-swapped RDRAM helpers.
+These are ROM-owned values initialized by `func_800006E0`, which populates the entire
 nine-descriptor table (modes 0..8) before any scene layout. For example,
 instructions `0x80000748` and `0x80000768` store 320 and 240 in the boot-default
 mode 0 at `0x800AAE38`.
@@ -236,11 +235,9 @@ correction as well as output scaling and rejects a plain 4:3 fallback.
 One warning per process avoids frame-by-frame log flooding; later malformed
 states are intentionally silent.
 
-Before this hook, the ROM computes `f0` as viewport width/height times its pixel
-correction. The fallback multiplies that aspect by the output width scale.
 The HUD packet adapter retains its existing fail-fast policy before guest-memory writes: an
 invalid buffer width breaks the packet's coordinate/centre invariant, so it
-stops before modifying the packet. Both hooks retain pointer-range validation.
+stops before modifying the packet.
 Buffer dimensions at `+8/+12` are deliberately excluded: modes 6 and 8 use
 320x240/640x240 logical pictures with 320x480/640x480 buffers. The in-race pause
 menu's NORM / H-RES toggle switches the layout request/current words at
@@ -261,7 +258,7 @@ scales `(M * S, M)` for resolution multiplier `M`. WDC disables
 `presentation.removeBlackBorders`, so the pinned `VIRenderer::getViewportAndScissor`
 uses a fixed **320x240** TV canvas, not `fbSize()`, and VI view/crop rectangles
 are the unit rectangle. The final physical aspect is therefore `(4/3) * S` in
-every mode. This is the camera hook's output aspect even when the VI source is
+every mode. This is the camera builder's output aspect even when the VI source is
 not 4:3. The presenter still samples `fbSize() * resolutionScale` from the texture.
 
 The ROM-backed test compiles the pinned RT64 VI decoder and extracts the real

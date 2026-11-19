@@ -221,7 +221,7 @@ if(BUILD_TESTING)
                 DEPENDS tests/extract_vi_presentation_test.py "${WDC_VI_PRESENTER}"
                 VERBATIM)
             add_executable(wdc_camera_rom_tests tests/test_camera_rom.cpp tests/vi_presentation.cpp
-                src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp lib/rt64/src/hle/rt64_vi.cpp
+                src/game_camera.cpp src/game_projection.cpp src/game_hud.cpp src/game_visibility.cpp lib/rt64/src/hle/rt64_vi.cpp
                 "${CMAKE_CURRENT_BINARY_DIR}/camera_test_funcs.c"
                 "${CMAKE_CURRENT_BINARY_DIR}/vi_presentation_funcs.inc")
             target_include_directories(wdc_camera_rom_tests PRIVATE src "${N64MR}/N64Recomp/include"
@@ -241,11 +241,14 @@ if(BUILD_TESTING)
                     "World Driver Championship (USA).z64" worlddriverchampionship.syms.toml
                     worlddriverchampionship.us.toml N64RecompCLI ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
-            add_executable(wdc_projection_rom_tests tests/test_projection_rom.cpp
+            add_executable(wdc_projection_rom_tests tests/test_projection_rom.cpp tests/test_projection_runtime.cpp
                 src/game_projection.cpp src/game_camera.cpp src/game_hud.cpp src/game_visibility.cpp
+                src/register_overlays.cpp
                 "${WDC_PROJECTION_REFERENCE}/reference.c" "${WDC_PROJECTION_REFERENCE}/candidate_helpers.c")
-            target_include_directories(wdc_projection_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_include_directories(wdc_projection_rom_tests PRIVATE src tests/fixtures/projection_runtime
+                "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_projection_rom_tests PRIVATE -fno-strict-aliasing -ffp-contract=off)
+            target_link_libraries(wdc_projection_rom_tests PRIVATE librecomp ultramodern)
             add_test(NAME wdc_projection_rom COMMAND wdc_projection_rom_tests
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
             add_test(NAME wdc_projection_descriptor_guard COMMAND "${Python3_EXECUTABLE}"
@@ -253,6 +256,10 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
             set_tests_properties(wdc_projection_rom PROPERTIES TIMEOUT 60)
             set_tests_properties(wdc_projection_descriptor_guard PROPERTIES TIMEOUT 30)
+            add_test(NAME wdc_projection_runtime COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_projection_runtime.py" "$<TARGET_FILE:wdc_projection_rom_tests>"
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_projection_runtime PROPERTIES TIMEOUT 60)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/visibility_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_visibility_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/visibility_test_funcs.c"

@@ -53,6 +53,8 @@ and raw RDP screen-clipping, scissor-scaling, edge-reconstruction and opaque
 subpixel-coverage patches.
 The developer save-state tool also needs patch 0019 for native thread-context
 validation and repair; both build scripts apply it automatically.
+Both build scripts apply patch 0021 so the runtime can protect the native
+projection entry from mod replacement.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 

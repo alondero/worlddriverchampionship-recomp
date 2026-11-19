@@ -22,29 +22,6 @@ void set_output_size(int width, int height) {
 float width_scale() { return scale.load(); }
 }
 
-// USA func_80011D54, before 0x80011DC4: f8 is float32 viewport width/height;
-// t6 points at the active ROM-owned display descriptor (loaded from 8007D75C).
-// Its s32 +0/+4 are logical width/height in pixels. Read 8 aligned bytes of
-// runtime-owned, word-swapped RDRAM on the game thread before submission;
-// retain no pointer. Invalid pointers fail before access; invalid dimensions
-// retain ROM aspect times output scale and warn once. The ROM initializes before
-// layout -> publication -> camera; see renderer docs for that ordering and the
-// RT64 presentation calculation. Remove with a guest-owned output-aspect camera.
-extern "C" void wdc_widen_camera(uint8_t* rdram, recomp_context* ctx) {
-    const gpr descriptor = ctx->r14;
-    wdc_require_guest_range(descriptor, 8, 4);
-    const int32_t width = MEM_W(0, descriptor), height = MEM_W(4, descriptor);
-    if (width <= 0 || width > max_display_dimension || height <= 0 || height > max_display_dimension) {
-        static std::atomic_flag warned;
-        if (!warned.test_and_set())
-            std::fprintf(stderr, "[wdc] invalid camera display size: %d x %d; scaling ROM aspect\n", width, height);
-        ctx->f0.fl *= wdc::camera::width_scale();
-        return;
-    }
-    ctx->f0.fl = ctx->f8.fl * (float(height) / float(width)) *
-        original_aspect * wdc::camera::width_scale();
-}
-
 // USA func_8000FC18, before 0x8000FEF0: s4/s5 hold the 8- or 16-pixel
 // horizontal/vertical TV overscan margins, in native framebuffer pixels.
 // Set them to zero before the ROM computes scene rectangles, projection,
