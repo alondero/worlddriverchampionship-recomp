@@ -685,7 +685,11 @@ interpolates camera/body poses on the rational presentation grid and verifies
 current endpoints whenever they fall on that grid. Those modes use nominal group timing. `motion-samples` instead derives alpha
 from consumed-sample spans and selects a bounded suffix of recent presentation
 slots, skipping older slots when rendering falls behind. An optional group-relative deadline selector can also skip slots before
-starting another draw, always retaining the final pose. End-to-end deadline
+starting another draw, always retaining the final pose. The sample-driven path
+can also use the original authoritative draw for a display slot that coincides
+with the simulation endpoint. Between those coincidences, owned draws supply
+every scheduled display slot while the original draw maintains game and audio
+state. End-to-end deadline
 and latency qualification and sustained performance remain open.
 The prototype README records the car-list, per-view and arena ownership evidence.
 

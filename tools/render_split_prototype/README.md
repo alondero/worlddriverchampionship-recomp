@@ -531,6 +531,37 @@ endpoint. The normal audio path and original post-draw dispatcher calls remain
 in order. Four full-frame tasks replace `motion120`'s five. The readback flag is
 optional and retains the limitations described below.
 
+`motion-samples --reuse-endpoints` uses the same dispatcher boundary with the
+consumed-sample scheduler. When the end of a snapshot interval is exactly on
+the display grid, the normal draw supplies that slot after the owned blends.
+Otherwise the normal draw runs its audio and game bookkeeping with presentation
+suppressed. For a 144 Hz target and consecutive 30 Hz samples, every fifth
+sample endpoint is eligible. Sample gaps and history resets use the actual
+interval end. The runner independently derives eligible endpoints from the
+rate and sample counters, checks presentation order and requires exactly one
+authoritative task pair and audio lifecycle per group. With deadline skipping,
+the final owned blend is retained before any scheduled native endpoint.
+
+Two 120-group track 2 driving runs at a 120 Hz target delivered all 480
+selected swaps. Reusing the native endpoint in all 120 groups gave 114.9
+swaps/s and a 12.43 ms p95 interval. Drawing the endpoints again in owned
+memory gave 99.8 swaps/s and 19.12 ms p95. The median interval across group
+boundaries was 9.87 ms with reuse and 17.51 ms in the control. The reuse run
+also had a 48.41 ms maximum interval. An earlier control failed its scripted
+input gate and is excluded. These timings use software swap timestamps from
+separate runs on the same host. At 144 Hz a separate 30-group run reused five
+endpoints, preserved all 141 selected swaps and failed timing at 100.1 swaps/s.
+That run used the original texture hasher.
+
+Both 120 Hz runs used `--mode motion-samples --present-hz 120 --warp
+'2:0:arcade:3' --settle-frames 240 --hold-accelerator --wheel-poses
+--shadow-inputs --audit-present --explicit-present --skip-late-draws
+--write-watch-reset --no-authority-scan --no-owned-readback
+--notify-renderer-completion --pace-present-queue --fast-texture-hash
+--batch-texture-hash --trials 120`. Add `--reuse-endpoints` for the native
+endpoint run. The swap audit records within-group and between-group screen
+and swap intervals in `swap-timing.json`.
+
 The dispatcher and draw root share a generated object, so a linker wrapper
 cannot reliably intercept their internal call. `draw_boundary.py` compiles an
 ignored copy of the current reference `funcs_3.c` with exactly that one call

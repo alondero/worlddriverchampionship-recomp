@@ -25,7 +25,7 @@ from rt64_profile import build_rt64_profile
 from fast_hash_build import build_fast_hash
 from draw_boundary import build_draw_boundary
 from present_audit import build_present_audit, validate_admissions, validate_swaps
-from swap_timing import summarize_swaps
+from swap_timing import group_intervals, summarize_swaps
 from present_latency import join_present_latency
 
 
@@ -48,6 +48,7 @@ def main():
     parser.add_argument("--settle-frames", type=int, default=60, help="Eligible normal draws before trials")
     parser.add_argument("--shadow-inputs", nargs="?", const="all", choices=["all", "only"], help="Interpolate shadow ground inputs; only isolates them in pose-snapshot")
     parser.add_argument("--wheel-poses", nargs="?", const="all", choices=["all", "only"], help="Interpolate four wheel matrices per car; only is a pose-snapshot geometry control")
+    parser.add_argument("--reuse-endpoints", action="store_true", help="motion-samples: draw at the original dispatcher boundary and present the authoritative endpoint when it is on the display grid")
     parser.add_argument("--skip-late-draws", action="store_true", help="motion-samples: skip elapsed group slots before starting another draw")
     parser.add_argument("--present-hz", type=display_rate, default=Fraction(120), help="Display Hz, e.g. 144, 59.94 or 120000/1001")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..1800")
@@ -94,7 +95,9 @@ def main():
         parser.error("Motion cadence requires 30 < Hz <= 240 and denominator <= 1000000")
     if args.mode == "shadow-rate" and args.present_hz < 60:
         parser.error("Frozen cadence requires at least one extra per group (60 Hz)")
-    endpoint_mode = args.mode == "endpoint120"
+    if args.reuse_endpoints and not sample_motion:
+        parser.error("--reuse-endpoints requires motion-samples")
+    endpoint_mode = args.mode == "endpoint120" or args.reuse_endpoints
     motion_mode = args.mode == "motion120" or motion_rate or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
     if args.shadow_inputs and not pose_mode:
@@ -254,6 +257,8 @@ def main():
         env["WDC_RENDER_PROTOTYPE_WHEEL_ONLY"] = "1"
     if args.wheel_poses:
         env["WDC_RENDER_PROTOTYPE_WHEEL_POSES"] = "1"
+    if args.reuse_endpoints:
+        env["WDC_RENDER_PROTOTYPE_REUSE_ENDPOINTS"] = "1"
     if args.skip_late_draws:
         env["WDC_RENDER_PROTOTYPE_SKIP_LATE_DRAWS"] = "1"
     if args.verify_texture_hash:
@@ -279,6 +284,7 @@ def main():
                                                   "present_hz": float(args.present_hz),
                                                   "present_rate_ratio": str(args.present_hz),
                                                   "skip_late_draws": args.skip_late_draws,
+                                                  "reuse_endpoints": args.reuse_endpoints,
                                                   "wheel_poses": args.wheel_poses,
                                                   "shadow_inputs": args.shadow_inputs,
                                                   "profile_rt64": args.profile_rt64,
@@ -524,6 +530,7 @@ def main():
         intervals = [(b["us"]-a["us"])/1000 for a, b in zip(selected, selected[1:])]
         swap_rate = 1000/statistics.mean(intervals)
         timing = summarize_swaps(selected, float(args.present_hz))
+        timing.update(group_intervals(bindings, selected))
         (run_dir / "swap-timing.json").write_text(json.dumps(timing, indent=2))
         print(f"RT64 swap audit: {len(selected)} successful ordered swaps; "
               f"{swap_rate:.1f}/s; "
@@ -592,6 +599,14 @@ def main():
                 raise SystemExit("Snapshot schedule disagrees with consumed samples or draw budget")
             sample_schedules[row['trial']] = expected
         print(f"Sample schedule: {sum(s['skipped'] for s in records)} stale grid slots skipped")
+    def present_endpoint(trial):
+        if args.reuse_endpoints:
+            return sample_schedules[trial]['end'] * args.present_hz % 30 == 0
+        return endpoint_mode
+
+    def owned_slots(trial):
+        return sample_schedules[trial]['count'] - int(present_endpoint(trial))
+
     selections = {}
     if args.skip_late_draws:
         records = [json.loads(line.split("[prototype-selection] ", 1)[1])
@@ -603,19 +618,20 @@ def main():
         for row in rows:
             selected = [r for r in records if r['frame'] == row['frame']]
             schedule = sample_schedules[row['trial']]
+            count = owned_slots(row["trial"])
             next_index, elapsed = 0, 0
             for draw, selection in enumerate(selected, 1):
                 expected_order.append((row['frame'], draw))
-                if selection['elapsed_ns'] < elapsed or next_index >= schedule['count']:
+                if selection['elapsed_ns'] < elapsed or next_index >= count:
                     raise SystemExit("Non-monotonic or surplus deadline selection")
                 elapsed = selection['elapsed_ns']
-                index = min(schedule['count']-1, max(next_index, elapsed * args.present_hz // 1000000000))
+                index = min(count-1, max(next_index, elapsed * args.present_hz // 1000000000))
                 expected = dict(frame=row['frame'], draw=draw, elapsed_ns=elapsed, index=index,
                                 slot=schedule['first_slot']+index, skipped=index-next_index)
                 if selection != expected:
                     raise SystemExit("Deadline selection disagrees with elapsed time")
                 next_index = index+1
-            if next_index != schedule['count']:
+            if next_index != count:
                 raise SystemExit("Deadline skipping lost the latest scheduled pose")
             selections[row['trial']] = selected
         if [(r['frame'], r['draw']) for r in records] != expected_order:
@@ -625,7 +641,7 @@ def main():
         if args.skip_late_draws:
             return len(selections[trial])
         if sample_motion:
-            return sample_schedules[trial]['count']
+            return owned_slots(trial)
         return (trial * args.present_hz // 30 - (trial - 1) * args.present_hz // 30 - int(not motion_rate)) if cadence_mode else repeats
     trial_by_frame = {r['frame']: r['trial'] for r in rows}
     def pose_alpha(frame, draw):
@@ -768,7 +784,12 @@ def main():
         print("PASS: interpolated render inputs change geometry; " +
               ("original draw supplies current endpoint" if endpoint_mode else "scheduled endpoints match normal when present" if motion_rate else "current endpoint matches normal"))
         if motion_mode:
-            expected_order = [(r['frame'], d) for r in rows for d in ((1, 2, 3, 0) if endpoint_mode else range(1, frame_repeats(r['trial']) + 1))]
+            expected_order = []
+            for row in rows:
+                trial, frame = row['trial'], row['frame']
+                expected_order.extend((frame, d) for d in range(1, frame_repeats(trial) + 1))
+                if present_endpoint(trial):
+                    expected_order.append((frame, 0))
             if [(p['frame'], p['draw']) for p in presents] != expected_order:
                 raise SystemExit("Motion presentations missing, reordered, or include a normal draw")
             print("PASS: scheduled poses presented in chronological order")
@@ -787,7 +808,8 @@ def main():
             tasks = [g for g in all_geometry if g['frame'] == row['frame'] and g['draw'] == 0]
             if len(tasks) != 2 or sum(g['triangles'] == 0 for g in tasks) != 1 or any(g['owned_memory'] for g in tasks):
                 raise SystemExit("Expected one authoritative bootstrap and endpoint task")
-        print("PASS: one authoritative endpoint/audio lifecycle replaces the redundant owned endpoint")
+        used = sum(present_endpoint(r['trial']) for r in rows)
+        print(f"PASS: one authoritative audio lifecycle per group; {used} original draws supplied scheduled endpoints")
     if independent_present:
         wait_rows = endpoints if endpoint_mode else rows
         skipped_deltas = [b['skipped_vi_waits'] - a for a, b in zip(
@@ -799,7 +821,14 @@ def main():
         if endpoint_mode:
             valid_waits = 8 <= skipped_deltas[0] <= 11 and all(8 <= d <= 9 for d in skipped_deltas[1:])
         expected_count = cumulative_repeats(args.trials) if sample_motion else args.trials * args.present_hz // 30 if cadence_mode else 4 * args.trials
-        if cadence_mode:
+        if args.reuse_endpoints:
+            expected_count = cumulative_repeats(args.trials) + sum(present_endpoint(r['trial']) for r in rows)
+            # Every owned draw and the normal drain traverse the swap waits.
+            # The initial warm-up drain can add up to one extra swap sequence.
+            valid_waits = all(2 * (frame_repeats(r['trial']) + 1) <= d <=
+                              2 * (frame_repeats(r['trial']) + 1) + (3 if i == 0 else 1)
+                              for i, (r, d) in enumerate(zip(rows, skipped_deltas)))
+        elif cadence_mode:
             valid_waits = all(2 * (frame_repeats(r['trial']) + 1) <= d <= 2 * (frame_repeats(r['trial']) + 1) + int(motion_rate) for d, r in zip(skipped_deltas, rows))
             expected_order = [(r['frame'], d) for r in rows for d in range(int(motion_rate), frame_repeats(r['trial']) + 1)]
             if [(p['frame'], p['draw']) for p in presents] != expected_order:

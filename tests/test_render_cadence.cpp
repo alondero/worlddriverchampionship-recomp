@@ -66,6 +66,14 @@ int main() {
         cursor=selected+1; ++draws;
     }
     assert(cursor==5 && draws==4); // One stale slot omitted, latest retained.
+    // The last slot in every fifth 144 Hz sample interval is the native pose.
+    // Missing a simulation update retains the same endpoint phase.
+    for (unsigned end = 2; end <= 15; ++end) {
+        for (unsigned gap : {1u, 2u}) {
+            auto schedule = wdc::render::schedule_samples(end - gap, end, {144,1}, 5);
+            assert(schedule.ends_on_grid() == (end % 5 == 0));
+        }
+    }
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(wdc::render::presentations_in_group(g,{144,1})==expected[g]);
     for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{60000,1001}, {120000,1001}, {2997,50}}) {
@@ -74,6 +82,7 @@ int main() {
         for (unsigned sample = 0; sample < 30 * rate.denominator; ++sample) {
             auto schedule = wdc::render::schedule_samples(sample, sample + 1, rate, rate.draw_budget());
             assert(schedule.first_slot == slots + 1 && schedule.skipped == 0);
+            assert(schedule.ends_on_grid() == (schedule.alpha(schedule.count) == 1.0));
             for (unsigned i = 1; i <= schedule.count; ++i) {
                 elapsed += period.next_ns();
                 ++slots;

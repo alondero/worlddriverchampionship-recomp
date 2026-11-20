@@ -33,6 +33,9 @@ struct SampleSchedule {
     uint64_t begin, end, first_slot;
     unsigned count, skipped;
     DisplayRate rate;
+    constexpr bool ends_on_grid() const {
+        return end * rate.numerator % rate.sample_scale() == 0;
+    }
     double alpha(unsigned draw) const {
         const uint64_t offset = (first_slot + draw - 1) * rate.sample_scale() - begin * rate.numerator;
         return double(offset) / ((end - begin) * rate.numerator);

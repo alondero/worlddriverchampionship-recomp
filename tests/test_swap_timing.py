@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/render_split_prototype"))
-from swap_timing import summarize_swaps
+from swap_timing import group_intervals, summarize_swaps
 
 
 def events(intervals):
@@ -22,6 +22,17 @@ class SwapTimingTests(unittest.TestCase):
         self.assertEqual((even["short_intervals"], even["long_intervals"]), (0, 0))
         self.assertEqual((bursty["short_intervals"], bursty["long_intervals"]), (10, 10))
         self.assertEqual((even["p95_ms"], bursty["p95_ms"]), (10, 19))
+
+    def test_group_edges_include_native_endpoint_in_presentation_order(self):
+        bindings = [dict(id=i, frame=f, draw=d, screen_us=t) for i, (f, d, t) in
+                    enumerate([(10, 1, 1000), (10, 0, 5000), (11, 1, 19000)])]
+        swaps = [dict(id=i, us=t) for i, t in enumerate([2000, 8000, 20000])]
+        result = group_intervals(bindings, swaps)
+        self.assertEqual(result["within_group"]["swap_p50_ms"], 6)
+        self.assertEqual(result["between_groups"]["screen_p95_ms"], 14)
+        self.assertEqual(result["between_groups"]["swap_p95_ms"], 12)
+        with self.assertRaises(ValueError):
+            group_intervals(bindings, swaps[::-1])
 
     def test_nearest_rank_includes_tail_and_uses_interval_count(self):
         result = summarize_swaps(events([10000] * 99 + [100000]), 100)

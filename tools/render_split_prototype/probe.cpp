@@ -236,7 +236,10 @@ wdc::render::DisplayRate present_rate() {
     }();
     return rate;
 }
-bool endpoint_mode() { return std::strcmp(mode(), "endpoint120") == 0; }
+bool endpoint_mode() {
+    static const bool reuse = std::getenv("WDC_RENDER_PROTOTYPE_REUSE_ENDPOINTS") != nullptr;
+    return std::strcmp(mode(), "endpoint120") == 0 || (sample_motion_mode() && reuse);
+}
 bool motion_mode() { return std::strcmp(mode(), "motion120") == 0 || motion_rate_mode() || endpoint_mode(); }
 bool pose_mode() { return std::strcmp(mode(), "pose-snapshot") == 0 || motion_mode(); }
 bool shadow_mode() { return std::strcmp(mode(), "shadow-snapshot") == 0 || frozen_present_mode() || pose_mode(); }
@@ -955,7 +958,7 @@ void __wrap_func_800214C8(uint8_t* rdram, recomp_context* ctx) {
 // observations, not a complete attribution of writes to the draw function.
 // Null/transition/unexpected scene fails closed. Host copies die after each
 // observation. Remove the whole probe after the rendering seam is recovered.
-void run_render_trial(uint8_t*, recomp_context*, unsigned, std::chrono::steady_clock::time_point, unsigned&);
+bool run_render_trial(uint8_t*, recomp_context*, unsigned, std::chrono::steady_clock::time_point, unsigned&);
 // Invoked only by the copied dispatcher's original 8000C870 call. The caller's
 // stack and register context remain live until its one authoritative draw
 // returns; all original post-draw calls stay in their original order.
@@ -966,8 +969,7 @@ void prototype_race_draw(uint8_t* rdram, recomp_context* ctx) {
     const auto samples = word(rdram, 0x8007E530);
     const auto publish = normal_publish, consume = normal_consume;
     const auto build = normal_audio_build, retire = normal_audio_retire;
-    run_render_trial(rdram, ctx, word(rdram, 0x800923E4), early_frame_start, early_trials);
-    normal_endpoint = true;
+    normal_endpoint = run_render_trial(rdram, ctx, word(rdram, 0x800923E4), early_frame_start, early_trials);
     func_8000A30C(rdram, ctx);
     recomp_context drain_context;
     wdc::copy_guest_context(drain_context, *ctx);
@@ -1050,7 +1052,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     }
     run_render_trial(rdram, ctx, scene, frame_start, trials);
 }
-void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
+bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                       std::chrono::steady_clock::time_point frame_start, unsigned& trials) {
     if (hold_accelerator()) {
         std::lock_guard lock(output_mutex);
@@ -1238,6 +1240,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     // timeline arithmetic changes; no counter or clock is written. The fixed
     // address lies within 8 MiB; pose_reset handles zero/>4 gaps and identity
     // discontinuities before scheduling. Unsigned subtraction handles wrap.
+    bool use_normal_endpoint = endpoint_mode();
     wdc::render::SampleSchedule sample_schedule{};
     if (sample_motion_mode()) {
         static uint64_t sample_timeline = 0;
@@ -1246,6 +1249,9 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         sample_schedule = wdc::render::schedule_samples(sample_timeline, sample_timeline + gap,
             present_rate(), present_rate().draw_budget());
         sample_timeline += gap;
+        // An authoritative frame can replace an owned draw only at alpha 1.
+        // Both sides are integers on the same rational sample/display grid.
+        use_normal_endpoint = endpoint_mode() && sample_schedule.ends_on_grid();
         std::lock_guard lock(output_mutex);
         log_record("[prototype-schedule] {\"frame\":%u,\"reset\":%s,\"begin\":%llu,\"end\":%llu,\"first_slot\":%llu,\"count\":%u,\"skipped\":%u}\n",
             race_frame, pose_reset ? "true" : "false", (unsigned long long)sample_schedule.begin,
@@ -1254,7 +1260,20 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     }
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = sample_motion_mode() ? sample_schedule.count : cadence_mode() ? wdc::render::presentations_in_group(trials, present_rate()) - unsigned(!motion_rate_mode()) : endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
+    unsigned repeats = 1;
+    if (sample_motion_mode()) {
+        repeats = sample_schedule.count - unsigned(use_normal_endpoint);
+    } else if (cadence_mode()) {
+        repeats = wdc::render::presentations_in_group(trials, present_rate()) - unsigned(!motion_rate_mode());
+    } else if (endpoint_mode()) {
+        repeats = 3;
+    } else if (motion_mode()) {
+        repeats = 4;
+    } else if (direct_present || pose_mode()) {
+        repeats = 3;
+    } else if (std::strcmp(mode(), "repeat") == 0 || render_only()) {
+        repeats = 2;
+    }
     unsigned selected_index = 0;
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         if (skip_late_draws()) {
@@ -1483,5 +1502,6 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     }
     log_record("]}\n");
     if (!async_diagnostics()) std::fflush(stderr);
+    return use_normal_endpoint;
 }
 }
