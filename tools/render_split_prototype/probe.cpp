@@ -959,10 +959,10 @@ void __wrap_func_800214C8(uint8_t* rdram, recomp_context* ctx) {
 // Null/transition/unexpected scene fails closed. Host copies die after each
 // observation. Remove the whole probe after the rendering seam is recovered.
 bool run_render_trial(uint8_t*, recomp_context*, unsigned, std::chrono::steady_clock::time_point, unsigned&);
-// Invoked only by the copied dispatcher's original 8000C870 call. The caller's
+// Invoked at the original dispatcher race draw at 8000C870. The caller's
 // stack and register context remain live until its one authoritative draw
 // returns; all original post-draw calls stay in their original order.
-void prototype_race_draw(uint8_t* rdram, recomp_context* ctx) {
+void __wrap_wdc_render_race_draw(uint8_t* rdram, recomp_context* ctx) {
     if (!endpoint_mode() || !early_pending) { func_8000A30C(rdram, ctx); return; }
     early_pending = false;
     if (word(rdram, 0x8007DF44)) probe_exit(18);

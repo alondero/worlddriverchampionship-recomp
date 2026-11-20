@@ -546,7 +546,11 @@ the four 60 Hz corrections unlocks intermediate geometry.
 
 The race loop `func_8000C560` consumes input at `8000C5B8` and `8000C75C`,
 advances physics at `8000C6E8`, and updates elapsed-time effects at
-`8000C788..8000C798`. Its drawing call is `8000C870 -> func_8000A30C`.
+`8000C788..8000C798`. At `8000C870`, the player routes the race draw
+through `wdc_render_race_draw` in `src/game_render.cpp`. It passes the live
+guest context to `func_8000A30C` before the original post-draw work at
+`8000C878`. The ROM-backed boundary test exercises the port entry and checks
+the resulting call order and persistent render state.
 This is a useful extraction boundary, **not a repeatable pure draw function**:
 
 | Boundary | Existing work | Requirement for intermediate frames |

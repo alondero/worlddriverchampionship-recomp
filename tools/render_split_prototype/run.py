@@ -200,9 +200,9 @@ def main():
     if endpoint_mode:
         if "libWdcRecompiledFuncs.a" not in variable("LINK_LIBRARIES"):
             raise SystemExit("Expected reference translation archive in executable link")
-        # This translation lives in an archive, unlike the renderer object.
-        # The complete copied object satisfies its symbols before extraction.
-        objects.append(build_draw_boundary(reference, output))
+        boundary_object = build_draw_boundary(reference, output)
+        if boundary_object:
+            objects.append(boundary_object)
     wrapped = ["wdc_hud_normal_layout", "osContGetReadData_recomp", "func_8003062C", "func_8001A97C", "func_8000C560", "func_8001F9CC", "func_800214C8", "osSpTaskStartGo_recomp",
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
@@ -210,6 +210,8 @@ def main():
                "func_800013DC", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
                "osSendMesg_recomp", "_Z13rsp_read_cop0j", "_Z18wdc_boss_dma_writePhjjj",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
+    if endpoint_mode and not boundary_object:
+        wrapped.append("wdc_render_race_draw")
     link = [*objects, str(probe), *runtime, *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),
             *("-Wl,--wrap=" + name for name in wrapped), "-o", str(exe)]
     response = output / "link.rsp"

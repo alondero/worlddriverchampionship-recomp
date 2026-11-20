@@ -17,11 +17,22 @@ natives = {"func_80001D34", "func_80024038", "func_80010A5C",
            "func_80044FC8", "func_80046D40", "func_80024364",
            "func_800241C0", "func_80024FCC", "func_800214C8"}
 functions = {}
+dispatcher = ""
 for path in sorted(source.glob("*.c")):
     for match in re.finditer(r"RECOMP_FUNC void (\w+)\(.*?(?=RECOMP_FUNC void |\Z)",
                              path.read_text(encoding="utf-8"), re.S):
+        if match[1] == "func_8000C560":
+            dispatcher = match[0]
         if match[1] in roots:
             functions[match[1]] = match[0]
+# Verify that both the fallthrough and the branch to C870 reach exactly one
+# host draw before the original post-draw housekeeping.
+hook = "wdc_render_race_draw(rdram, ctx);"
+start = dispatcher.find("L_8000C870:")
+end = dispatcher.find("func_8001F714(rdram, ctx);", start)
+if (start < 0 or end < 0 or dispatcher.count(hook) != 1 or hook not in dispatcher[start:end]
+        or "func_8000A30C(rdram, ctx);" in dispatcher):
+    raise SystemExit("Race dispatcher must route its original draw through the port exactly once")
 if roots - functions.keys():
     raise SystemExit(f"Missing translated bodies: {roots - functions.keys()}")
 calls = set()

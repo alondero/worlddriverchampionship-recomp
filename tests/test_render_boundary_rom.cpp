@@ -10,7 +10,7 @@ unsigned views = 0, prepared = 0, drawn = 0;
 void called(unsigned address) { calls.push_back(address); }
 }
 extern "C" {
-void func_8000A30C(uint8_t*, recomp_context*);
+void wdc_render_race_draw(uint8_t*, recomp_context*);
 void func_80025350(uint8_t*, recomp_context*);
 void func_80001D34(uint8_t*, recomp_context* ctx) {
     assert(uint32_t(ctx->r4) == 0x8000A240);
@@ -84,7 +84,7 @@ int main() {
         MEM_W(0, int32_t(0x8007FE14)) = 3;
         calls.clear();
         prepared = drawn = 0;
-        func_8000A30C(rdram, &ctx);
+        wdc_render_race_draw(rdram, &ctx);
         assert(ctx.r29 == original_sp && ctx.r31 == original_ra);
         assert(ctx.r16 == 123);
         assert(MEM_W(0, int32_t(0x8007E530)) == 99);
@@ -108,7 +108,7 @@ int main() {
         expected.insert(expected.end(), {0x80044FC8, 0x80046D40, 0x80024FCC, 0x800214C8});
         assert(calls == expected);
         prepared = drawn = 0;
-        func_8000A30C(rdram, &ctx);
+        wdc_render_race_draw(rdram, &ctx);
         assert(MEM_BU(0, int32_t(0x8007E84C)) == 0);
         assert(MEM_W(0, int32_t(0x8007E864)) == 0);
         assert(MEM_BU(0, int32_t(0x8007E844)) == 0);

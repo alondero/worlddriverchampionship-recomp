@@ -142,7 +142,7 @@ if(BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c"
                 DEPENDS tests/extract_render_boundary_test.py ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
-            add_executable(wdc_render_boundary_rom_tests tests/test_render_boundary_rom.cpp
+            add_executable(wdc_render_boundary_rom_tests tests/test_render_boundary_rom.cpp src/game_render.cpp
                 "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c")
             target_include_directories(wdc_render_boundary_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_render_boundary_rom_tests PRIVATE -fno-strict-aliasing)

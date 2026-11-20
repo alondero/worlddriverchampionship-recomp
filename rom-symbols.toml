@@ -152,6 +152,19 @@ func = "func_8000C560"
 before_vram = 0x8000C560
 text = "{ extern void wdc_warp_race(uint8_t*, recomp_context*); wdc_warp_race(rdram, ctx); }"
 
+# Race dispatcher after simulation and before post-draw housekeeping. Route its
+# one draw call through the port, preserving the original NOP delay slot.
+[[instructions]]
+func = "func_8000C560"
+vram = 0x8000C870
+expected = 0x0C0028C3
+value = 0
+
+[[hooks]]
+func = "func_8000C560"
+before_vram = 0x8000C870
+text = "{ extern void wdc_render_race_draw(uint8_t*, recomp_context*); wdc_render_race_draw(rdram, ctx); }"
+
 [[hooks]]
 func = "func_800369E0"
 before_vram = 0x800369E0

@@ -562,13 +562,16 @@ Both 120 Hz runs used `--mode motion-samples --present-hz 120 --warp
 endpoint run. The swap audit records within-group and between-group screen
 and swap intervals in `swap-timing.json`.
 
-The dispatcher and draw root share a generated object, so a linker wrapper
-cannot reliably intercept their internal call. `draw_boundary.py` compiles an
-ignored copy of the current reference `funcs_3.c` with exactly that one call
-redirected to the harness, using the reference C compiler and flags. It links
-ahead of the translation archive. The reference generated file is never edited;
-`draw-boundary-source.json` records source/copy hashes and the compile command.
-Unbuilt changes to that reference source affect this mode.
+Current player builds expose `wdc_render_race_draw` at the dispatcher's
+original draw instruction. The port passes the live context to the ROM draw.
+The endpoint harness uses the same compiled dispatcher and wraps that external
+call at link time. `draw-boundary-source.json` records the compiled archive
+hash and boundary symbol.
+
+For older reference players the dispatcher and draw root share an object.
+When the archive lacks the port call, `draw_boundary.py` compiles a local copy
+of the older reference's `funcs_3.c` with that call redirected. Its evidence
+records both source hashes and the compiler command.
 
 The live caller context and stack remain in scope until the original draw
 returns. Extra draws and native drains use correctly rebound context copies.

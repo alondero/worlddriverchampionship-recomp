@@ -1,4 +1,4 @@
-"""Compile a read-only reference translation copy with one race draw harness seam."""
+"""Use the compiled player draw boundary, or adapt an older reference translation."""
 import hashlib
 import json
 from pathlib import Path
@@ -8,6 +8,19 @@ import subprocess
 
 
 def build_draw_boundary(reference, output):
+    # Inspect the archive used by the linker. A generated source in a dirty
+    # reference checkout can be newer than the compiled dispatcher.
+    archive = reference / "libWdcRecompiledFuncs.a"
+    cache = (reference / "CMakeCache.txt").read_text()
+    nm = re.search(r"^CMAKE_NM:[^=]+=(.*)$", cache, re.M)[1]
+    symbols = subprocess.check_output([nm, "-A", "-u", str(archive)], text=True)
+    if re.search(r":funcs_3\.c\.(?:obj|o):\s+U wdc_render_race_draw$", symbols, re.M):
+        (output / "draw-boundary-source.json").write_text(json.dumps({
+            "boundary": "player", "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            "symbol": "wdc_render_race_draw",
+        }, indent=2))
+        return None
+
     entries = json.loads((reference / "compile_commands.json").read_text())
     entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/RecompiledFuncs/funcs_3.c"))
     original = Path(entry["file"]).read_bytes()
@@ -15,25 +28,24 @@ def build_draw_boundary(reference, output):
     match = re.search(r"RECOMP_FUNC void func_8000C560\(.*?(?=RECOMP_FUNC void |\Z)", source, re.S)
     if not match or match[0].count("func_8000A30C(rdram, ctx);") != 1:
         raise RuntimeError("Race draw boundary changed")
-    body = match[0].replace("func_8000A30C(rdram, ctx);", "prototype_race_draw(rdram, ctx);")
+    body = match[0].replace("func_8000A30C(rdram, ctx);", "__wrap_wdc_render_race_draw(rdram, ctx);")
     source = source[:match.start()] + body + source[match.end():]
     include = '#include "recomp.h"'
     if source.count(include) != 1:
         raise RuntimeError("Translation include seam changed")
-    source = source.replace(include, include + '\nvoid prototype_race_draw(uint8_t*, recomp_context*);')
+    source = source.replace(include, include + '\nvoid __wrap_wdc_render_race_draw(uint8_t*, recomp_context*);')
     copied = output / "prototype_race_funcs.c"
     copied.write_text(source)
     obj = output / "prototype_race_funcs.o"
     command = shlex.split(entry["command"])
     # Preserve the reference C compiler and flags rather than compiling generated C as C++.
-    cache = (reference / "CMakeCache.txt").read_text()
     command[0] = re.search(r"^CMAKE_C_COMPILER:[^=]+=(.*)$", cache, re.M)[1]
     command[command.index("-o") + 1] = str(obj)
     command[command.index("-c") + 1] = str(copied)
     command.extend(["-I", str(Path(entry["file"]).parent)])
     subprocess.run(command, cwd=entry["directory"], check=True)
     (output / "draw-boundary-source.json").write_text(json.dumps({
-        "source": entry["file"], "source_sha256": hashlib.sha256(original).hexdigest(),
+        "boundary": "reference-copy", "source": entry["file"], "source_sha256": hashlib.sha256(original).hexdigest(),
         "copied_sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
         "compile_command": command,
     }, indent=2))
