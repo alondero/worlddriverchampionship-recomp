@@ -249,6 +249,15 @@ The per-run `runtime-source.json` identifies the linked runtime archive by hash.
 Older reference builds compile a separate copy of `events.cpp` using the
 reference compile database and the guarded substitutions in `runtime.py`.
 Those runs record the source hash, copy hash and compiler command.
+Single-player pose modes use the player's `RacePoses` code to read camera, car,
+wheel and ground inputs from the frozen image. It compares consecutive samples
+for changes of identity, sample gaps and geometric jumps before writing
+interpolated inputs to the restored render bank. `bank-source.json` identifies
+the pose object alongside the capture and storage objects. The synthetic
+`wdc_race_poses` test exercises contact and normal shadows, sample-counter wrap,
+invalid camera/car bounds and the two-player fallback. The native
+`pose-snapshot` check additionally compares repeated midpoint and endpoint
+geometry from the original race draw.
 Owned-RAM modes use the compiled player renderer when it exposes a frame
 source. At renderer creation the probe supplies task memory, a snapshot mutex,
 a task-completion callback and an optional screen-update observer. The renderer
@@ -478,7 +487,7 @@ python tools/render_split_prototype/run.py --reference-build build --rom "World 
 
 `pose-snapshot` always enables strict checks. The camera and each active car's
 main-body matrix are copied into immutable host records after normal graphics
-drain. `pose.h` interpolates translation linearly and rotation via shortest-arc
+drain. `src/render_pose.h` interpolates translation linearly and rotation via shortest-arc
 quaternions, retaining opaque padding and bit-exact endpoints. It rejects
 non-finite, scaled, sheared or reflected bases outside its explicit tolerance;
 invalid poses abort the probe. Host tests cover rotations about all three axes,

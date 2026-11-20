@@ -8,8 +8,7 @@
 #include "boss_capture.h"
 #endif
 #include "src/guest_context.h"
-#include "pose.h"
-#include "vectors.h"
+#include "src/race_poses.h"
 #include "src/render_cadence.h"
 #include "src/render_memory.h"
 #include "src/race_render_sample.h"
@@ -97,12 +96,8 @@ void finish_present_audit() {
 auto& render_ram = wdc::render::race_render_bank();
 auto& render_memory_mutex = render_ram.mutex;
 uint8_t* authoritative_memory = nullptr;
-enum class PoseKind { Camera, Body, Wheel };
-std::vector<prototype::Pose> previous_poses;
-std::vector<prototype::Vector3> previous_shadow_inputs;
+wdc::render::RacePoses previous_pose;
 unsigned shadow_rebuilds = 0;
-std::vector<uint32_t> previous_pose_identity;
-uint32_t previous_pose_sample = 0;
 unsigned shadow_receives = 0, shadow_sends = 0;
 #ifndef WDC_RUNTIME_RECEIVE_DESTINATION
 thread_local uint8_t* receive_destination_memory = nullptr;
@@ -1051,7 +1046,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
             (scene == 0 || scene == 3 || scene == 5 || scene == 8 || scene == 9);
     };
     if (endpoint_mode()) {
-        if (!eligible()) { early_settled = 0; previous_poses.clear(); previous_pose_identity.clear(); }
+        if (!eligible()) { early_settled = 0; previous_pose = {}; }
         early_pending = eligible() && ++early_settled >= settle_frames();
         direct_present = early_pending;
         prototype_set_present(direct_present);
@@ -1094,8 +1089,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
         probe_exit(0);
     }
     if (!eligible()) {
-        previous_poses.clear();
-        previous_pose_identity.clear();
+        previous_pose = {};
         settled = 0;
         one_vi = false;
         return;
@@ -1181,102 +1175,29 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     // are four 64-byte matrices copied by 218F0 at 22254; the full car-span
     // bounds above contain them. All finite rigid-pose checks apply. Invalid
     // poses abort rather than writing guesses. Shadows/effects remain separate.
-    std::vector<prototype::Pose> current_poses;
-    std::vector<uint32_t> pose_addresses, pose_identity;
-    std::vector<PoseKind> pose_kind;
-    struct ShadowField { uint32_t address; unsigned words; bool normal; };
-    std::vector<ShadowField> shadow_fields;
-    std::vector<prototype::Vector3> current_shadow_inputs;
-    // 8007DF40 is a fixed in-bounds guest u32 path selector, read with MEM_W
-    // on the game thread. Zero selects normal/position; nonzero selects contact
-    // points. It is never modified and participates in snapshot identity.
-    const bool contact_shadow = shadow_inputs() && word(rdram,0x8007DF40)!=0;
-    bool pose_reset = false;
+    wdc::render::RacePoses pose_sample;
     if (pose_mode()) {
-        pose_addresses.push_back(camera);
-        pose_kind.push_back(PoseKind::Camera);
-        pose_identity = {scene, camera, word(rdram, 0x800ABE40 + 0x74)};
-        if (shadow_inputs()) pose_identity.push_back(word(rdram,0x8007DF40));
-        for (unsigned i = 0; i < car_count; ++i) {
-            const auto car = 0x800BA7F0 + i * 0x18A0;
-            pose_addresses.push_back(car + 0x14);
-            pose_kind.push_back(PoseKind::Body);
-            if (wheel_poses()) for (unsigned wheel = 0; wheel < 4; ++wheel) {
-                pose_addresses.push_back(car + 0x94 + wheel*0x84);
-                pose_kind.push_back(PoseKind::Wheel);
-            }
-            pose_identity.push_back(word(rdram, car));
-            if (shadow_inputs()) {
-                const auto active=word(rdram,car+0x2F4);
-                // 17500..17508 copies the current ground-contact reference
-                // from +E40; it changes during ordinary driving. 30644..30648
-                // only tests presence, so identity tracks availability, not the
-                // raw reference. Geometric jump/normal guards remain below.
-                pose_identity.push_back(active != 0);
-                if(active) {
-                    // Float32 ground inputs to 3062C, world-space coordinates/
-                    // unit normal. 12 bytes each except alternate-path +36C
-                    // uses only XY (8 bytes). Read MEM_W on game thread; write
-                    // only the owned bank before the original rebuild. Full
-                    // validated car span contains every address; invalid math
-                    // aborts. Path/active changes reset history through identity.
-                    if(!contact_shadow) shadow_fields.push_back({car+0x360,3,true});
-                    shadow_fields.push_back({car+0x36C,contact_shadow?2u:3u,false});
-                    if(contact_shadow) for(unsigned contact=0;contact<4;++contact)
-                        shadow_fields.push_back({car+0xC6C+contact*12,3,false});
-                }
-            }
-        }
-        for (const auto address : pose_addresses) {
-            prototype::Pose pose;
-            for (unsigned j = 0; j < pose.size(); ++j) pose[j] = word(rdram, address + 4*j);
-            prototype::Quaternion rotation;
-            if (!prototype::rotation(pose, rotation)) probe_exit(15);
-            current_poses.push_back(pose);
-        }
-        for(const auto& field:shadow_fields) {
-            prototype::Vector3 input{}, checked;
-            for(unsigned j=0;j<field.words;++j) input[j]=word(rdram,field.address+4*j);
-            if(!prototype::interpolate_vector(input,input,1,field.normal,checked)) probe_exit(21);
-            current_shadow_inputs.push_back(input);
-        }
-        // Bounded safety policy, not a recovered camera-cut flag: reset on
-        // identity/scene changes, sample discontinuities or >64 world units.
-        pose_reset = previous_pose_identity != pose_identity || previous_poses.size() != current_poses.size() || previous_shadow_inputs.size() != current_shadow_inputs.size() ||
-            samples - previous_pose_sample == 0 || samples - previous_pose_sample > 4;
-        const bool identity_changed = previous_pose_identity != pose_identity;
-        bool pose_jump = false, shadow_jump = false;
+        auto captured = wdc::render::RacePoses::capture(render_ram, wheel_poses(), shadow_inputs());
+        if (!captured) probe_exit(15);
+        pose_sample = std::move(*captured);
+    }
+    const auto& pose_identity = pose_sample.identity_words();
+    const auto& previous_pose_identity = previous_pose.identity_words();
+    const auto continuity = pose_sample.compare_with(previous_pose);
+    const bool pose_reset = continuity.reset();
+    if (pose_mode()) {
         int identity_index = -1;
-        for(unsigned i=0;i<pose_identity.size() && i<previous_pose_identity.size();++i)
-            if(pose_identity[i]!=previous_pose_identity[i]) { identity_index=int(i); break; }
-        if (!pose_reset) for (unsigned i = 0; i < current_poses.size(); ++i) {
-            double distance2 = 0;
-            for (unsigned j = 12; j < 15; ++j) {
-                const double delta = prototype::component(current_poses[i], j) - prototype::component(previous_poses[i], j);
-                distance2 += delta * delta;
-            }
-            pose_jump |= distance2 > 64*64;
-            pose_reset |= pose_jump;
-        }
-        if (!pose_reset) for(unsigned i=0;i<shadow_fields.size();++i) {
-            double distance2=0, dot=0;
-            for(unsigned j=0;j<3;++j) {
-                const double a=std::bit_cast<float>(previous_shadow_inputs[i][j]);
-                const double b=std::bit_cast<float>(current_shadow_inputs[i][j]);
-                distance2+=(a-b)*(a-b); dot+=a*b;
-            }
-            shadow_jump |= shadow_fields[i].normal ? dot<=0 : distance2>64*64;
-            pose_reset |= shadow_jump;
+        for (unsigned i = 0; i < std::min(pose_identity.size(), previous_pose_identity.size()); ++i) {
+            if (pose_identity[i] != previous_pose_identity[i]) { identity_index = int(i); break; }
         }
         {
             std::lock_guard lock(output_mutex);
             log_record("[prototype-history] {\"frame\":%u,\"reset\":%s,\"identity_changed\":%s,\"identity_index\":%d,\"previous_word\":%u,\"current_word\":%u,\"sample_gap\":%u,\"pose_count_changed\":%s,\"shadow_count_changed\":%s,\"pose_jump\":%s,\"shadow_jump\":%s}\n",
-                race_frame, pose_reset?"true":"false", identity_changed?"true":"false", identity_index,
-                identity_index<0?0:previous_pose_identity[identity_index], identity_index<0?0:pose_identity[identity_index], samples-previous_pose_sample,
-                previous_poses.size()!=current_poses.size()?"true":"false", previous_shadow_inputs.size()!=current_shadow_inputs.size()?"true":"false",
-                pose_jump?"true":"false", shadow_jump?"true":"false");
+                race_frame, pose_reset?"true":"false", continuity.identity_changed?"true":"false", identity_index,
+                identity_index<0?0:previous_pose_identity[identity_index], identity_index<0?0:pose_identity[identity_index], continuity.sample_gap,
+                continuity.count_changed?"true":"false", continuity.shadow_count_changed?"true":"false",
+                continuity.pose_jump?"true":"false", continuity.shadow_jump?"true":"false");
         }
-        if (pose_reset) { previous_poses = current_poses; previous_shadow_inputs = current_shadow_inputs; }
     }
     // Reuse the observed 8007E530 consumed-sample u32 (MEM_W, N64 order),
     // measured in original 30 Hz samples on the guest game thread. Only host
@@ -1288,7 +1209,7 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     if (sample_motion_mode()) {
         static uint64_t sample_timeline = 0;
         if (pose_reset) sample_timeline = 0;
-        const unsigned gap = pose_reset ? 1 : samples - previous_pose_sample;
+        const unsigned gap = pose_reset ? 1 : continuity.sample_gap;
         sample_schedule = wdc::render::schedule_samples(sample_timeline, sample_timeline + gap,
             present_rate(), present_rate().draw_budget());
         sample_timeline += gap;
@@ -1355,28 +1276,16 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 // pose-snapshot repeats a midpoint to validate determinism;
                 // motion120 presents increasing quarter steps to the endpoint.
                 const double alpha = sample_motion_mode() ? sample_schedule.alpha(skip_late_draws() ? selected_index + 1 : draw_number) : motion_rate_mode() ? wdc::render::presentation_alpha(trials, draw_number, present_rate()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
-                unsigned changed = 0, changed_bodies = 0, changed_wheels = 0;
-                bool camera_changed = false;
-                for (unsigned i = 0; i < current_poses.size(); ++i) {
-                    prototype::Pose pose;
-                    if (!prototype::interpolate_pose(previous_poses[i], current_poses[i],
-                            (shadow_only_control() || (wheel_only_control() && pose_kind[i] != PoseKind::Wheel)) ? 1.0 : alpha, pose)) probe_exit(15);
-                    changed += pose != current_poses[i];
-                    changed_bodies += pose_kind[i] == PoseKind::Body && pose != current_poses[i];
-                    changed_wheels += pose_kind[i] == PoseKind::Wheel && pose != current_poses[i];
-                    if (i == 0) camera_changed = pose != current_poses[i];
-                    std::memcpy(drawing_ram + (pose_addresses[i] - 0x80000000), pose.data(), sizeof(pose));
-                }
-                for(unsigned i=0;i<shadow_fields.size();++i) {
-                    prototype::Vector3 input;
-                    if(!prototype::interpolate_vector(previous_shadow_inputs[i],current_shadow_inputs[i],alpha,shadow_fields[i].normal,input)) probe_exit(21);
-                    changed_shadow_inputs += input!=current_shadow_inputs[i];
-                    std::memcpy(drawing_ram+(shadow_fields[i].address-0x80000000),input.data(),shadow_fields[i].words*4);
-                }
+                using wdc::render::PoseBlend;
+                const auto blend = shadow_only_control() ? PoseBlend::ShadowsOnly :
+                                   wheel_only_control() ? PoseBlend::WheelsOnly : PoseBlend::All;
+                const auto changes = pose_sample.apply(render_ram, pose_reset ? pose_sample : previous_pose, alpha, blend);
+                if (!changes) probe_exit(15);
+                changed_shadow_inputs = changes->shadows;
                 std::lock_guard lock(output_mutex);
                 log_record("[prototype-pose] {\"frame\":%u,\"draw\":%u,\"alpha\":%.9f,\"reset\":%s,\"poses\":%u,\"changed_poses\":%u,\"changed_camera\":%s,\"changed_bodies\":%u,\"changed_wheels\":%u}\n",
-                    race_frame, draw_number, alpha, pose_reset ? "true" : "false", unsigned(current_poses.size()), changed,
-                    camera_changed ? "true" : "false", changed_bodies, changed_wheels);
+                    race_frame, draw_number, alpha, pose_reset ? "true" : "false", unsigned(pose_sample.pose_count()), changes->camera + changes->bodies + changes->wheels,
+                    changes->camera ? "true" : "false", changes->bodies, changes->wheels);
             }
             const char* offset_text = std::getenv("WDC_RENDER_PROTOTYPE_SHADOW_OFFSET");
             const float eye_offset = offset_text ? std::strtof(offset_text, nullptr) : 0.0f;
@@ -1465,7 +1374,7 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         if (shadow_inputs()) {
             std::lock_guard lock(output_mutex);
             log_record("[prototype-shadow-inputs] {\"frame\":%u,\"draw\":%u,\"contact_mode\":%s,\"vectors\":%u,\"changed\":%u,\"rebuilds\":%u}\n",
-                race_frame,draw_number,contact_shadow?"true":"false",unsigned(shadow_fields.size()),changed_shadow_inputs,shadow_rebuilds-shadow_rebuilds_before);
+                race_frame,draw_number,pose_sample.uses_contact_shadows()?"true":"false",unsigned(pose_sample.shadow_count()),changed_shadow_inputs,shadow_rebuilds-shadow_rebuilds_before);
         }
         if (wheel_poses()) {
             std::lock_guard lock(output_mutex);
@@ -1513,10 +1422,7 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     draw_number = 0;
     extra = false;
     if (pose_mode()) {
-        previous_poses = std::move(current_poses);
-        previous_shadow_inputs = std::move(current_shadow_inputs);
-        previous_pose_identity = std::move(pose_identity);
-        previous_pose_sample = samples;
+        previous_pose = std::move(pose_sample);
     }
     one_vi = false;
     if (offset)

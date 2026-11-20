@@ -1,4 +1,7 @@
 if(BUILD_TESTING)
+    add_executable(wdc_race_pose_tests tests/test_race_poses.cpp src/race_poses.cpp src/render_bank.cpp)
+    target_include_directories(wdc_race_pose_tests PRIVATE src)
+    add_test(NAME wdc_race_poses COMMAND wdc_race_pose_tests)
     add_executable(wdc_render_bank_tests tests/test_render_bank.cpp src/render_bank.cpp src/race_render_sample.cpp)
     target_include_directories(wdc_render_bank_tests PRIVATE src "${N64MR}/N64Recomp/include")
     target_link_libraries(wdc_render_bank_tests PRIVATE Threads::Threads)

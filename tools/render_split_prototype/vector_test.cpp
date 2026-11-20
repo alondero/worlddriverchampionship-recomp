@@ -1,10 +1,10 @@
-#include "vectors.h"
+#include "../../src/render_vector.h"
 #include <cassert>
 #include <limits>
 #include <cstdio>
-prototype::Vector3 v(float x,float y,float z) { return {std::bit_cast<uint32_t>(x),std::bit_cast<uint32_t>(y),std::bit_cast<uint32_t>(z)}; }
+wdc::render::Vector3 v(float x,float y,float z) { return {std::bit_cast<uint32_t>(x),std::bit_cast<uint32_t>(y),std::bit_cast<uint32_t>(z)}; }
 int main() {
-    using prototype::interpolate_vector;
+    using wdc::render::interpolate_vector;
     auto a=v(-2,4,8),b=v(6,8,12),out=v(99,99,99);
     assert(interpolate_vector(a,b,.5,false,out) && out==v(2,6,10));
     assert(interpolate_vector(a,b,0,false,out) && out==a);

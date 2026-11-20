@@ -1,5 +1,5 @@
 #pragma once
-// THROWAWAY host-only rigid-pose math. Rows occupy words 0..2, 4..6, 8..10;
+// Host-only rigid-pose math. Rows occupy words 0..2, 4..6, 8..10;
 // translation occupies 12..14. Other words are opaque and never interpolated.
 // Callers own guest bounds/identity/cut checks. False leaves output untouched.
 #include <array>
@@ -7,7 +7,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace prototype {
+namespace wdc::render {
 using Pose = std::array<uint32_t, 16>;
 using Quaternion = std::array<double, 4>; // x,y,z,w
 inline double component(const Pose& p, unsigned n) { return std::bit_cast<float>(p[n]); }

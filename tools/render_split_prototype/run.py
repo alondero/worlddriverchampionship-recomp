@@ -170,7 +170,7 @@ def main():
         raise SystemExit("Prototype linker does not support escaped Ninja object paths")
     objects = shlex.split(inputs)
     bank_sources = {}
-    for stem in ("render_bank", "race_render_sample"):
+    for stem in ("render_bank", "race_render_sample", "race_poses"):
         relative = next((obj for obj in objects if obj.replace("\\", "/").endswith(f"/src/{stem}.cpp.obj")), None)
         if relative:
             obj_path = reference / relative

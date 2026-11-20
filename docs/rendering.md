@@ -658,7 +658,11 @@ both task and screen completion before resetting a bank. The player now owns
 the race snapshot and writable image. Its capture routine drains the ROM
 transform pipeline using a rebound guest context, waits for the renderer,
 and copies the eight MiB under the same mutex that guards renderer access.
-The writable image keeps a stable address across samples. Windows can restore
+The compiled race pose reader takes view zero's camera, car bodies, wheels and
+shadow ground inputs from this frozen image. It checks the single-player count
+at `8007E580` before sampling. It compares identity and sample continuity and
+applies the interpolated words only to the writable bank. The writable image
+keeps a stable address across samples. Windows can restore
 only changed pages, while the portable path restores the whole image.
 Runtime patch 0021 lets the caller supply a message destination in the owned
 bank. A live queue test checks the received word, the corresponding authoritative

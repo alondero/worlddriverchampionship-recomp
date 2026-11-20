@@ -5,7 +5,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
-namespace prototype {
+namespace wdc::render {
 using Vector3 = std::array<uint32_t,3>;
 inline bool interpolate_vector(const Vector3& a, const Vector3& b, double alpha,
                                bool normal, Vector3& output) {
