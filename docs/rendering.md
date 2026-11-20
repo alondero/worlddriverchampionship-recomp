@@ -701,6 +701,14 @@ owned blends precede the original authoritative draw, which supplies both the
 current endpoint and normal audio work. Task/callback gates verify this four-draw
 sequence and one original audio lifecycle. It removes a redundant graphics pass
 but does not by itself establish sustained high-rate performance or audio fidelity.
+The player's race scheduler advances between fixed 30 Hz samples on the exact
+display-rate ratio. Its cursor selects each owned pose at most once, including
+after stalls, and can reserve the native draw at an exact endpoint. On an
+owned draw and its trailing drain, the translated sound entry points return
+before advancing car or voice state. The audio builder returns its original
+command cursor. The scope matches both the game thread and its private RAM
+pointer so authoritative work continues to process sound normally.
+
 The prototype can also instrument a copied RT64 full-sync path and optionally
 disable framebuffer readback for disposable owned tasks. Normal task readback
 is retained. This remains an opt-in performance experiment because geometry

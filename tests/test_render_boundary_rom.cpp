@@ -1,5 +1,6 @@
 #undef NDEBUG
 #include "recomp.h"
+#include "extra_race_draw.h"
 #include <cassert>
 #include <cstdint>
 #include <vector>
@@ -12,6 +13,7 @@ void called(unsigned address) { calls.push_back(address); }
 extern "C" {
 void wdc_render_race_draw(uint8_t*, recomp_context*);
 void func_80025350(uint8_t*, recomp_context*);
+void func_8001F9CC(uint8_t*, recomp_context*);
 void func_80001D34(uint8_t*, recomp_context* ctx) {
     assert(uint32_t(ctx->r4) == 0x8000A240);
     called(0x80001D34);
@@ -77,6 +79,16 @@ int main() {
         for (unsigned car = 0; car < 2; ++car) {
             MEM_W(0, int32_t(0x800BA7F0 + car * 0x18A0 + 0x9F8)) = 42;
             MEM_W(0, int32_t(0x800BA7F0 + car * 0x18A0 + 0x9FC)) = 43;
+        }
+        // Exercise the translated sound-list rollover with an owned bank.
+        // It must leave the byte selector and pending-list pointer untouched.
+        {
+            auto owned = memory;
+            wdc::render::ExtraRaceDraw draw(owned.data());
+            assert(!wdc_is_extra_race_draw(rdram));
+            assert(wdc_is_extra_race_draw(owned.data()));
+            func_8001F9CC(owned.data(), &ctx);
+            assert(owned == memory);
         }
         // Simulation clock/sample count sentinels. No callee in this fixture
         // consumes input or advances physics; that is not a full-graph proof.

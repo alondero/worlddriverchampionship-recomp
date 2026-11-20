@@ -23,6 +23,14 @@ This is opt-in diagnostic plumbing, not a change to presentation acceptance.
 Check the writer's ordering, bounded backpressure, final drain and failure paths:
 `python tools/render_split_prototype/test_async_log.py --reference-build build`.
 
+On current player builds six translated sound routines inspect the game
+thread's active render bank. An owned pass skips sound-list publication and
+consumption, near/distant car sound updates, audio command construction and
+retirement. The command builder returns its input cursor. The scope covers
+the extra draw and its trailing guest transform drain. `render-audio-source.json`
+identifies the translated archive used by the harness. Older archives and
+live-memory control experiments use the harness's original sound gates.
+
 Owned-task audio isolation is checked at the BOSS DMA boundary as well as the
 CPU command helpers. `geometry.json` records rounded DMA bytes and overlap with
 the 16 KiB PCM ring at physical `3F0400..3F4400` for every observed task, including
@@ -249,6 +257,12 @@ The per-run `runtime-source.json` identifies the linked runtime archive by hash.
 Older reference builds compile a separate copy of `events.cpp` using the
 reference compile database and the guarded substitutions in `runtime.py`.
 Those runs record the source hash, copy hash and compiler command.
+In `motion-samples`, the compiled `RaceFrameSchedule` selects frames from
+consecutive consumed-sample intervals. It retains display phase across short
+gaps, restarts after a pose discontinuity or rate change, and reserves the
+native draw only at an exact grid endpoint. Elapsed-time selection can skip
+overdue slots before an owned draw starts.
+
 Single-player pose modes use the player's `RacePoses` code to read camera, car,
 wheel and ground inputs from the frozen image. It compares consecutive samples
 for changes of identity, sample gaps and geometric jumps before writing

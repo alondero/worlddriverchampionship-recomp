@@ -6,7 +6,7 @@ if(BUILD_TESTING)
     target_include_directories(wdc_render_bank_tests PRIVATE src "${N64MR}/N64Recomp/include")
     target_link_libraries(wdc_render_bank_tests PRIVATE Threads::Threads)
     add_test(NAME wdc_render_bank COMMAND wdc_render_bank_tests)
-    add_executable(wdc_render_cadence_tests tests/test_render_cadence.cpp)
+    add_executable(wdc_render_cadence_tests tests/test_render_cadence.cpp src/race_frame_schedule.cpp)
     target_include_directories(wdc_render_cadence_tests PRIVATE src)
     add_test(NAME wdc_render_cadence COMMAND wdc_render_cadence_tests)
     add_executable(wdc_savestate_tests tests/test_savestate.cpp src/savestate.cpp)
@@ -149,9 +149,9 @@ if(BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c"
                 DEPENDS tests/extract_render_boundary_test.py ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
-            add_executable(wdc_render_boundary_rom_tests tests/test_render_boundary_rom.cpp src/game_render.cpp
+            add_executable(wdc_render_boundary_rom_tests tests/test_render_boundary_rom.cpp src/game_render.cpp src/extra_race_draw.cpp
                 "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c")
-            target_include_directories(wdc_render_boundary_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
+            target_include_directories(wdc_render_boundary_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_render_boundary_rom_tests PRIVATE -fno-strict-aliasing)
             add_test(NAME wdc_render_boundary_rom COMMAND wdc_render_boundary_rom_tests)
             set_tests_properties(wdc_render_boundary_rom PROPERTIES TIMEOUT 30)

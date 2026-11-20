@@ -170,7 +170,7 @@ def main():
         raise SystemExit("Prototype linker does not support escaped Ninja object paths")
     objects = shlex.split(inputs)
     bank_sources = {}
-    for stem in ("render_bank", "race_render_sample", "race_poses"):
+    for stem in ("render_bank", "race_render_sample", "race_poses", "race_frame_schedule"):
         relative = next((obj for obj in objects if obj.replace("\\", "/").endswith(f"/src/{stem}.cpp.obj")), None)
         if relative:
             obj_path = reference / relative
@@ -206,9 +206,14 @@ def main():
         renderer_object = next(reference / obj for obj in objects if obj.replace("\\", "/").endswith("/src/renderer.cpp.obj"))
         symbols = subprocess.check_output([nm, "-C", "-u", str(renderer_object)], text=True)
         compiled_explicit = " U RT64::Application::updateScreen(bool)" in symbols
+    player_audio = False
+    if owned_ram and any(obj.replace("\\", "/").endswith("/src/extra_race_draw.cpp.obj") for obj in objects):
+        symbols = subprocess.check_output([nm, "-u", str(reference / "libWdcRecompiledFuncs.a")], text=True)
+        player_audio = " U wdc_is_extra_race_draw" in symbols
     probe = output / "probe.o"
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
                     *(["-DWDC_PROTOTYPE_AUDIT_PRESENT"] if args.audit_present else []),
+                    *(["-DWDC_PLAYER_RENDER_AUDIO"] if player_audio else []),
                     *(["-DWDC_PLAYER_EXPLICIT_PRESENT"] if compiled_explicit else []),
                     *(["-DWDC_RUNTIME_RECEIVE_DESTINATION"] if receive_archive else []),
                     *(["-DWDC_RUNTIME_SWAP_PRESENTATION"] if compiled_presentation else []),
@@ -274,6 +279,10 @@ def main():
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=mode_dir))
     if owned_ram:
         (run_dir / "bank-source.json").write_text(json.dumps(bank_sources, indent=2))
+        (run_dir / "render-audio-source.json").write_text(json.dumps({
+            "boundary": "translated" if player_audio else "harness",
+            "archive_sha256": hashlib.sha256((reference / "libWdcRecompiledFuncs.a").read_bytes()).hexdigest()
+        }, indent=2))
     if args.sample_render_worker:
         shutil.copy2(exe, run_dir / "sampled-renderer.exe")
     if args.fast_texture_hash:

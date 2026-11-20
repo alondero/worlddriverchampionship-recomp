@@ -9,9 +9,10 @@
 #endif
 #include "src/guest_context.h"
 #include "src/race_poses.h"
-#include "src/render_cadence.h"
+#include "src/race_frame_schedule.h"
 #include "src/render_memory.h"
 #include "src/race_render_sample.h"
+#include "src/extra_race_draw.h"
 #include "async_log.h"
 #ifdef WDC_PROTOTYPE_SAMPLE_WORKER
 #include "worker_samples.h"
@@ -470,20 +471,36 @@ void __wrap_func_80010A5C(uint8_t* rdram, recomp_context* ctx) {
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
     }
 }
+// Older archives and live-RAM control modes still require harness gates.
+// For a player-owned draw, count each call then run its translated entry.
+static bool player_audio_gate(uint8_t* rdram) {
+#ifdef WDC_PLAYER_RENDER_AUDIO
+    return wdc_is_extra_race_draw(rdram);
+#else
+    (void)rdram;
+    return false;
+#endif
+}
 void __real_func_8001FC64(uint8_t*, recomp_context*);
 void __wrap_func_8001FC64(uint8_t* rdram, recomp_context* ctx) {
     // 218F0's near-car branch (21994) publishes vehicle sound parameters.
     // This also ramps signed halfword car+A0E by up to 20 per invocation
     // (1FD38..1FD60), updates gear/event history, and calls 201BC/205F8.
     // It is void at this boundary; presentation extras must not advance it.
-    if (extra && render_only()) { ++skipped_car_sound; return; }
+    if (extra && render_only()) {
+        ++skipped_car_sound;
+        if (!player_audio_gate(rdram)) return;
+    }
     __real_func_8001FC64(rdram, ctx);
 }
 void __real_func_8001F7F8(uint8_t*, recomp_context*);
 void __wrap_func_8001F7F8(uint8_t* rdram, recomp_context* ctx) {
     // Matching distant-car branch at 219A8 retires sound-slot ownership and
     // resets car+A08. Preserve the normal-frame audio lifecycle on extras.
-    if (extra && render_only()) { ++skipped_car_sound; return; }
+    if (extra && render_only()) {
+        ++skipped_car_sound;
+        if (!player_audio_gate(rdram)) return;
+    }
     __real_func_8001F7F8(rdram, ctx);
 }
 void prototype_vi_observed() { ++prototype_vi_ticks; }
@@ -767,13 +784,22 @@ void __wrap_func_80043274(uint8_t* rdram, recomp_context* ctx) {
     // 24FCC passes its current command cursor in a0 and stores v0 back to
     // ED84. On a presentation-only draw append no audio commands: identity
     // cursor result, leaving audio buffers, voice progression and DMA alone.
-    if (extra && render_only()) { ++skipped_audio_build; ctx->r2 = ctx->r4; return; }
+    if (extra && render_only()) {
+        ++skipped_audio_build;
+        if (!player_audio_gate(rdram)) {
+            ctx->r2 = ctx->r4;
+            return;
+        }
+    }
     if (!extra) ++normal_audio_build;
     __real_func_80043274(rdram, ctx);
 }
 void __real_func_80042FA8(uint8_t*, recomp_context*);
 void __wrap_func_80042FA8(uint8_t* rdram, recomp_context* ctx) {
-    if (extra && render_only()) { ++skipped_audio_retire; return; }
+    if (extra && render_only()) {
+        ++skipped_audio_retire;
+        if (!player_audio_gate(rdram)) return;
+    }
     if (!extra) ++normal_audio_retire;
     __real_func_80042FA8(rdram, ctx);
 }
@@ -988,12 +1014,18 @@ void wrapped_rsp(uint8_t* rdram, const OSTask* task, wdc::rsp::RdpSink sink, voi
         (unsigned long long)rsp_dma_bytes, (unsigned long long)rsp_audio_dma_bytes);
 }
 void __wrap_func_8001F9CC(uint8_t* rdram, recomp_context* ctx) {
-    if (extra && gated()) { ++skipped_publish; return; }
+    if (extra && gated()) {
+        ++skipped_publish;
+        if (!player_audio_gate(rdram)) return;
+    }
     if (!extra) ++normal_publish;
     __real_func_8001F9CC(rdram, ctx);
 }
 void __wrap_func_800214C8(uint8_t* rdram, recomp_context* ctx) {
-    if (extra && gated()) { ++skipped_consume; return; }
+    if (extra && gated()) {
+        ++skipped_consume;
+        if (!player_audio_gate(rdram)) return;
+    }
     if (!extra) ++normal_consume;
     __real_func_800214C8(rdram, ctx);
 }
@@ -1205,17 +1237,11 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     // address lies within 8 MiB; pose_reset handles zero/>4 gaps and identity
     // discontinuities before scheduling. Unsigned subtraction handles wrap.
     bool use_normal_endpoint = endpoint_mode();
-    wdc::render::SampleSchedule sample_schedule{};
+    static wdc::render::RaceFrameSchedule schedule;
     if (sample_motion_mode()) {
-        static uint64_t sample_timeline = 0;
-        if (pose_reset) sample_timeline = 0;
-        const unsigned gap = pose_reset ? 1 : continuity.sample_gap;
-        sample_schedule = wdc::render::schedule_samples(sample_timeline, sample_timeline + gap,
-            present_rate(), present_rate().draw_budget());
-        sample_timeline += gap;
-        // An authoritative frame can replace an owned draw only at alpha 1.
-        // Both sides are integers on the same rational sample/display grid.
-        use_normal_endpoint = endpoint_mode() && sample_schedule.ends_on_grid();
+        if (!schedule.begin_group(present_rate(), continuity.sample_gap, pose_reset, endpoint_mode())) probe_exit(20);
+        use_normal_endpoint = schedule.present_native();
+        const auto& sample_schedule = schedule.group();
         std::lock_guard lock(output_mutex);
         log_record("[prototype-schedule] {\"frame\":%u,\"reset\":%s,\"begin\":%llu,\"end\":%llu,\"first_slot\":%llu,\"count\":%u,\"skipped\":%u}\n",
             race_frame, pose_reset ? "true" : "false", (unsigned long long)sample_schedule.begin,
@@ -1226,7 +1252,7 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     extra = true;
     unsigned repeats = 1;
     if (sample_motion_mode()) {
-        repeats = sample_schedule.count - unsigned(use_normal_endpoint);
+        repeats = schedule.group().count;
     } else if (cadence_mode()) {
         repeats = wdc::render::presentations_in_group(trials, present_rate()) - unsigned(!motion_rate_mode());
     } else if (endpoint_mode()) {
@@ -1238,17 +1264,20 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     } else if (std::strcmp(mode(), "repeat") == 0 || render_only()) {
         repeats = 2;
     }
-    unsigned selected_index = 0;
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
-        if (skip_late_draws()) {
-            const unsigned next = draw_number == 1 ? 0 : selected_index + 1;
-            const uint64_t elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::steady_clock::now() - start).count();
-            selected_index = wdc::render::due_slot(next, repeats, elapsed, present_rate());
-            std::lock_guard lock(output_mutex);
-            log_record("[prototype-selection] {\"frame\":%u,\"draw\":%u,\"elapsed_ns\":%llu,\"index\":%u,\"slot\":%llu,\"skipped\":%u}\n",
-                race_frame, draw_number, (unsigned long long)elapsed, selected_index,
-                (unsigned long long)(sample_schedule.first_slot + selected_index), selected_index - next);
+        double scheduled_alpha = 1.0;
+        if (sample_motion_mode()) {
+            const uint64_t elapsed = skip_late_draws() ? std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - start).count() : 0;
+            const auto frame = schedule.next(elapsed);
+            if (!frame) break;
+            scheduled_alpha = frame->alpha;
+            if (skip_late_draws()) {
+                std::lock_guard lock(output_mutex);
+                log_record("[prototype-selection] {\"frame\":%u,\"draw\":%u,\"elapsed_ns\":%llu,\"index\":%u,\"slot\":%llu,\"skipped\":%u}\n",
+                    race_frame, draw_number, (unsigned long long)elapsed, frame->index,
+                    (unsigned long long)frame->slot, frame->skipped);
+            }
         }
         const auto receives_before = shadow_receives, sends_before = shadow_sends;
         const auto wheel_reads_before = wheel_pose_reads;
@@ -1275,7 +1304,7 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             if (pose_mode()) {
                 // pose-snapshot repeats a midpoint to validate determinism;
                 // motion120 presents increasing quarter steps to the endpoint.
-                const double alpha = sample_motion_mode() ? sample_schedule.alpha(skip_late_draws() ? selected_index + 1 : draw_number) : motion_rate_mode() ? wdc::render::presentation_alpha(trials, draw_number, present_rate()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
+                const double alpha = sample_motion_mode() ? scheduled_alpha : motion_rate_mode() ? wdc::render::presentation_alpha(trials, draw_number, present_rate()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
                 using wdc::render::PoseBlend;
                 const auto blend = shadow_only_control() ? PoseBlend::ShadowsOnly :
                                    wheel_only_control() ? PoseBlend::WheelsOnly : PoseBlend::All;
@@ -1312,6 +1341,9 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                     std::chrono::duration<double, std::milli>(reset_times[i + 1] - reset_times[i]).count());
             }
         }
+#ifdef WDC_PLAYER_RENDER_AUDIO
+        wdc::render::ExtraRaceDraw render_pass(shadow_mode() ? drawing_ram : nullptr);
+#endif
         func_8000A30C(drawing_ram, &draw_context);
         if (shadow_mode()) {
             {
@@ -1417,7 +1449,6 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                 changed++ ? "," : "", (i * 4) / 0x18A0, offset, all_cars[i], after);
         }
         log_record("]}\n");
-        if (skip_late_draws() && selected_index + 1 == repeats) break;
     }
     draw_number = 0;
     extra = false;

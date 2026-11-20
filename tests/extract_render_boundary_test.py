@@ -16,15 +16,25 @@ natives = {"func_80001D34", "func_80024038", "func_80010A5C",
            "func_8002430C", "func_80010ECC", "func_8004D120",
            "func_80044FC8", "func_80046D40", "func_80024364",
            "func_800241C0", "func_80024FCC", "func_800214C8"}
+audio_entries = {"func_8001F9CC", "func_800214C8", "func_8001FC64",
+                 "func_8001F7F8", "func_80043274", "func_80042FA8"}
 functions = {}
 dispatcher = ""
 for path in sorted(source.glob("*.c")):
     for match in re.finditer(r"RECOMP_FUNC void (\w+)\(.*?(?=RECOMP_FUNC void |\Z)",
                              path.read_text(encoding="utf-8"), re.S):
+        if match[1] in audio_entries:
+            prologue = match[0].split("// 0x", 1)[0]
+            expected = "{ ctx->r2 = ctx->r4; return; }" if match[1] == "func_80043274" else "return;"
+            if f"if (wdc_is_extra_race_draw(rdram)) {expected}" not in prologue:
+                raise SystemExit(f"Missing owned-draw audio guard before first instruction of {match[1]}")
+            audio_entries.remove(match[1])
         if match[1] == "func_8000C560":
             dispatcher = match[0]
         if match[1] in roots:
             functions[match[1]] = match[0]
+if audio_entries:
+    raise SystemExit(f"Missing translated sound entries: {sorted(audio_entries)}")
 # Verify that both the fallthrough and the branch to C870 reach exactly one
 # host draw before the original post-draw housekeeping.
 hook = "wdc_render_race_draw(rdram, ctx);"

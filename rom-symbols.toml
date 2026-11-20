@@ -175,6 +175,39 @@ func = "func_80068AA8"
 before_vram = 0x80068B88
 text = "{ extern void wdc_warp_laps(uint8_t*, recomp_context*); wdc_warp_laps(rdram, ctx); }"
 
+# These USA function entries own sound-list publication/consumption, voice
+# parameters and BOSS audio build/retirement. Only the game thread drawing a
+# private snapshot skips them. The audio builder returns its incoming cursor.
+[[hooks]]
+func = "func_8001F9CC"
+before_vram = 0x8001F9CC
+text = "{ extern _Bool wdc_is_extra_race_draw(const uint8_t*); if (wdc_is_extra_race_draw(rdram)) return; }"
+
+[[hooks]]
+func = "func_800214C8"
+before_vram = 0x800214C8
+text = "{ extern _Bool wdc_is_extra_race_draw(const uint8_t*); if (wdc_is_extra_race_draw(rdram)) return; }"
+
+[[hooks]]
+func = "func_8001FC64"
+before_vram = 0x8001FC64
+text = "{ extern _Bool wdc_is_extra_race_draw(const uint8_t*); if (wdc_is_extra_race_draw(rdram)) return; }"
+
+[[hooks]]
+func = "func_8001F7F8"
+before_vram = 0x8001F7F8
+text = "{ extern _Bool wdc_is_extra_race_draw(const uint8_t*); if (wdc_is_extra_race_draw(rdram)) return; }"
+
+[[hooks]]
+func = "func_80043274"
+before_vram = 0x80043274
+text = "{ extern _Bool wdc_is_extra_race_draw(const uint8_t*); if (wdc_is_extra_race_draw(rdram)) { ctx->r2 = ctx->r4; return; } }"
+
+[[hooks]]
+func = "func_80042FA8"
+before_vram = 0x80042FA8
+text = "{ extern _Bool wdc_is_extra_race_draw(const uint8_t*); if (wdc_is_extra_race_draw(rdram)) return; }"
+
 # Native 60 fps: latch sampling and swap policy together at worker startup.
 [[hooks]]
 func = "func_8002CB0C"

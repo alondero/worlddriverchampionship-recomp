@@ -1,5 +1,5 @@
 #undef NDEBUG
-#include "render_cadence.h"
+#include "race_frame_schedule.h"
 #include <cassert>
 #include <initializer_list>
 #include <cstdio>
@@ -74,6 +74,28 @@ int main() {
             assert(schedule.ends_on_grid() == (end % 5 == 0));
         }
     }
+    wdc::render::RaceFrameSchedule scheduler;
+    assert(!scheduler.next());
+    assert(!scheduler.begin_group({60,0},1,false,true));
+    assert(scheduler.begin_group({75,1},1,false,true));
+    assert(!scheduler.present_native());
+    assert(scheduler.next()->alpha == 0.4);
+    assert(scheduler.next()->alpha == 0.8);
+    assert(!scheduler.next());
+    assert(scheduler.begin_group({75,1},1,false,true));
+    assert(scheduler.present_native());
+    const auto late = scheduler.next(UINT64_MAX);
+    assert(late && late->index == 1 && late->skipped == 1 && late->slot == 4);
+    assert(!scheduler.next());
+    assert(scheduler.begin_group({75,1},2,false,true));
+    assert(scheduler.group().begin == 2 && scheduler.group().end == 4 && scheduler.group().skipped == 2);
+    assert(scheduler.begin_group({75,1},1,true,true) && scheduler.group().begin == 0);
+    assert(scheduler.begin_group({60000,1001},1,false,true) && scheduler.group().begin == 0);
+    assert(scheduler.begin_group({60000,1001},0,false,true) && scheduler.group().end == 1);
+    assert(scheduler.begin_group({60000,1001},5,false,true) && scheduler.group().end == 1);
+    assert(scheduler.begin_group({60,1},1,false,false) && !scheduler.present_native());
+    assert(scheduler.next() && scheduler.next()->alpha == 1.0 && !scheduler.next());
+    assert(!scheduler.begin_group({241,1},1,false,true) && !scheduler.next() && !scheduler.present_native());
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(wdc::render::presentations_in_group(g,{144,1})==expected[g]);
     for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{60000,1001}, {120000,1001}, {2997,50}}) {
