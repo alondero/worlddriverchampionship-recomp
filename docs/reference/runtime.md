@@ -82,11 +82,8 @@ replays it offline; see [BOSS task capture](../../tools/boss/README.md). OS
 event registration lives in `src/boss_events.cpp`, so the replay tool links
 the device without the guest OS.
 
-Measured task cost, where frame time goes, and what limits the frame rate
-are kept in [Rendering and frame rate](../rendering.md#where-the-frame-time-goes).
-That page separates the timings a reader can reproduce from the tree
-(`wdc_boss_bench`) from those taken with temporary live instrumentation, which
-is kept out of the tree on purpose.
+For offline task profiling, live timing methods and historical measurements,
+see [Rendering and frame rate](../rendering.md#where-the-frame-time-goes).
 
 ### Quick Race car preview reload
 

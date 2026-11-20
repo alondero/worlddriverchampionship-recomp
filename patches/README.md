@@ -88,10 +88,10 @@ races. The implementation links identify the affected paths. The
 [original Deck trials and differential checks](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7048978802)
 record the vector and palette controls. The [clipping and DMA trials](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7048557820) compare both changes with their immediate predecessors.
 
-- [0027, interior triangle batches](https://github.com/alondero/worlddriverchampionship-recomp/commit/3d01548)
-- [0028, aligned DMA](https://github.com/alondero/worlddriverchampionship-recomp/commit/2b29d81)
-- [0029, vector loads and swizzles](https://github.com/alondero/worlddriverchampionship-recomp/commit/8705146)
-- [0030, palette membership and hashing](https://github.com/alondero/worlddriverchampionship-recomp/commit/f44ad56)
+- [0027, interior triangle batches](0027-rt64-interior-triangle-batch.patch)
+- [0028, aligned DMA](0028-runtime-aligned-rsp-dma.patch)
+- [0029, vector loads and swizzles](0029-runtime-rsp-vector-access.patch)
+- [0030, palette membership and hashing](0030-rt64-palette-membership.patch)
 
 The ROM-free palette test compares production patch 0030 directly with the
 pinned header. Patch 0023's enqueue result depends on RT64's live framebuffer

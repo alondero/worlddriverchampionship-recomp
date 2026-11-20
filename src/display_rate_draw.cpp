@@ -89,7 +89,7 @@ thread_local RaceDrawer drawer;
 
 void pace() {
     auto now = Clock::now();
-    drawer.schedule.finish_at_swap(now);
+    drawer.schedule.finish_private_draw_at_swap(now);
     while (now < drawer.deadline) {
         ultramodern::wait_for_external_message_timed(drawer.live_image, 1);
         now = Clock::now();

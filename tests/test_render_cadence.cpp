@@ -11,29 +11,29 @@ static void test_draw_time_estimate() {
     const std::chrono::steady_clock::time_point start{};
     RaceFrameSchedule schedule;
     assert(schedule.begin_group({240,1}, 1, true, true));
-    schedule.finish_at_swap(start); // Authoritative swap before any private draw.
+    schedule.finish_private_draw_at_swap(start); // Authoritative swap before any private draw.
     schedule.begin_private_draw(start);
     assert(schedule.preparation_ns(100) == 100);
-    schedule.finish_at_swap(start + 2ms);
-    schedule.finish_at_swap(start + 7ms); // Later swap in the same draw.
+    schedule.finish_private_draw_at_swap(start + 2ms);
+    schedule.finish_private_draw_at_swap(start + 7ms); // Later swap in the same draw.
     schedule.end_private_draw();
-    schedule.finish_at_swap(start + 10ms); // Authoritative endpoint.
+    schedule.finish_private_draw_at_swap(start + 10ms); // Authoritative endpoint.
     assert(schedule.begin_group({240,1}, 1, false, true));
     assert(schedule.preparation_ns(100) == 2000100);
     schedule.begin_private_draw(start + 11ms);
     schedule.end_private_draw(); // Pose failure before the private swap.
-    schedule.finish_at_swap(start + 20ms);
+    schedule.finish_private_draw_at_swap(start + 20ms);
     assert(schedule.preparation_ns(0) == 2000000);
     schedule.begin_private_draw(start);
-    schedule.finish_at_swap(start + 8ms);
+    schedule.finish_private_draw_at_swap(start + 8ms);
     assert(schedule.preparation_ns(100) == 4166666);
     assert(schedule.begin_group({240,1}, 1, true, true));
     assert(schedule.preparation_ns(100) == 100);
     schedule.begin_private_draw(start);
-    schedule.finish_at_swap(start + 3ms);
+    schedule.finish_private_draw_at_swap(start + 3ms);
     schedule.begin_private_draw(start + 4ms);
     assert(schedule.begin_group({90,1}, 1, false, true));
-    schedule.finish_at_swap(start + 9ms);
+    schedule.finish_private_draw_at_swap(start + 9ms);
     assert(schedule.preparation_ns(100) == 100);
 }
 

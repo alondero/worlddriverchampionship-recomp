@@ -19,14 +19,14 @@ struct RacePresentation {
 class DrawTimeEstimate {
 public:
     using Time = std::chrono::steady_clock::time_point;
-    void begin_extra(Time now) { started_ = now; }
-    void finish_at_swap(Time now) {
+    void begin_private_draw(Time now) { started_ = now; }
+    void finish_private_draw_at_swap(Time now) {
         if (started_) {
             last_ns_ = std::chrono::duration_cast<std::chrono::nanoseconds>(now - *started_).count();
-            end_extra();
+            end_private_draw();
         }
     }
-    void end_extra() { started_.reset(); }
+    void end_private_draw() { started_.reset(); }
     int64_t value_ns() const { return last_ns_; }
 
 private:
@@ -40,9 +40,9 @@ class RaceFrameSchedule {
 public:
     [[nodiscard]] bool begin_group(DisplayRate rate, unsigned sample_gap, bool discontinuity, bool reuse_endpoint);
     std::optional<RacePresentation> next(uint64_t elapsed_ns = 0, uint64_t native_deadline_ns = UINT64_MAX);
-    void begin_private_draw(std::chrono::steady_clock::time_point now) { draw_time_.begin_extra(now); }
-    void finish_at_swap(std::chrono::steady_clock::time_point now) { draw_time_.finish_at_swap(now); }
-    void end_private_draw() { draw_time_.end_extra(); }
+    void begin_private_draw(std::chrono::steady_clock::time_point now) { draw_time_.begin_private_draw(now); }
+    void finish_private_draw_at_swap(std::chrono::steady_clock::time_point now) { draw_time_.finish_private_draw_at_swap(now); }
+    void end_private_draw() { draw_time_.end_private_draw(); }
     int64_t preparation_ns(int64_t capture_ns) const {
         return group_.preparation_ns(capture_ns, draw_time_.value_ns());
     }

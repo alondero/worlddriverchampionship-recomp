@@ -1,32 +1,33 @@
 # Rendering and frame rate
 
-How World Driver Championship (WDC) produces a frame, what limits it to 30
-frames per second (fps), and what is known about raising that. This page keeps
-measured facts, the rules learned while measuring them, and the questions that
-are still open. RT64 integration details (clipping, aspect, HUD fixes) live in
-the [renderer reference](reference/renderer.md).
+World Driver Championship builds race geometry from fixed-rate input samples.
+This page describes how the game schedules simulation, rendering and swaps.
+RT64 clipping, aspect and HUD fixes are in the [renderer reference](reference/renderer.md).
 
 Under **Graphics → Presentation rate**, the experimental interpolation modes
 target the display refresh rate or a custom rate in single-view races with
-stock 30 Hz simulation. If Native 60 fps was active, start a new race to switch the input worker to 30 Hz.
+stock 30 Hz simulation. If Native 60 fps was active, start a new race to
+switch the input worker to 30 Hz.
 Developers can also set a rational target with `WDC_EXPERIMENTAL_DISPLAY_HZ`.
-The player draws intermediate poses before
-the authoritative draw. At a rate such as 90 Hz, that draw supplies every
-third presentation. At a fractional rate, it supplies a presentation only
+The player draws intermediate poses before the authoritative draw. At 90 Hz,
+that draw supplies every third presentation. At a fractional rate, it supplies a presentation only
 when the simulation sample falls on the display grid. Its audio and gameplay
 work still runs once per group. The dispatcher returns presentation to VI
 retrace on scene exit and discards pose history after a checkpoint load.
 
-A swap deadline includes the time spent capturing the current sample and the
-most recent private draw's time from just before acquiring the render-bank lock
-to its first swap callback. This includes waiting for the lock, restoring the
-bank and applying the pose. The callback stops the timer before pacing. A discontinuity clears the
-draw estimate. The first private frame after that reset can arrive late by
-its own draw time. Between groups, changes in the preparation allowance can
-shift the swap deadline by up to one display period at a fixed rate. The
-allowance is capped at one display period so a slow capture can skip stale slots. For example, at 240 Hz a 12 ms capture exhausts the
-4.17 ms allowance. Each surviving slot keeps its original interpolation fraction.
-If a private pose fails validation, the authoritative draw presents immediately.
+The scheduler allows time for the current sample capture and the most recent
+private draw. It times that draw from just before acquiring the render-bank
+mutex to the first swap callback, before pacing. The graphics worker holds the
+same mutex while running a task's BOSS RSP and RDP work and during each screen
+update. The estimate therefore includes renderer contention as well as bank
+restoration and pose application. Pose-to-screen latency remains unmeasured.
+
+A discontinuity clears the estimate. The first private frame can then arrive
+late by its own draw time. At a fixed rate, changes in the allowance can move
+the next group's deadline by up to one display period. At 240 Hz, for example,
+a 12 ms capture exhausts the 4.17 ms allowance. The scheduler skips stale
+slots and preserves the interpolation fraction of each surviving slot. If a
+private pose fails validation, the authoritative draw presents immediately.
 
 Patch 0022 queues screen submission independently of the VI clock. Retrace still
 latches the guest framebuffer and delivers VI/AI events. Patch 0023 lets an
@@ -104,18 +105,9 @@ The race loop consumes all available samples before drawing:
   `func_80017164`, not the integrator (see the audit below).
 - Player records start at `0x800BA7F0`, stride `0x18A0`.
 
-Measured live in Hawaii practice, the race clock tracked wall time at both
-frame rates below. HUD clock against wall-stamped screenshots:
-
-| Frame rate | Race clock advance | Wall time |
-|---|---|---|
-| ~30 fps (normal) | 10.07 s | 10.02 s |
-| ~17 fps (40 ms added to each graphics task) | 9.99 s | 9.98 s |
-
-Simulation time follows consumed samples. The drain loop explains how a
-17 fps renderer can keep up with 30 Hz simulation: it can process more than
-one sample per frame. Logic that counts samples instead of their elapsed time
-can still change speed when sampling rises to 60 Hz.
+Simulation time follows consumed samples. The drain loop can process multiple
+samples per draw. Logic that counts samples can still change speed when the
+sampling rate rises to 60 Hz.
 
 ### 2. Camera and display lists (CPU)
 
@@ -142,9 +134,7 @@ can still change speed when sampling rises to 60 Hz.
   (`0x800090A0`, `0x800256A0`, `0x80025740`, `0x80025810`, `0x8002780C`,
   `0x80028344`) then run the `cache_transform` functions
   `func_80025410` / `func_8002703C`. So the CPU's display-list build waits
-  on BOSS progress within the same frame. Measured in Hawaii racing: about
-  14 calls per frame, about 5 of which block, for 0.2-0.4 ms in total at
-  30 fps and 0.7-1.5 ms at 60 fps.
+  on BOSS progress within the same frame.
 
 ### 3. Graphics task (BOSS)
 
@@ -154,21 +144,8 @@ can still change speed when sampling rises to 60 Hz.
 - **Execution in the port.** `src/boss_rsp.cpp` runs the task synchronously on
   the graphics worker thread. Each DP_START..DP_END command range goes straight
   to RT64's raw `processDisplayLists`.
-- **Observed task data.** Captured racing tasks had their data at `0x80351360`
-  or `0x8038D360` (two buffers seen), and RDP output starting at physical
-  `0x3C9360`.
-- **Size of a racing task.**
-
-  | Per racing task | Amount |
-  |---|---|
-  | SP_STATUS reads by BOSS | 1,500-1,700 |
-  | RDP command ranges | 565-695 |
-  | RDP command data | 170-225 KB |
-  | RDRAM written by BOSS | 60-70 KB |
-
-- **SIG0 behaviour.** In every captured racing task, the first status read saw
-  SIG0 set and every later read saw it clear. BOSS did not wait for the CPU
-  mid-task in those frames.
+- **SIG0 handshake.** The CPU signals that a triangle sublist is ready. A
+  task capture records the sequence of SP_STATUS reads needed for replay.
 
 ### 4. Presentation (swap and VI)
 
@@ -188,11 +165,8 @@ can still change speed when sampling rises to 60 Hz.
   4. `osViGetCurrentFramebuffer`, then another wait if the swap has not landed.
 
   That is at least two VIs per frame.
-- **Observed rates.** The game submits 29.5-30 graphics tasks per second;
-  RT64 updates the screen 60 times per second.
-- **Not landed.** In this runtime `osViSwapBuffer` takes effect at the next
-  VI tick, before that VI's message is sent, so the step 4 re-wait never
-  fired in the measurements below.
+  The runtime latches the framebuffer at the next VI before delivering that
+  VI's message. Step 4 checks that the requested buffer has landed.
 
 ### What holds racing at 30 fps
 
@@ -211,52 +185,14 @@ holds racing at exactly 30.0 fps.
 
 `0x8007EDBC` is not a limiter. It is set to 3 by the frame submitter and
 decremented by `func_80025350`, and its only reader (`0x8000A3C4`) gates a
-call to `func_800245AC` with the framebuffer's width and height. None of the
-measured waits below depends on it.
-
-Measured with a throwaway probe: hooks timed each blocking wait on the game
-thread, averaged over 120-frame windows. Hawaii practice, the same machine
-as [where the frame time goes](#where-the-frame-time-goes). Recorded, not
-reproducible from the tree.
-
-| Per racing frame, ms | Stock | Pre-swap wait skipped | Both limits lifted |
-|---|---|---|---|
-| Frame rate (fps) | 30.0 | 30.0 | 60.0 |
-| Game-thread work outside waits | 0.4 | about 17 (input wait) | 0.3-0.4 |
-| SP wait (`func_800005F4`) | 4.0-7.7 | under 0.2 | 3.5-6.5 |
-| SP_BREAK waits (ZSort) | 0.2-0.4 | 0.2 | 0.7-1.5 |
-| Pre-swap VI wait (`0x8000159C`) | 8.5-12.1 | skipped | skipped |
-| Post-swap VI wait (`0x800015BC`) | 16.4-16.9 | 15.8-16.2 | 8.7-11.9 |
-| Game time / wall time | 0.995-1.000 | not measured | 0.999-1.001 |
-
-- **Stock.** Only 4.5-8 ms of each 33.3 ms frame is work: the CPU (0.4 ms)
-  and the graphics task. The rest is the two VI waits.
-- **Pre-swap wait skipped**, by posting a VI message when the queue is
-  empty, as in issue #38. Menu screens on the route to Hawaii rose to
-  60.0 fps. Racing stayed at 30.0, and the freed VI reappeared as a wait
-  for the next input snapshot (the "work" row). Issue #38's spike recorded
-  menus at 38-41 fps with what is described as the same hook; why the two
-  differ is not known.
-- **Both limits lifted**: pre-swap wait skipped and the race's divider
-  forced to 0. Racing held 60.0 fps in every measured window. Game time is
-  the sum of the deltas the frames consumed (`0x800B75F0`), compared with
-  the game thread's wall clock over each window, and it tracked wall time as
-  closely as the stock 30 fps run. The one exception, 0.984, was a 59.1 fps
-  window. With fixed steps this ratio equals frame rate divided by the
-  sample rate, so it confirms the frame rate. It does not show that the game
-  clock is timed from the wall clock.
-
-Lifting only the divider leaves the two-VI rendering cap. The race loop can
-consume two 1/60 s snapshots per 30 Hz frame, so halving game speed does not
-follow from the divider alone. That earlier hypothesis overlooked the drain
-loop; the divider-only case has not been measured.
+call to `func_800245AC` with the framebuffer's width and height. The swap waits and input divider operate independently of this word.
 
 ### Native 60 fps option
 
 Enhancements exposes `native_60fps`, saved in `graphics.json`, default false.
 The implementation is `src/game_framerate.cpp`; all instruction boundaries
 are reviewed `[[hooks]]` in `rom-symbols.toml`. The game thread latches the
-preference at `func_8002CB0C` entry. Only the measured menu `(0,0)` and race
+preference at `func_8002CB0C` entry. Only the menu `(0,0)` and race
 `(8000C0D0,1)` argument pairs opt in. Other callers retain stock arguments.
 The race divider becomes 0 before the ROM computes its fixed tick pair and
 starts the worker. Apply during a race waits until the next worker startup;
@@ -270,8 +206,6 @@ and loads scene `0x11`'s original recording at `0x80036ED0..0x80036EE4`.
 Those inputs were authored at 30 Hz; reading twice as many per second changes
 the cars' route even though elapsed game time remains correct. The selected
 preference is preserved for the following menu or playable race.
-With Native 60 fps enabled, a live Windows debugger check before worker
-startup confirmed scene `0x11`, divider 1 and 1,562,500 ticks (1/30 second).
 
 Before `0x8000159C`, the hook posts message 0 nonblocking to the one-slot VI
 queue `0x800AAA28`. A full queue is left intact. The original receive consumes
@@ -371,122 +305,32 @@ without timestep metadata;
 consumes its inputs twice as quickly; a 60 Hz recording played at 30 Hz has the
 reverse mismatch. A rate flag for just the most recent race would not cover
 loaded recordings or the separate ghost stream at `0x8007E028`. The setting
-remains experimental. The maintainer deferred compatible player replay/ghost
-handling from PR #46 to
-[issue #54](https://github.com/alondero/worlddriverchampionship-recomp/issues/54).
-The fixed 30 Hz exception for original intro/demo scenes does not reinterpret
-player recordings; the compatibility warning remains in the settings UI.
+remains experimental. The settings UI warns about player recordings and
+ghosts. Original intro/demo scenes use their authored 30 Hz rate.
+[Replay compatibility](https://github.com/alondero/worlddriverchampionship-recomp/issues/54)
 
-A Windows D3D12/RTX 3080 run of Hawaii practice reached the scene with the
-option on, but **did not pass acceptance**. At automatic resolution in a
-1280x720 window, 1,374 frame intervals took 60.238 seconds (about 22.8 fps),
-and consumed-sample time advanced 53.717 seconds (ratio 0.892). The first
-window included the remaining countdown. Window visibility/focus was not
-controlled in this run; it must not be compared directly with the earlier
-60 fps probe. Repeating at 1x reached the title/demo route, with variable
-rates, but did not provide another controlled Hawaii window. These results
-do not isolate a hook, renderer, scheduler or window-state cause.
+To check game speed, multiply the change in consumed-sample counter
+`0x8007E530` by the active fixed step and divide by elapsed wall time.
+A ratio of 0.892 means the sample clock advanced 0.892 seconds per wall
+second. This calculation includes every sample drained between draws.
 
-Measurement used temporary linker wrappers around the worker-start and
-pre-swap hooks, with five seconds of warm-up and a steady-clock interval.
-The sample count was read from `0x8007E530`, multiplied by the active fixed
-step, so it includes all samples drained between rendered frames. No sleeps
-or timing switches were inserted into BOSS or the graphics worker. This was
-a local probe, not a checked-in regression test; the final player is built
-without those wrappers. Stock runtime comparison, one-minute 60 fps/time
-acceptance, fixed-input lap, another track, split-screen and replay remain
-**not passed/not done**. Menu rates varied too, so the historical 38-41 vs
-60 fps discrepancy remains unresolved.
-
-This is a bounded audit, not proof that all AI, HUD, camera and demo paths
-are independent of sample count. The integrator test uses a controlled
-decaying force over one second at both rates, with all 16 state components;
-it establishes finite, comparable timestep handling, not lap equivalence or
-collision stability on every track. The maintainer has deferred the per-track
-fixed-input lap corpus and 30/60 Hz lap comparison from PR #46 to
-[issue #53](https://github.com/alondero/worlddriverchampionship-recomp/issues/53),
-using the scenario infrastructure tracked in
-[issue #49](https://github.com/alondero/worlddriverchampionship-recomp/issues/49).
-Lap equivalence is not established. A second track, split-screen and replay
-remain explicitly unverified for
-[issue #42](https://github.com/alondero/worlddriverchampionship-recomp/issues/42).
+The integrator test compares all 16 state components under a controlled
+decaying force over one simulated second at each rate. Fixed-input lap and
+collision equivalence across tracks still require scenario tests.
+[Fixed-input comparisons](https://github.com/alondero/worlddriverchampionship-recomp/issues/53)
+and [scenario infrastructure](https://github.com/alondero/worlddriverchampionship-recomp/issues/49).
 
 ## Where the frame time goes
 
-Measured on Windows x64, Direct3D 12, RTX 3080, at automatic resolution and
-original rate, in Hawaii practice racing.
+Offline BOSS replay isolates the cost of translated RSP code. Use
+`wdc_boss_bench --profile` with `tools/boss/profile_report.py` on a captured
+task. Live graphics-worker time also includes RDP submission and scheduling
+delays. Time the RDP sink separately from its enclosing task to avoid double
+counting. Compare thread CPU time with elapsed time to identify time spent
+off CPU. Game-thread waits can overlap graphics work.
 
-Two kinds of number appear below, and they are kept apart on purpose:
-
-- **Reproducible**: the measurement can be repeated today from the checked-in
-  tools, on a capture of the game, without changing the game.
-- **Recorded**: the measurement was taken with temporary instrumentation that
-  is deliberately not in the tree (see [tools and methods](#tools-and-methods)),
-  so it cannot be repeated on demand. It is kept here with its method and
-  machine, as a fact of record.
-
-| Per racing task | ms | Kind |
-|---|---|---|
-| Translated BOSS, replayed offline (`wdc_boss_bench`, byte-identical) | 1.6-2.3 | Reproducible |
-| Whole task on the live graphics worker (`bossMain` wall time) | 6.4-8.0 | Recorded |
-| ...RDP sink: RT64 raw decode and the HUD walk | 4.4-5.6 | Recorded |
-| ...about 1,500 SP_STATUS reads (each yields the thread) | 0.3-0.4 | Recorded |
-| ...remainder, matching the offline figure | 1.6-2.1 | Recorded |
-| `update_screen` (presentation) | about 0.4 | Recorded |
-
-The offline row is the median over 500 iterations of each of three captured
-racing tasks, every iteration byte-identical. The live rows are averages over
-90-task windows. In those frames BOSS read SIG0 set once and clear on every
-later read, so it did not wait for a CPU signal mid-task.
-
-The whole graphics task fits inside one 16.7 ms VI with time to spare, so its
-cost does not explain the 30 fps cap. The cap is two VI waits per frame,
-one in the swap routine and one for the race's 30 Hz input sample (see
-[what holds racing at 30 fps](#what-holds-racing-at-30-fps)).
-
-Within translated BOSS, a sampling profile puts about a quarter of the time
-in the runtime's byte-at-a-time DMA helpers (`dma_rdram_to_dmem`,
-`dma_dmem_to_rdram`). `L_1FAC` is BOSS's DMA routine. Most of the rest is in
-vector-unit load/store helpers (`SQV`, `LQV`, `SDV`), `VADD`/`VMADN`, and the
-transform loops around IMEM `0x1900-0x1CBF`. There is no single hotspot.
-Word-wise DMA copies would be equivalent for this aligned, word-swapped
-memory: a generic runtime improvement, not needed for 60 fps. This profile is
-reproducible: `wdc_boss_bench --profile` plus `tools/boss/profile_report.py`
-attributes the samples.
-
-### Two measurements of the same task
-
-[Issue #38](https://github.com/alondero/worlddriverchampionship-recomp/issues/38)
-recorded a racing graphics task at **about 17 ms**, of which about 12 ms was
-attributed to translated BOSS. The table above records the same quantity at
-**6.4-8.0 ms**, of which 1.6-2.1 ms is translated BOSS. The two disagree,
-and the difference is entirely in the part left over after the known costs
-were subtracted:
-
-| Part of a racing task | Issue #38 (throwaway spike) | Later live measurement |
-|---|---|---|
-| RT64 raw RDP decode in the sink | about 4.3 ms | 4.4-5.6 ms |
-| SP_STATUS reads and waits | about 0.5 ms | 0.3-0.4 ms |
-| Everything else, called translated BOSS | about 12 ms | 1.6-2.1 ms |
-| Total | about 17 ms | 6.4-8.0 ms |
-
-The later figure is the one to use. Its remainder agrees with the offline
-bench, which measures the same translated code on its own at 1.6-2.3 ms.
-The earlier figure's remainder was a subtraction, so it took in whatever
-else the graphics worker did inside the measured window, and the bench
-shows there was not 12 ms of translated BOSS in there. What that earlier
-measurement did include is not established: the spike it came from was
-thrown away, so it cannot be repeated.
-
-Two consequences for the plan in issue #38:
-
-- Its premise, that the graphics task takes longer than one 16.7 ms VI, does
-  not hold on the later measurement.
-- Its target for the profiling work, bringing translated BOSS from about
-  12 ms down to about 8 ms, is already met by the number the bench reports.
-  The live task's cost sits mostly in the RT64 RDP decode (4.4-5.6 ms of
-  6.4-8.0 ms), and that decode is inside the task, so it is not what holds
-  the game at 30 fps either.
+The [archived race-clock, wait and task measurements](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7052973775)
+include the conditions and limitations of the original comparisons.
 
 ## Why RT64 alone repeats raw triangles
 
@@ -510,12 +354,8 @@ have to hold for the higher sampling rate to retain stock speed:
 - **The game's two frame limiters have to be lifted together**, so a frame
   really does happen every VI: the pre-swap VI wait at `0x8000159C`, and
   the race's input poll divider (1 at `0x80037B44`). Both are described in
-  [what holds racing at 30 fps](#what-holds-racing-at-30-fps). A throwaway
-  probe that lifted both held Hawaii racing at 60.0 fps with game time
-  tracking wall time. The graphics task is not the blocker: at 6.4-8.0 ms
-  it fits inside one VI (see
-  [two measurements](#two-measurements-of-the-same-task)). The remaining
-  work items and the acceptance criteria are in issue #42.
+  [what holds racing at 30 fps](#what-holds-racing-at-30-fps).
+
 - **Logic that advances once per frame, instead of by the sample step, has to
   be found and changed.** Statically, the frame paths `func_8000C560` /
   `func_8004E950` and their callees; live, by comparing 30 and 60 fps for
@@ -573,40 +413,24 @@ records mode coverage, timing and known limits.
   separately, and compare the thread's CPU cycles with wall time to tell
   "slow" from "descheduled". Keep such timing out of the tree; periodic
   logging on the graphics worker is not allowed (see
-  [configuration](configuration.md)). Figures obtained this way are the
-  *recorded* ones above, not reproducible from the tree.
+  [configuration](configuration.md)).
 - **Timing pitfall.** On Windows, `sleep_for(1 ms)` is not a no-op: timer
   granularity inflates frame time. Never use a short sleep as a logging
   switch.
 
 ## Open questions
 
-The work items for these live in issue #42; this list is what is not known
-yet.
+- How much game time is lost when a long stall fills the input ring and the
+  worker skips `func_8002C0B8`?
+- Which AI, HUD and effect paths still advance by sample count?
+- Which per-view histories and car or effect inputs need isolation for a
+  complete split-screen draw?
+- How do task cost and SIG0 timing vary across menus, tracks and split-screen?
 
-- Why did issue #38's spike record menus at 38-41 fps with the pre-swap
-  wait skipped, when the later probe measured 60.0 fps?
-- What did issue #38's about 17 ms spike measurement include? The bench
-  built for it measures the same translated BOSS at 1.6-2.3 ms, so the
-  spike's 12 ms remainder was not translated BOSS, and the spike is gone
-  (see [two measurements](#two-measurements-of-the-same-task)).
-- How do skipped samples (ring full) affect game time? The drain loop can
-  keep up at 17 fps, so that measurement does not show a full ring. The
-  worker skips `func_8002C0B8` when full; long stalls still need measuring.
-- Which logic advances once per frame instead of by the sample step?
-- Which per-view/HUD histories and all-car/effect inputs must be captured for
-  an isolated full-frame render snapshot? The prototype now identifies
-  transformed-buffer reads in `25410` / `2703C` and car-list/arena ownership,
-  but does not establish complete render-state isolation.
-- Do menus, split-screen and other tracks behave like Hawaii racing (task
-  cost, SIG0 timeline)?
+[Native frame-rate verification](https://github.com/alondero/worlddriverchampionship-recomp/issues/42)
 
 ## Keeping this page current
 
-- Record facts with their evidence: an address, a ROM read, or a measurement
-  with its method and machine.
-- Label anything unproven as a hypothesis, and move it out of
-  [open questions](#open-questions) once it is answered.
-- Leave session history in issues and pull requests.
-- When a fact here changes, update or remove it rather than appending a
-  correction.
+Keep ROM addresses, reproducible commands and verified mechanisms here.
+Record individual runs, machine settings and research chronology in the
+issue or pull request, and link the evidence from the relevant section.
