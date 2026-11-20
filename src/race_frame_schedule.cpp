@@ -4,8 +4,7 @@ namespace wdc::render {
 bool RaceFrameSchedule::begin_group(DisplayRate rate, unsigned sample_gap, bool discontinuity, bool reuse_endpoint) {
     next_ = owned_ = 0;
     native_ = false;
-    if (!rate.denominator || rate.denominator > 1000000 ||
-        rate.numerator <= rate.sample_scale() || rate.numerator > 360ull * rate.denominator) {
+    if (!rate.supported()) {
         group_ = {};
         return false;
     }

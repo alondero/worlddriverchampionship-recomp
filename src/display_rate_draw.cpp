@@ -38,8 +38,7 @@ DisplayRate requested_rate() {
             next = denominator.ptr;
             error = denominator.ec;
         }
-        if (error != std::errc{} || next != end || !result.denominator || result.denominator > 1000000 ||
-            result.numerator <= result.sample_scale() || result.numerator > 360ull * result.denominator) {
+        if (error != std::errc{} || next != end || !result.supported()) {
             std::fprintf(stderr, "[wdc:render] invalid WDC_EXPERIMENTAL_DISPLAY_HZ\n");
             return DisplayRate{0, 1};
         }
@@ -49,7 +48,7 @@ DisplayRate requested_rate() {
     const auto settings = graphics::snapshot();
     if (!settings.interpolate_races) return {0, 1};
     const unsigned hz = settings.rate == -1 ? ultramodern::get_display_refresh_rate() : unsigned(settings.rate);
-    return {hz > 30 ? std::min(hz, 360u) : 0, 1};
+    return {hz > 30 ? std::min(hz, DisplayRate::max_hz) : 0, 1};
 }
 
 // Renderer worker TLS is bound to each explicit screen action by the runtime.

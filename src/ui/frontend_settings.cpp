@@ -1,5 +1,6 @@
 #include "frontend.h"
 #include "frontend_settings.h"
+#include "render_cadence.h"
 #include "game_cheats.h"
 #include "recompui/config.h"
 
@@ -120,7 +121,7 @@ void create_settings() {
         {{0, "Original"}, {1, "16:9", "Clamp to 16:9"}, {2, "Full", "Full width"}}, 1u);
     page.add_enum_option("rate_mode", "Presentation rate", "Interpolated modes draw extra single-player race frames with original 30 Hz gameplay. Start a new race when switching from Native 60 fps.",
         {{0, "Original"}, {1, "Display"}, {2, "Custom"}, {3, "Interpolate to display (experimental)"}, {4, "Interpolate to custom (experimental)"}}, 0u);
-    page.add_number_option("rate", "Custom presentation target (Hz)", "Target race presentation rate. Higher rates need more rendering time.", 30, 360, 1, 0, false, 60);
+    page.add_number_option("rate", "Custom presentation target (Hz)", "Target race presentation rate. Higher rates need more rendering time.", 30, render::DisplayRate::max_hz, 1, 0, false, 60);
     page.add_option_hidden_dependency("rate", "rate_mode", 0u, 1u, 3u);
     page.add_enum_option("samples", "Anti-aliasing", "Smooths edges. Unsupported MSAA falls back to Off; your requested choice is saved.",
         {{1, "Off"}, {2, "2x"}, {4, "4x"}, {8, "8x"}}, 1u);

@@ -12,12 +12,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("player", type=Path)
     parser.add_argument("rom", type=Path)
-    parser.add_argument("--rate", default="display", help="display or a whole number from 31 through 360")
+    parser.add_argument("--rate", default="display", help="display or a whole number from 31 through 1000")
     parser.add_argument("--resolution", type=int, choices=range(9), default=0)
     args = parser.parse_args()
     rate = -1 if args.rate == "display" else int(args.rate)
-    if rate != -1 and not 30 < rate <= 360:
-        parser.error("custom rate must be in 31..360")
+    if rate != -1 and not 30 < rate <= 1000:
+        parser.error("custom rate must be in 31..1000")
     player, rom = args.player.resolve(strict=True), args.rom.resolve(strict=True)
     work = Path(tempfile.mkdtemp(prefix="wdc-display-"))
     config = work / "build/user-data"

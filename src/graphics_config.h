@@ -7,7 +7,7 @@ namespace wdc::graphics {
 struct Settings {
     int resolution = 0; // 0: automatic window integer scale; 1..8: native multiplier
     int aspect = 1; // 0: Original 4:3; 1: wider camera matching the window
-    int rate = 0; // 0: original; -1: display; 30..360: presentation target
+    int rate = 0; // 0: original; -1: display; 30..1000: presentation target
     int samples = 1; // 1, 2, 4, 8
     int filtering = 1; // nearest, linear, pixel scaling (presentation filter)
     int precision = 0; // automatic, standard, high

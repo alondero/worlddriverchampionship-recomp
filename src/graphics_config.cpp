@@ -1,4 +1,5 @@
 #include "graphics_config.h"
+#include "render_cadence.h"
 #include "game_visibility.h"
 #include "game_framerate.h"
 #include "json/json.hpp"
@@ -23,7 +24,7 @@ Settings normalize(Settings s) {
     s.resolution = std::clamp(s.resolution, 0, 8);
     if (s.aspect < 0 || s.aspect > 1) s.aspect = 1;
     if (s.hud < 0 || s.hud > 2) s.hud = 1;
-    if (s.rate != 0 && s.rate != -1 && (s.rate < 30 || s.rate > 360)) s.rate = 0;
+    if (s.rate != 0 && s.rate != -1 && (s.rate < 30 || s.rate > int(render::DisplayRate::max_hz))) s.rate = 0;
     if (s.rate == 0) s.interpolate_races = false;
     if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8) s.samples = 1;
     if (s.filtering < 0 || s.filtering > 2) s.filtering = 1;

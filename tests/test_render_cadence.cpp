@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <cmath>
 int main() {
-    for (unsigned hz : {60u, 75u, 90u, 120u, 144u, 165u, 240u}) {
+    for (unsigned hz : {60u, 75u, 90u, 120u, 144u, 165u, 240u, 480u, 540u, 1000u}) {
         wdc::render::PresentationPeriod period({hz,1});
         // A constant-velocity pose must advance uniformly across group edges,
         // including groups that do not land on the current endpoint.
@@ -96,7 +96,8 @@ int main() {
     assert(scheduler.begin_group({60,1},1,false,false) && !scheduler.present_native());
     assert(scheduler.next() && scheduler.next()->alpha == 1.0 && !scheduler.next());
     assert(scheduler.begin_group({360,1},1,false,true) && scheduler.group().count == 12 && scheduler.present_native());
-    assert(!scheduler.begin_group({361,1},1,false,true) && !scheduler.next() && !scheduler.present_native());
+    assert(scheduler.begin_group({1000,1},1,false,true) && scheduler.group().count == 33);
+    assert(!scheduler.begin_group({1001,1},1,false,true) && !scheduler.next() && !scheduler.present_native());
     // A late private draw would delay the next authoritative simulation tick.
     // Keep the native endpoint at both integer and fractional display rates.
     for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{90,1}, {144,1}}) {

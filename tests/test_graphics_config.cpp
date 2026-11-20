@@ -35,7 +35,7 @@ int main() {
         load(path);
         require(snapshot() == Settings{}, "missing file must use defaults");
         Settings s;
-        s.resolution = 4; s.rate = 144; s.samples = 4;
+        s.resolution = 4; s.rate = 540; s.samples = 4;
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
         s.hud = 2;
         s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 4;
@@ -75,7 +75,7 @@ int main() {
             const std::string preserved{std::istreambuf_iterator<char>(in), {}};
             require(preserved == invalid, "load destroyed malformed settings");
         }
-        { std::ofstream out(path); out << R"({"resolution":999,"aspect":-3,"rate":999,"samples":3,"filtering":-1,"precision":99})"; }
+        { std::ofstream out(path); out << R"({"resolution":999,"aspect":-3,"rate":1001,"samples":3,"filtering":-1,"precision":99})"; }
         load(path);
         const auto bounded = snapshot();
         require(bounded.resolution == 8 && bounded.aspect == 1 && bounded.rate == 0 &&
