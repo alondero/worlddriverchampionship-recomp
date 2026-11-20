@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render_cadence.h"
+#include <chrono>
 #include <optional>
 
 namespace wdc::render {
@@ -13,12 +14,36 @@ struct RacePresentation {
     unsigned skipped;
 };
 
+// Only a private draw arms the estimate. Its first swap completes the
+// measurement before pacing. Other swaps have no effect.
+class DrawTimeEstimate {
+public:
+    using Time = std::chrono::steady_clock::time_point;
+    void begin_extra(Time now) { started_ = now; }
+    void finish_at_swap(Time now) {
+        if (started_) {
+            last_ns_ = std::chrono::duration_cast<std::chrono::nanoseconds>(now - *started_).count();
+            end_extra();
+        }
+    }
+    void end_extra() { started_.reset(); }
+    int64_t value_ns() const { return last_ns_; }
+
+private:
+    std::optional<Time> started_;
+    int64_t last_ns_ = 0;
+};
+
 // Game-thread scheduler for a single race view. Input gaps are measured in
 // original 30 Hz samples. Deadlines are relative to the start of this group.
 class RaceFrameSchedule {
 public:
     [[nodiscard]] bool begin_group(DisplayRate rate, unsigned sample_gap, bool discontinuity, bool reuse_endpoint);
     std::optional<RacePresentation> next(uint64_t elapsed_ns = 0, uint64_t native_deadline_ns = UINT64_MAX);
+    DrawTimeEstimate draw_time;
+    int64_t preparation_ns(int64_t capture_ns) const {
+        return group_.preparation_ns(capture_ns, draw_time.value_ns());
+    }
     const SampleSchedule& group() const { return group_; }
     NativeSwap native_swap(bool pose_failed) const {
         if (pose_failed) return NativeSwap::Immediate;

@@ -5,6 +5,7 @@ bool RaceFrameSchedule::begin_group(DisplayRate rate, unsigned sample_gap, bool 
     next_ = owned_ = 0;
     native_ = false;
     if (!rate.supported()) {
+        draw_time = {};
         group_ = {};
         return false;
     }
@@ -13,6 +14,7 @@ bool RaceFrameSchedule::begin_group(DisplayRate rate, unsigned sample_gap, bool 
     // display grid changes. Use one stationary sample interval on that frame.
     const bool reset = discontinuity || !sample_gap || sample_gap > 4 ||
                        group_.rate.numerator != rate.numerator || group_.rate.denominator != rate.denominator;
+    if (reset) draw_time = {};
     const uint64_t begin = reset ? 0 : group_.end;
     group_ = schedule_samples(begin, begin + (reset ? 1 : sample_gap), rate, rate.draw_budget());
     native_ = reuse_endpoint && group_.ends_on_grid();

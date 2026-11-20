@@ -97,9 +97,12 @@ The ROM-free palette test compares production patch 0030 directly with the
 pinned header. Patch 0023's enqueue result depends on RT64's live framebuffer
 change detection and present queue. Patch 0027's fast path consumes decoded
 attributes inside RT64's stateful RDP command processor. Host-only predicate
-tests would miss the actual queued swap or submitted vertices. Both are
-exercised in the [frozen geometry and GPU swap fixture](../tools/render_split_prototype/README.md)
-with ordered triangle headers and framebuffer pixel comparisons.
+tests would miss the actual queued swap or submitted vertices. Both patches have manual coverage outside CI. The
+[frozen geometry and GPU swap fixture](../tools/render_split_prototype/README.md)
+requires a Windows reference build and a USA ROM. The last manual run for
+0023 and 0027 was on 2026-11-20 at commit `8699b7d`. It checked ordered
+swaps, triangle headers and framebuffer pixels. Desktop CI applies both
+patches and leaves those GPU checks to the manual fixture.
 
 The BOSS options default off; existing runtime renderers retain their original
 interrupt behavior. Patches are checked against the pinned dependency commits.

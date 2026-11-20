@@ -67,8 +67,6 @@ struct RaceDrawer {
     std::optional<uint32_t> last_sample;
     uint8_t* live_image = nullptr;
     Clock::time_point deadline{};
-    std::optional<Clock::time_point> draw_started;
-    int64_t draw_ns = 0;
     DisplayRate active_rate{};
     RaceFrameSchedule schedule;
     race::DispatcherHistory history;
@@ -82,19 +80,16 @@ struct RaceDrawer {
         set_presenting(false);
         previous.reset();
         last_sample.reset();
-        draw_started.reset();
-        draw_ns = 0;
+        schedule = {};
     }
+    bool draw_extra(RenderBank& bank, const recomp_context& caller, const RacePoses& current, const RacePoses& prior, double alpha);
     bool draw(uint8_t* rdram, recomp_context& caller);
 };
 thread_local RaceDrawer drawer;
 
 void pace() {
     auto now = Clock::now();
-    if (drawer.draw_started) {
-        drawer.draw_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now - *drawer.draw_started).count();
-        drawer.draw_started.reset();
-    }
+    drawer.schedule.draw_time.finish_at_swap(now);
     while (now < drawer.deadline) {
         ultramodern::wait_for_external_message_timed(drawer.live_image, 1);
         now = Clock::now();
@@ -116,6 +111,29 @@ extern "C" void wdc_render_dispatcher_tick(uint8_t* rdram) {
     const bool restored = drawer.history.restored_while_presenting(drawer.presenting, state::restore_generation());
     if (drawer.presenting && (restored || !rdram || !race::active(rdram)))
         drawer.end_race_presentation();
+}
+
+bool RaceDrawer::draw_extra(RenderBank& bank, const recomp_context& caller, const RacePoses& current, const RacePoses& prior, double alpha) {
+    schedule.draw_time.begin_extra(Clock::now());
+    {
+        std::lock_guard lock(bank.mutex);
+        bank.restore();
+        if (!current.apply(bank, prior, alpha)) {
+            schedule.draw_time.end_extra();
+            return false;
+        }
+    }
+    auto* image = bank.data();
+    recomp_context ctx;
+    copy_guest_context(ctx, caller);
+    recomp::ScopedQueueMemory queues(image, live_image, RenderBank::size);
+    ExtraRaceDraw extra(image);
+    RaceSwap display(image, pace);
+    func_8000A30C(image, &ctx);
+    func_800252D0(image, &ctx);
+    fence(live_image);
+    schedule.draw_time.end_extra();
+    return true;
 }
 
 bool RaceDrawer::draw(uint8_t* rdram, recomp_context& caller) {
@@ -163,8 +181,7 @@ bool RaceDrawer::draw(uint8_t* rdram, recomp_context& caller) {
         }
         const auto& grid = schedule.group();
         const auto capture_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
-        if (reset) draw_ns = 0;
-        const auto preparation = grid.preparation_ns(capture_ns, draw_ns);
+        const auto preparation = schedule.preparation_ns(capture_ns);
         const auto slot_time = [&](uint64_t slot) {
             return start + std::chrono::nanoseconds(grid.swap_offset_ns(slot, preparation));
         };
@@ -175,27 +192,11 @@ bool RaceDrawer::draw(uint8_t* rdram, recomp_context& caller) {
             start + std::chrono::nanoseconds(1'000'000'000 / 30) - first).count();
         const auto elapsed_ns = [&] { return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - first).count(); };
         while (const auto frame = schedule.next(std::max<int64_t>(0, elapsed_ns()), cutoff)) {
-            draw_started = Clock::now();
-            {
-                std::lock_guard lock(bank.mutex);
-                bank.restore();
-                if (!current->apply(bank, reset ? *current : *previous, frame->alpha)) {
-                    draw_started.reset();
-                    pose_failed = true;
-                    break;
-                }
-            }
-            auto* image = bank.data();
-            recomp_context ctx;
-            copy_guest_context(ctx, caller);
-            recomp::ScopedQueueMemory queues(image, rdram, RenderBank::size);
-            ExtraRaceDraw extra(image);
             deadline = slot_time(frame->slot);
-            RaceSwap display(image, pace);
-            func_8000A30C(image, &ctx);
-            func_800252D0(image, &ctx);
-            fence(rdram);
-            draw_started.reset();
+            if (!draw_extra(bank, caller, *current, reset ? *current : *previous, frame->alpha)) {
+                pose_failed = true;
+                break;
+            }
             ++extras;
         }
         {

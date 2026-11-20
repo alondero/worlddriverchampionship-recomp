@@ -1,13 +1,15 @@
 if(BUILD_TESTING)
-    # Keep the oracle independent of the patched working tree. Resolve the
-    # dependency revision from the parent repository's committed gitlink.
-    execute_process(COMMAND git rev-parse HEAD:lib/rt64
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE rt64_pin
-        OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-    execute_process(COMMAND git show "${rt64_pin}:src/common/rt64_tmem_hasher.h"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/lib/rt64"
-        OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/pinned_tmem_hasher.h" COMMAND_ERROR_IS_FATAL ANY)
-    add_executable(wdc_palette_hash_tests tests/test_palette_hash.cpp)
+    set(palette_pin "${CMAKE_CURRENT_BINARY_DIR}/rt64-palette-pin.txt")
+    set(palette_header "${CMAKE_CURRENT_BINARY_DIR}/pinned_tmem_hasher.h")
+    set(palette_script "${CMAKE_CURRENT_LIST_DIR}/PinnedPaletteHeader.cmake")
+    add_custom_target(wdc_palette_pin
+        COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}" "-DSTAMP=${palette_pin}" -P "${palette_script}"
+        BYPRODUCTS "${palette_pin}" VERBATIM)
+    add_custom_command(OUTPUT "${palette_header}"
+        COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}" "-DSTAMP=${palette_pin}"
+            "-DHEADER=${palette_header}" -P "${palette_script}"
+        DEPENDS wdc_palette_pin "${palette_pin}" "${palette_script}" VERBATIM)
+    add_executable(wdc_palette_hash_tests tests/test_palette_hash.cpp "${palette_header}")
     target_include_directories(wdc_palette_hash_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}"
         lib/rt64/src lib/rt64/src/contrib)
     add_test(NAME wdc_palette_hash COMMAND wdc_palette_hash_tests)
