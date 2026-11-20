@@ -11,6 +11,7 @@
 #include "recompui/program_config.h"
 #include "elements/ui_label.h"
 #include "librecomp/game.hpp"
+#include "ultramodern/ultramodern.hpp"
 #include "rt64_render_hooks.h"
 #include <mutex>
 #include <optional>
@@ -26,12 +27,14 @@ void deinit_hook();
 namespace wdc::ui {
 namespace {
 OverlayState overlay;
+bool awaiting_game_start = true;
 std::mutex settings_mutex;
 std::optional<graphics::Settings> pending_settings;
 std::string error;
 recompui::Button* restore_defaults{};
 void initialize(plume::RenderInterface* interface, plume::RenderDevice* device) {
     std::lock_guard input_lock(input::mutex());
+    awaiting_game_start = true;
     init_hook(interface, device);
     auto context = recompui::config::get_config_context_id();
     context.open();
@@ -53,6 +56,13 @@ void initialize(plume::RenderInterface* interface, plume::RenderDevice* device) 
 }
 void render(plume::RenderCommandList* commands, plume::RenderFramebuffer* framebuffer) {
     std::lock_guard input_lock(input::mutex());
+    // The frontend can show the launcher before WDC's automatic start.
+    // Its launch button normally hides it, but this port starts the ROM directly.
+    if (awaiting_game_start && ultramodern::is_game_started()) {
+        const auto launcher = recompui::get_launcher_context_id();
+        if (recompui::is_context_shown(launcher)) recompui::hide_context(launcher);
+        awaiting_game_start = false;
+    }
     const auto request = overlay.take_request();
     // Keep capture raised while consuming an Open, including before contexts
     // are visible. The SDL/game threads may read the gate during this callback.
