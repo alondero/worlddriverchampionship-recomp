@@ -28,32 +28,10 @@ that no ignored files are tracked and scans Git history for credentials with
 
 This mode builds the same C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
-headers from pinned public dependencies and the following dependency
-patches. From a fresh checkout:
+headers from pinned public dependencies and the full desktop patch series. From a fresh checkout:
 
 ```bash
-git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64
-git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
-python3 -B scripts/patch_series.py --submodule lib/N64ModernRuntime \
-    --patch patches/0008-runtime-controller-pak-kind.patch \
-    --patch patches/0013-runtime-rsp-unsigned-packed-loads.patch \
-    --patch patches/0018-runtime-rsp-dma-rounding.patch \
-    --patch patches/0019-runtime-developer-thread-snapshots.patch \
-    --patch patches/0021-runtime-protected-function-replacements.patch \
-    --patch patches/0031-runtime-receive-message-destination.patch \
-    --patch patches/0022-runtime-swap-presentation.patch \
-    --patch patches/0024-runtime-render-queue-memory.patch \
-    --patch patches/0025-runtime-task-memory.patch \
-    --patch patches/0026-runtime-graphics-fence.patch \
-    --patch patches/0028-runtime-aligned-rsp-dma.patch \
-    --patch patches/0029-runtime-rsp-vector-access.patch
-python3 -B scripts/patch_series.py --submodule lib/rt64 \
-    --patch patches/0014-rt64-rdp-screen-clipping.patch \
-    --patch patches/0016-rt64-rdp-edge-trapezoids.patch \
-    --patch patches/0020-rt64-opaque-subpixel-coverage.patch \
-    --patch patches/0023-rt64-explicit-presentation.patch \
-    --patch patches/0027-rt64-interior-triangle-batch.patch \
-    --patch patches/0030-rt64-palette-membership.patch
+bash build.sh --patches-only
 cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
 cmake --build build-host-tests --parallel 2
 ctest --test-dir build-host-tests --output-on-failure --no-tests=error
@@ -398,4 +376,4 @@ Packet allocation and non-decision setup are explicit boundaries; final BOSS
 rendering is not mocked as a passing visual test. See
 [distance and detail evidence](reference/visibility.md).
 
-Windows host tests exercise write-tracked render-bank pages when VirtualAlloc supplies write-watch. Linux exercises the full-copy fallback. Both paths compare restored bytes.
+Windows host CI requires VirtualAlloc write-watch and checks the number of dirty pages restored. Linux exercises the full-copy fallback. Both paths compare restored bytes.

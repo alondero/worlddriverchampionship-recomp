@@ -5,8 +5,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 CLEAN=0
+PATCHES_ONLY=0
 for arg in "$@"; do
     case "$arg" in
+        --patches-only) PATCHES_ONLY=1 ;;
         --clean) CLEAN=1 ;;
         -h|--help) sed -n '1,35p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $arg" >&2; exit 2 ;;
@@ -18,12 +20,17 @@ for tool in cmake ninja git python3; do
     command -v "$tool" >/dev/null || die "missing tool: $tool"
 done
 
-ROM="${ROM_FILENAME:-World Driver Championship (USA).z64}"
-[[ -f "$ROM" ]] || die "missing ROM: $ROM (supply your own USA dump)"
-if [[ "$CLEAN" == 1 && -f build/build.ninja ]]; then cmake --build build --target clean; fi
-
-echo "[submodules]"
-git submodule update --init --recursive
+if [[ "$PATCHES_ONLY" == 1 ]]; then
+    git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64 lib/RecompFrontend
+    git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
+    git -C lib/rt64 submodule update --init --depth 1 src/contrib/plume src/contrib/xxHash
+else
+    ROM="${ROM_FILENAME:-World Driver Championship (USA).z64}"
+    [[ -f "$ROM" ]] || die "missing ROM: $ROM (supply your own USA dump)"
+    if [[ "$CLEAN" == 1 && -f build/build.ninja ]]; then cmake --build build --target clean; fi
+    echo "[submodules]"
+    git submodule update --init --recursive
+fi
 echo "[dependency patches]"
 # The helper restores the paths a series owns to the pinned submodule state
 # before applying it, so repeated builds stay idempotent even where a later
@@ -93,6 +100,7 @@ apply_patch_series lib/RecompFrontend "${frontend_patches[@]}"
 if [[ ${#windows_plume_patches[@]} -gt 0 ]]; then
     apply_patch_series lib/rt64/src/contrib/plume "${windows_plume_patches[@]}"
 fi
+if [[ "$PATCHES_ONLY" == 1 ]]; then exit 0; fi
 echo "[configure: first pass]"
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON
 echo "[host tools]"

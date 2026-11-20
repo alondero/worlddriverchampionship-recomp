@@ -1,4 +1,17 @@
 if(BUILD_TESTING)
+    # Keep the oracle independent of the patched working tree. Resolve the
+    # dependency revision from the parent repository's committed gitlink.
+    execute_process(COMMAND git rev-parse HEAD:lib/rt64
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE rt64_pin
+        OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND git show "${rt64_pin}:src/common/rt64_tmem_hasher.h"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/lib/rt64"
+        OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/pinned_tmem_hasher.h" COMMAND_ERROR_IS_FATAL ANY)
+    add_executable(wdc_palette_hash_tests tests/test_palette_hash.cpp)
+    target_include_directories(wdc_palette_hash_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}"
+        lib/rt64/src lib/rt64/src/contrib)
+    add_test(NAME wdc_palette_hash COMMAND wdc_palette_hash_tests)
+
     add_executable(wdc_race_pose_tests tests/test_race_poses.cpp src/race_poses.cpp src/render_bank.cpp)
     target_include_directories(wdc_race_pose_tests PRIVATE src)
     add_test(NAME wdc_race_poses COMMAND wdc_race_pose_tests)

@@ -50,11 +50,7 @@ and captures images for comparison inside each frozen sample.
 python -B tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode shadow-rate --require-repeatable --present-hz 75 --warp "2:0:arcade:3" --settle-frames 240 --hold-accelerator --audit-present --explicit-present --no-owned-readback --write-watch-reset --verify-write-watch --capture-frames --timeout 180
 ```
 
-Use `run.py --help` for the diagnostic modes and gates. The
-[experiment log at the reviewed revision](https://github.com/alondero/worlddriverchampionship-recomp/blob/e87ad6f/tools/render_split_prototype/README.md)
-records the original commands, rejected controls and measurements. The
-[current PR](https://github.com/alondero/worlddriverchampionship-recomp/pull/61)
-tracks subsequent evidence.
+Use `run.py --help` for the diagnostic modes and gates. The [prototype PR](https://github.com/alondero/worlddriverchampionship-recomp/pull/61) records the experiments, controls and measurements.
 
 ## Fixed-rate driving comparison
 

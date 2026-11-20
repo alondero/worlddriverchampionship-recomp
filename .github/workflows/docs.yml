@@ -57,27 +57,8 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
-      - name: Prepare pinned host-test dependencies
-        run: |
-          git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64
-          git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
-          git -C lib/N64ModernRuntime apply ../../patches/0008-runtime-controller-pak-kind.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0013-runtime-rsp-unsigned-packed-loads.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0018-runtime-rsp-dma-rounding.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0019-runtime-developer-thread-snapshots.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0021-runtime-receive-message-destination.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0022-runtime-swap-presentation.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0024-runtime-render-queue-memory.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0025-runtime-task-memory.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0026-runtime-graphics-fence.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0028-runtime-aligned-rsp-dma.patch
-          git -C lib/N64ModernRuntime apply ../../patches/0029-runtime-rsp-vector-access.patch
-          git -C lib/rt64 apply ../../patches/0014-rt64-rdp-screen-clipping.patch
-          git -C lib/rt64 apply ../../patches/0016-rt64-rdp-edge-trapezoids.patch
-          git -C lib/rt64 apply ../../patches/0020-rt64-opaque-subpixel-coverage.patch
-          git -C lib/rt64 apply ../../patches/0023-rt64-explicit-presentation.patch
-          git -C lib/rt64 apply ../../patches/0027-rt64-interior-triangle-batch.patch
-          git -C lib/rt64 apply ../../patches/0030-rt64-palette-membership.patch
+      - name: Apply the desktop build patch series
+        run: bash build.sh --patches-only
       - name: Configure ROM-free host tests
         run: cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
       - run: cmake --build build-host-tests --parallel 2

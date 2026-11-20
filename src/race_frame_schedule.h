@@ -4,6 +4,8 @@
 #include <optional>
 
 namespace wdc::render {
+enum class NativeSwap { Skip, Paced, Immediate };
+
 struct RacePresentation {
     uint64_t slot;
     double alpha;
@@ -18,6 +20,10 @@ public:
     [[nodiscard]] bool begin_group(DisplayRate rate, unsigned sample_gap, bool discontinuity, bool reuse_endpoint);
     std::optional<RacePresentation> next(uint64_t elapsed_ns = 0, uint64_t native_deadline_ns = UINT64_MAX);
     const SampleSchedule& group() const { return group_; }
+    NativeSwap native_swap(bool pose_failed) const {
+        if (pose_failed) return NativeSwap::Immediate;
+        return native_ ? NativeSwap::Paced : NativeSwap::Skip;
+    }
     bool present_native() const { return native_; }
 
 private:

@@ -78,6 +78,8 @@ python -B scripts/check_repo.py
 git diff --check
 ```
 
+On Linux or Git Bash, `bash build.sh --patches-only` initializes the test dependencies and applies the complete platform patch series without a ROM.
+
 For the ROM-free C++ checks used by pull-request CI, see
 [host-test setup](docs/testing.md#rom-free-host-tests).
 

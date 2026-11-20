@@ -81,7 +81,7 @@ the WDC runtime demonstrates the same need.
 Both desktop builds compile patch 0023. Its force-present argument defaults
 to false and is set only on explicit screen actions. The original VI change
 detection still handles ordinary retrace. See the
-[swap and frozen-pixel controls](https://github.com/alondero/worlddriverchampionship-recomp/blob/e87ad6f/tools/render_split_prototype/README.md).
+[swap and frozen-pixel controls](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7048598898).
 
 The following optimizations run on the default path as well as in interpolated
 races. The implementation links identify the affected paths. The
@@ -92,6 +92,14 @@ record the vector and palette controls. The [clipping and DMA trials](https://gi
 - [0028, aligned DMA](https://github.com/alondero/worlddriverchampionship-recomp/commit/2b29d81)
 - [0029, vector loads and swizzles](https://github.com/alondero/worlddriverchampionship-recomp/commit/8705146)
 - [0030, palette membership and hashing](https://github.com/alondero/worlddriverchampionship-recomp/commit/f44ad56)
+
+The ROM-free palette test compares production patch 0030 directly with the
+pinned header. Patch 0023's enqueue result depends on RT64's live framebuffer
+change detection and present queue. Patch 0027's fast path consumes decoded
+attributes inside RT64's stateful RDP command processor. Host-only predicate
+tests would miss the actual queued swap or submitted vertices. Both are
+exercised in the [frozen geometry and GPU swap fixture](../tools/render_split_prototype/README.md)
+with ordered triangle headers and framebuffer pixel comparisons.
 
 The BOSS options default off; existing runtime renderers retain their original
 interrupt behavior. Patches are checked against the pinned dependency commits.

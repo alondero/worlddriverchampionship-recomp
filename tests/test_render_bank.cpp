@@ -26,6 +26,9 @@ void test_page_tracking_or_full_copy_fallback(std::vector<uint8_t>& snapshot) {
     assert(bank.empty());
     bank.initialize(true);
     const size_t page = bank.page_size();
+#ifdef _WIN32
+    assert(page > 0); // The Windows host job must exercise MEM_WRITE_WATCH.
+#endif
     if (!page) {
         bank.capture(snapshot.data());
         assert(bank.restore().copied_bytes == snapshot.size());

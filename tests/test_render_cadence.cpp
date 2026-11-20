@@ -121,15 +121,28 @@ int main() {
     assert(scheduler.begin_group({75,1},1,true,true));
     assert(scheduler.begin_group({75,1},1,false,true));
     const auto& grid = scheduler.group();
-    assert(grid.swap_offset_ns(3) == 0 && grid.swap_offset_ns(4) == 13333333);
-    const auto after_fence = scheduler.next(20000000 - grid.swap_offset_ns(3), 40000000);
-    assert(after_fence && after_fence->slot == 4 && grid.swap_offset_ns(5) == 26666666);
+    assert(grid.swap_offset_ns(3, 0) == -6666666 && grid.swap_offset_ns(4, 0) == 6666666);
+    const auto after_fence = scheduler.next(20000000 - grid.swap_offset_ns(3, 0), 40000000);
+    assert(after_fence && after_fence->slot == 4 && grid.swap_offset_ns(5, 0) == 20000000);
     // At 59.94 Hz the second group starts just after a fractional slot.
     // A 2 ms capture still has time to draw both intermediate frames.
     assert(scheduler.begin_group({2997,50},1,true,true));
     assert(scheduler.begin_group({2997,50},1,false,true));
-    const auto offset = scheduler.group().swap_offset_ns(scheduler.group().first_slot);
+    const auto offset = scheduler.group().swap_offset_ns(scheduler.group().first_slot, 2'000'000);
     assert(scheduler.next(2'000'000 - offset)->index == 0);
+    assert(scheduler.native_swap(true) == wdc::render::NativeSwap::Immediate);
+    assert(scheduler.native_swap(false) == wdc::render::NativeSwap::Skip);
+    assert(scheduler.begin_group({240,1},1,true,true));
+    const auto& fast = scheduler.group();
+    assert(fast.preparation_ns(0, 0) == 0);
+    assert(fast.preparation_ns(200000, 700000) == 900000);
+    const auto slow = fast.preparation_ns(12000000, 2500000);
+    assert(slow == 4166666);
+    const auto selected = scheduler.next(12000000 - fast.swap_offset_ns(fast.first_slot, slow));
+    assert(selected && selected->slot == 2 && selected->alpha == 0.25);
+    assert(fast.swap_offset_ns(selected->slot, slow) == slow + 4166666);
+    assert(scheduler.native_swap(false) == wdc::render::NativeSwap::Paced);
+    assert(scheduler.native_swap(true) == wdc::render::NativeSwap::Immediate);
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(wdc::render::presentations_in_group(g,{144,1})==expected[g]);
     for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{60000,1001}, {120000,1001}, {2997,50}}) {

@@ -17,6 +17,14 @@ when the simulation sample falls on the display grid. Its audio and gameplay
 work still runs once per group. The dispatcher returns presentation to VI
 retrace on scene exit and discards pose history after a checkpoint load.
 
+A swap deadline includes the time spent capturing the current sample and the
+most recent private draw's time from bank restore to its first swap callback.
+The callback takes that measurement before waiting. A discontinuity clears the
+draw estimate. The allowance is capped at one display period so a slow capture
+can skip stale slots. For example, at 240 Hz a 12 ms capture exhausts the
+4.17 ms allowance. Each surviving slot keeps its original interpolation fraction.
+If a private pose fails validation, the authoritative draw presents immediately.
+
 Patch 0022 queues screen submission independently of the VI clock. Retrace still
 latches the guest framebuffer and delivers VI/AI events. Patch 0023 lets an
 explicit swap present a new GPU image when VI registers and framebuffer RAM
