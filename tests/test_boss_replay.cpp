@@ -1,4 +1,4 @@
-// The BOSS replay contract, without a ROM.
+// BOSS live-task and replay checks, without a ROM.
 //
 // src/boss_rsp.cpp restores the captured DMEM, DP registers and SP_STATUS,
 // replays the recorded status reads in order, and hands every DP range to
@@ -9,13 +9,18 @@
 #include "boss_capture.h"
 #include "boss_rsp.h"
 #include "librecomp/rsp.hpp"
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <future>
+#include <semaphore>
 #include <vector>
 
-extern uint32_t rsp_read_cop0(uint32_t reg);
+extern uint32_t rsp_read_cop0(uint32_t reg, uint32_t pc = 0);
 extern void rsp_write_cop0(uint32_t reg, uint32_t value);
+extern "C" void wdc_sp_yield(uint8_t*, recomp_context*);
+extern "C" void wdc_wait_for_preview_reload();
 
 namespace capture = wdc::boss_capture;
 
@@ -95,7 +100,75 @@ static capture::Capture make_capture() {
     return c;
 }
 
+static void check_preview_reload(bool handoff) {
+    using namespace std::chrono_literals;
+    constexpr uint32_t material = 0x100;
+    constexpr uint8_t original = 0xDF;
+    std::vector<uint8_t> memory(capture::kRdramBytes);
+    memory[material] = original;
+    OSTask task{};
+    task.t.ucode = 0x8007C780;
+    task.t.ucode_size = 0xF60;
+    task.t.ucode_data = 0x80002000;
+    script = {};
+    script.range = true;
+    script.dp_start = material;
+    script.dp_end = material + 8;
+
+    wdc::rsp::task_submitted();
+    std::binary_semaphore reload_started{0};
+    auto reload = std::async(std::launch::async, [&] {
+        reload_started.release();
+        wdc_wait_for_preview_reload();
+        memory[material] = 0;
+    });
+    require(reload_started.try_acquire_for(2s), "preview reload thread did not start");
+    require(reload.wait_for(50ms) == std::future_status::timeout,
+        "preview reload ran while the BOSS task was queued");
+
+    struct RenderGate {
+        bool handoff;
+        std::binary_semaphore reading{0};
+        std::binary_semaphore finish{0};
+        std::binary_semaphore sublist_published{0};
+    } gate{handoff};
+    auto graphics = std::async(std::launch::async, [&] {
+        wdc::rsp::run(memory.data(), &task, [](void* context, uint8_t* rdram, uint32_t start, uint32_t) {
+            auto& render = *static_cast<RenderGate*>(context);
+            // The same SIG0 poll with no EndMainDL flag is unsafe.
+            require((rsp_read_cop0(4, 0x1138) & 0x80) == 0, "unexpected initial SIG0");
+            render.reading.release();
+            require(render.finish.try_acquire_for(2s), "timed out waiting to finish the BOSS task");
+            require(rdram[start] == original, "the preview reload replaced graphics data during the task");
+            if (render.handoff) {
+                RSP_MEM_B(0x941, 0) = -1;
+                require((rsp_read_cop0(4, 0x1138) & 0x80) == 0, "unexpected SIG0 at EndMainDL");
+                require(render.sublist_published.try_acquire_for(2s), "menu never published the next sublist");
+                require((rsp_read_cop0(4, 0x1138) & 0x80) != 0, "BOSS did not see SIG0 after reload");
+                require(rdram[start] == 0, "sublist did not see the replaced preview data");
+                rsp_write_cop0(4, 0x200);
+            }
+        }, &gate);
+    });
+    require(gate.reading.try_acquire_for(2s), "queued BOSS task did not reach the RDP sink");
+    require(reload.wait_for(50ms) == std::future_status::timeout,
+        "preview reload ran while the graphics worker still used the old car");
+    gate.finish.release();
+    require(reload.wait_for(2s) == std::future_status::ready, "preview reload did not resume at the BOSS handoff or BREAK");
+    reload.get();
+    require(memory[material] == 0, "preview data was not replaced at the handoff or after BREAK");
+    if (handoff) {
+        require(graphics.wait_for(0s) == std::future_status::timeout, "BOSS finished before the menu published its sublist");
+        wdc_sp_yield(nullptr, nullptr);
+        gate.sublist_published.release();
+    }
+    require(graphics.wait_for(2s) == std::future_status::ready, "BOSS task did not finish");
+    graphics.get();
+}
+
 int main() {
+    check_preview_reload(false);
+    check_preview_reload(true);
     // The device posts OS events through the installed sink; the replay must
     // not use it.
     wdc::rsp::set_game_event_sink(&count_events);

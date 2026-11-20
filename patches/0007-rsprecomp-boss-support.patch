@@ -26,7 +26,7 @@ index 518477d..20b94c5 100644
          case InstrId::rsp_mfc0:
 -            print_line("{}{} = {}", ctx_gpr_prefix(rt), rt, expected_c0_reg_value(rd));
 +            if (cop0_callbacks) {
-+                print_line("{}{} = rsp_read_cop0({})", ctx_gpr_prefix(rt), rt, rd);
++                print_line("{}{} = rsp_read_cop0({}, {:#x})", ctx_gpr_prefix(rt), rt, rd, instr_vram);
 +            } else {
 +                print_line("{}{} = {}", ctx_gpr_prefix(rt), rt, expected_c0_reg_value(rd));
 +            }
@@ -77,7 +77,7 @@ index 518477d..20b94c5 100644
          "#include \"librecomp/rsp_vu_impl.hpp\"\n");
 +    if (cop0_callbacks) {
 +        fmt::print(output_file,
-+            "extern uint32_t rsp_read_cop0(uint32_t reg);\n"
++            "extern uint32_t rsp_read_cop0(uint32_t reg, uint32_t pc);\n"
 +            "extern void rsp_write_cop0(uint32_t reg, uint32_t value);\n");
 +    }
      

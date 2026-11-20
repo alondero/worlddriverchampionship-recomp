@@ -31,7 +31,6 @@ link_register_targets = [
 0x80070440 = "__osInitialize_common"
 0x800706D0 = "osUnmapTLBAll"
 0x8007175C = "osSpTaskLoad"
-0x800718EC = "osSpTaskStartGo"
 0x80071930 = "osGetCount"
 # Retain the ROM filesystem: SDK names would route to the pinned runtime's
 # no-Pak stubs. Identity verified by masked SDK comparison and call inspection.
@@ -106,6 +105,7 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x8001A5C0 = "wdc_length2"
 0x8006EEE0 = "wdc_set_event"
 0x80071620 = "wdc_sp_yield"
+0x800718EC = "wdc_sp_start_task"
 0x80077500 = "wdc_sp_set_status"
 0x800748F0 = "wdc_pfs_is_plug"
 # Only hardware status/block transfers are native. a2 is a 32-byte block
@@ -113,6 +113,12 @@ unimplemented = ["func_80075474", "func_8007555C"]
 0x800779A0 = "wdc_pak_status"
 0x80078940 = "wdc_pak_read"
 0x80079700 = "wdc_pak_write"
+
+# Quick Race preview reload can reuse the car material lists in the last task.
+[[hooks]]
+func = "func_8005C198"
+before_vram = 0x8005C198
+text = "{ extern void wdc_wait_for_preview_reload(void); wdc_wait_for_preview_reload(); }"
 
 # Run before the dispatcher reloads its callback, including loop iterations.
 [[hooks]]
