@@ -1,6 +1,6 @@
 // Frozen-memory regression at the real guPerspectiveF + sin/cos call path.
 #undef NDEBUG
-#include "context.h"
+#include "src/guest_context.h"
 #include <array>
 #include <bit>
 #include <cassert>
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
     for (unsigned repeat = 0; repeat < 4; ++repeat) {
         auto memory = frozen;
         recomp_context draw;
-        copy_draw_context(draw, source);
+        wdc::copy_guest_context(draw, source);
         func_80070DB0(memory.data(), &draw);
         std::array<uint32_t, 16> matrix;
         std::memcpy(matrix.data(), memory.data() + 0xB2A80, sizeof(matrix));
@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
     source.status_reg = 0x04000000;
     source.f_odd = &source.f1.u32l;
     recomp_context draw;
-    copy_draw_context(draw, source);
+    wdc::copy_guest_context(draw, source);
     draw.f_odd[0] = 123;
     assert(draw.f1.u32l == 123 && source.f1.u32l == 0);
     std::puts("PASS: frozen projection repeats; source context intact; shallow-copy negative control diverges; FR=1 bank isolated");

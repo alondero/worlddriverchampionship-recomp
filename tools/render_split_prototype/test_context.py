@@ -42,7 +42,7 @@ def main():
     exe = output / "context_test.exe"
     subprocess.run([cc, "-O2", "-fno-strict-aliasing", "-I", str(include), "-c", str(generated), "-o", str(obj)], check=True)
     subprocess.run([cxx, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing", "-I", str(include),
-                    str(here / "context_test.cpp"), str(obj), "-o", str(exe)], check=True)
+                    "-I", str(here.parents[1]), str(here / "context_test.cpp"), str(obj), "-o", str(exe)], check=True)
     env = dict(os.environ)
     env["PATH"] = str(Path(cxx).parent) + os.pathsep + env.get("PATH", "")
     subprocess.run([str(exe), str(rom)], check=True, env=env)

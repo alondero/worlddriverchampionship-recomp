@@ -374,7 +374,7 @@ The original extra-draw mismatch was a **prototype context-copy bug**.
 Translated odd-register accesses therefore read/wrote a different context
 from even-register accesses. The projection changed with identical camera,
 FOV and aspect inputs; the source context was also corrupted.
-`context.h` now rebinds the pointer after every copy, matching librecomp's
+`src/guest_context.h` rebinds the pointer after every copy, matching librecomp's
 `cop0_status_write` FR=0/FR=1 selection. Do not return such a rebound structure
 by value and rely on copy elision.
 
@@ -1035,6 +1035,20 @@ extras replay that input before the original smoothing code. Authoritative
 RAM keeps its one normal update. `hud-needle.json` must contain one replay per
 owned draw. The current single-view scope is explicit; `endpoint120` draws
 extras before normal and does not use this replay.
+
+A second driving fixture used track ID 2, car 0 and three arcade laps with
+held acceleration. After 240 eligible draws, the normal and both owned extras
+had identical ordered triangle headers in each of six groups (1294, 1291, 1306,
+1307, 1305 and 1299 triangles). Consumed sample counts and the sound selector
+held steady during every pair. Using the same setup with wheel and shadow
+interpolation, the two midpoints matched in all six groups. Four groups had
+different midpoint geometry from the normal draw. All six current endpoints
+matched the normal draw's ordered headers.
+
+```powershell
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode shadow-snapshot --require-repeatable --warp '2:0:arcade:3' --hold-accelerator --settle-frames 240
+python tools/render_split_prototype/run.py --reference-build build --rom "World Driver Championship (USA).z64" --mode pose-snapshot --wheel-poses --shadow-inputs --warp '2:0:arcade:3' --hold-accelerator --settle-frames 240
+```
 
 The corrected frozen driving run matched all ordered normal/extra headers in
 all six groups. A combined driving capture then passed camera/body/wheel/shadow,

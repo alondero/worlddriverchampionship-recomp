@@ -7,7 +7,7 @@
 #ifdef WDC_PROTOTYPE_CAPTURE_BOSS
 #include "boss_capture.h"
 #endif
-#include "context.h"
+#include "src/guest_context.h"
 #include "pose.h"
 #include "vectors.h"
 #include "cadence.h"
@@ -638,7 +638,7 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
     std::memcpy(original_bytes.data(), rdram + physical, original_bytes.size());
     std::memcpy(owned_bytes.data(), render_ram.data() + physical, owned_bytes.size());
     recomp_context call;
-    copy_draw_context(call, *source);
+    wdc::copy_guest_context(call, *source);
     call.r29 = int32_t(sp - 0x300);
     call.r4 = int32_t(base); call.r5 = int32_t(base + 64); call.r6 = 1;
     osCreateMesgQueue_recomp(rdram, &call);
@@ -959,7 +959,7 @@ void prototype_race_draw(uint8_t* rdram, recomp_context* ctx) {
     normal_endpoint = true;
     func_8000A30C(rdram, ctx);
     recomp_context drain_context;
-    copy_draw_context(drain_context, *ctx);
+    wdc::copy_guest_context(drain_context, *ctx);
     func_800252D0(rdram, &drain_context);
     drain_renderer(rdram);
     normal_endpoint = false;
@@ -1009,7 +1009,7 @@ void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     if (trials == trial_count()) {
         if (shadow_mode()) {
             recomp_context drain_context;
-            copy_draw_context(drain_context, *ctx);
+            wdc::copy_guest_context(drain_context, *ctx);
             func_800252D0(rdram, &drain_context);
             drain_renderer(rdram);
         }
@@ -1048,7 +1048,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     if (shadow_mode()) {
         authoritative_memory = rdram;
         recomp_context drain_context;
-        copy_draw_context(drain_context, *ctx);
+        wdc::copy_guest_context(drain_context, *ctx);
         func_800252D0(rdram, &drain_context);
         // 252D0 supplies an empty next transform batch, consumes completion
         // through the ROM's usual SP/DP/swap path and clears EDB8. Waiting
@@ -1264,7 +1264,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         const auto active_camera = word(rdram, 0x8007ED6C);
         const auto history_before = preserved_flare_history;
         const auto car_sound_before = skipped_car_sound;
-        copy_draw_context(draw_context, *ctx);
+        wdc::copy_guest_context(draw_context, *ctx);
         auto* drawing_ram = rdram;
         if (shadow_mode()) {
             PhaseTimer timer{"owned_reset"};

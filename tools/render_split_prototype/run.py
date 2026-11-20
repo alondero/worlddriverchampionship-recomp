@@ -166,7 +166,7 @@ def main():
                     *(["-DWDC_PROTOTYPE_PRESENT_ADMISSION"] if args.pace_present_queue else []),
                     "-I", str(source / "lib/N64ModernRuntime/N64Recomp/include"),
                     "-I", str(source / "lib/N64ModernRuntime/ultramodern/include"),
-                    "-I", str(source / "src"),
+                    "-I", str(here.parents[1]), "-I", str(source / "src"),
                     "-c", str(here / "probe.cpp"), "-o", str(probe)], check=True)
     exe = output / "render_split_prototype.exe"
     if args.fast_texture_hash:

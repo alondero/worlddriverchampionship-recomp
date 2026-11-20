@@ -8,9 +8,20 @@
 extern "C" void wdc_warp_menu(uint8_t*, recomp_context*);
 extern "C" void wdc_warp_race(uint8_t*, recomp_context*);
 extern "C" void wdc_warp_load(uint8_t*, recomp_context*);
-extern "C" void func_80068AA8(uint8_t*, recomp_context*) {}
-extern "C" void func_8000A200(uint8_t*, recomp_context*) {}
-extern "C" void func_8000A218(uint8_t*, recomp_context*) {}
+static unsigned setup_calls, race_calls;
+extern "C" void func_80068AA8(uint8_t*, recomp_context* ctx) {
+    assert(ctx->f_odd == &ctx->f0.u32h);
+    *ctx->f_odd = 12;
+    ++setup_calls;
+}
+extern "C" void func_8000A200(uint8_t*, recomp_context* ctx) {
+    assert(ctx->f_odd == &ctx->f1.u32l);
+    *ctx->f_odd = 34;
+}
+extern "C" void func_8000A218(uint8_t*, recomp_context* ctx) {
+    assert(*ctx->f_odd == 34);
+    ++race_calls;
+}
 
 int main() {
     using namespace wdc::warp;
@@ -63,4 +74,15 @@ int main() {
     vi_tick(8); vi_tick(9);
     wdc_warp_menu(rdram, &ctx);
     assert(MEM_W(0, int32_t(0x800923E4)) == int(Mode::Arcade));
+    ctx.f_odd = &ctx.f0.u32h;
+    wdc_warp_load(rdram, &ctx);
+    assert(setup_calls == 1 && *ctx.f_odd == 0);
+
+    assert(request({2, 0}));
+    ctx.mips3_float_mode = 1;
+    ctx.f_odd = &ctx.f1.u32l;
+    MEM_W(0, int32_t(0x8007D848)) = int32_t(0x8000C560);
+    MEM_W(0, int32_t(0x8007DF44)) = 0;
+    wdc_warp_race(rdram, &ctx);
+    assert(race_calls == 1 && *ctx.f_odd == 0);
 }
