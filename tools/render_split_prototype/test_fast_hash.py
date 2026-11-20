@@ -19,7 +19,12 @@ def main():
     output = Path(__file__).resolve().parents[2] / "build/render-split-prototype/hash-tests"
     output.mkdir(parents=True, exist_ok=True)
     original = (rt64 / "common/rt64_tmem_hasher.h").read_text()
-    (output / "original_tmem_hasher.h").write_text(original)
+    # Compare the installed build's optimized hash against the dependency pin.
+    pinned = subprocess.check_output(["git", "-C", str(rt64.parent), "show",
+                                      "HEAD:src/common/rt64_tmem_hasher.h"], text=True)
+    # The Windows patch adds MinGW support to this compiler selection.
+    pinned = pinned.replace("&& defined(__LP64__)", "&& (defined(__LP64__) || defined(_WIN64))")
+    (output / "original_tmem_hasher.h").write_text(pinned)
     (output / "fast_tmem_hasher.h").write_text(make_fast_hasher(original))
     (output / "cached_tmem_hasher.h").write_text(make_fast_hasher(original, True)
         .replace("PrototypeFastTMEMHasher", "PrototypeCachedTMEMHasher")

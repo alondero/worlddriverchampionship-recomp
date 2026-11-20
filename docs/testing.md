@@ -51,7 +51,8 @@ python3 -B scripts/patch_series.py --submodule lib/rt64 \
     --patch patches/0016-rt64-rdp-edge-trapezoids.patch \
     --patch patches/0020-rt64-opaque-subpixel-coverage.patch \
     --patch patches/0023-rt64-explicit-presentation.patch \
-    --patch patches/0027-rt64-interior-triangle-batch.patch
+    --patch patches/0027-rt64-interior-triangle-batch.patch \
+    --patch patches/0030-rt64-palette-membership.patch
 cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
 cmake --build build-host-tests --parallel 2
 ctest --test-dir build-host-tests --output-on-failure --no-tests=error
