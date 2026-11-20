@@ -156,10 +156,11 @@ int main() {
         require(std::get<uint32_t>(page.get_option_value("fullscreen")) == 0 &&
                 std::get<uint32_t>(page.get_temp_option_value("samples")) == 2, "host refresh lost staged edits");
         page.revert_temp_config();
-        for (uint32_t mode : {0u, 1u}) {
+        for (uint32_t mode : {0u, 1u, 3u, 4u}) {
             page.update_option_value("rate_mode", mode);
             page.save_config();
-            require(requested && requested->rate == (mode == 0 ? 0 : -1), "original/display rate mapping failed");
+            require(requested && requested->rate == (mode == 0 ? 0 : mode == 4 ? 144 : -1) &&
+                    requested->interpolate_races == (mode >= 3), "presentation mode mapping failed");
         }
         // Enhancement edits are staged separately and preserve graphics choices.
         requested.reset();

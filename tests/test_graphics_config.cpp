@@ -40,6 +40,7 @@ int main() {
         s.hud = 2;
         s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 4;
         s.native_60fps = true;
+        s.interpolate_races = true;
         require(apply(s), "save failed");
         load(path);
         require(snapshot() == s, "settings did not survive restart");

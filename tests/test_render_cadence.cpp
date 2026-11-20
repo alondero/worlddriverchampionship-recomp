@@ -95,7 +95,8 @@ int main() {
     assert(scheduler.begin_group({60000,1001},5,false,true) && scheduler.group().end == 1);
     assert(scheduler.begin_group({60,1},1,false,false) && !scheduler.present_native());
     assert(scheduler.next() && scheduler.next()->alpha == 1.0 && !scheduler.next());
-    assert(!scheduler.begin_group({241,1},1,false,true) && !scheduler.next() && !scheduler.present_native());
+    assert(scheduler.begin_group({360,1},1,false,true) && scheduler.group().count == 12 && scheduler.present_native());
+    assert(!scheduler.begin_group({361,1},1,false,true) && !scheduler.next() && !scheduler.present_native());
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(wdc::render::presentations_in_group(g,{144,1})==expected[g]);
     for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{60000,1001}, {120000,1001}, {2997,50}}) {

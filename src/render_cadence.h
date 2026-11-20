@@ -4,7 +4,7 @@
 
 namespace wdc::render {
 
-// Reduced ratio in frames/second. Callers validate 30 < Hz <= 240 and a
+// Ratio in frames/second. Callers validate 30 < Hz <= 360 and a
 // denominator up to one million before constructing the grid.
 struct DisplayRate {
     unsigned numerator, denominator;
@@ -55,7 +55,7 @@ constexpr SampleSchedule schedule_samples(uint64_t begin, uint64_t end, DisplayR
 constexpr unsigned due_slot(unsigned next, unsigned count, uint64_t elapsed_ns, DisplayRate rate) {
     const uint64_t period_scale = 1000000000ull * rate.denominator;
     // Bound the multiplication below after long stalls. A group has at most
-    // eight slots at 240 Hz with the stock 30 Hz simulation.
+    // twelve slots at 360 Hz with the stock 30 Hz simulation.
     if (elapsed_ns > count * period_scale / rate.numerator) return count - 1;
     const uint64_t due = elapsed_ns * rate.numerator / period_scale;
     const uint64_t selected = due > next ? due : next;

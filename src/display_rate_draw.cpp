@@ -1,6 +1,7 @@
 #include "display_rate_draw.h"
 #include "extra_race_draw.h"
 #include "guest_context.h"
+#include "graphics_config.h"
 #include "race_frame_schedule.h"
 #include "race_poses.h"
 #include "race_render_sample.h"
@@ -10,8 +11,9 @@
 #include "librecomp/queue_memory.hpp"
 #include "ultramodern/swap_presentation.hpp"
 #include "ultramodern/ultramodern.hpp"
-#include <charconv>
+#include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -37,13 +39,17 @@ DisplayRate requested_rate() {
             error = denominator.ec;
         }
         if (error != std::errc{} || next != end || !result.denominator || result.denominator > 1000000 ||
-            result.numerator <= result.sample_scale() || result.numerator > 240ull * result.denominator) {
+            result.numerator <= result.sample_scale() || result.numerator > 360ull * result.denominator) {
             std::fprintf(stderr, "[wdc:render] invalid WDC_EXPERIMENTAL_DISPLAY_HZ\n");
             return DisplayRate{0, 1};
         }
         return result;
     }();
-    return rate;
+    if (rate.numerator) return rate;
+    const auto settings = graphics::snapshot();
+    if (!settings.interpolate_races) return {0, 1};
+    const unsigned hz = settings.rate == -1 ? ultramodern::get_display_refresh_rate() : unsigned(settings.rate);
+    return {hz > 30 ? std::min(hz, 360u) : 0, 1};
 }
 
 // Renderer worker TLS is bound to each explicit screen action by the runtime.
@@ -58,6 +64,7 @@ void observe_screen(uint64_t before, uint64_t after) {
 }
 thread_local bool presenting = false;
 thread_local std::optional<RacePoses> previous;
+thread_local std::optional<uint32_t> last_sample;
 void set_presenting(bool enabled) {
     if (presenting == enabled) return;
     ultramodern::set_swap_presentation(enabled, {[](bool active) { explicit_update = active; }});
@@ -67,15 +74,16 @@ void set_presenting(bool enabled) {
 // Game-thread state only. Fences can yield to guest workers on other threads.
 thread_local uint8_t* live_image = nullptr;
 thread_local Clock::time_point deadline{};
+thread_local DisplayRate active_rate{};
+thread_local std::optional<PresentationPeriod> period;
 void pace() {
-    static thread_local PresentationPeriod period(requested_rate());
     auto now = Clock::now();
     if (now > deadline + std::chrono::milliseconds(34)) deadline = now;
     while (now < deadline) {
         ultramodern::wait_for_external_message_timed(live_image, 1);
         now = Clock::now();
     }
-    deadline += std::chrono::nanoseconds(period.next_ns());
+    deadline += std::chrono::nanoseconds(period->next_ns());
 }
 
 struct FenceUnavailable {};
@@ -88,7 +96,7 @@ bool eligible(uint8_t* rdram) {
     // Read on the dispatcher thread after simulation and before drawing.
     const auto word = [rdram](uint32_t address) { return uint32_t(MEM_W(0, int32_t(address))); };
     const auto scene = word(0x800923E4);
-    return word(0x8007D848) == 0x8000C560 && !word(0x8007DF44) && !word(0x8007D858) &&
+    return word(0x8007D848) == 0x8000C560 && !word(0x8007DF44) &&
            !word(0x8007D794) && word(0x8007E580) == 1 &&
            word(0x80080D90) && word(0x8007FE1C) == 1 &&
            word(0x8007FDF0) == 0 && word(0x8007FDF4) == 1562500 &&
@@ -97,6 +105,7 @@ bool eligible(uint8_t* rdram) {
 void end_race_presentation() {
     set_presenting(false);
     previous.reset();
+    last_sample.reset();
     deadline = {};
 }
 }
@@ -109,8 +118,8 @@ extern "C" void wdc_render_dispatcher_tick(uint8_t* rdram) {
     if (!presenting) return;
     static thread_local uint64_t generation = 0;
     const auto restored = state::restore_generation();
-    // The ROM holds 8007D858 across this boundary even during active racing.
-    // Check transient pause and worker state only at the actual draw site.
+    // The ROM can hold nesting counter 8007D858 during ordinary races.
+    // The draw site checks whether gameplay actually advanced.
     if (restored != generation || uint32_t(MEM_W(0, int32_t(0x8007D848))) != 0x8000C560 ||
         MEM_W(0, int32_t(0x8007DF44))) end_race_presentation();
     generation = restored;
@@ -119,13 +128,27 @@ extern "C" void wdc_render_dispatcher_tick(uint8_t* rdram) {
 bool draw_at_display_rate(uint8_t* rdram, recomp_context& caller) {
     const auto rate = requested_rate();
     static thread_local bool failed = false;
-    if (!rate.numerator || failed) return false;
+    if (!rate.numerator || failed) {
+        if (presenting) end_race_presentation();
+        return false;
+    }
+    if (active_rate.numerator != rate.numerator || active_rate.denominator != rate.denominator) {
+        end_race_presentation();
+        active_rate = rate;
+        period.emplace(rate);
+    }
     static thread_local RaceFrameSchedule schedule;
     if (!eligible(rdram)) {
         end_race_presentation();
         return false;
     }
 
+    const uint32_t sample = MEM_W(0, int32_t(0x8007E530));
+    if (last_sample == sample) {
+        end_race_presentation();
+        last_sample = sample;
+        return false;
+    }
     const auto start = Clock::now();
     live_image = rdram;
     set_presenting(true);
@@ -178,7 +201,6 @@ bool draw_at_display_rate(uint8_t* rdram, recomp_context& caller) {
         if (diagnostics()) {
             static thread_local unsigned groups, first_explicit, first_retrace, first_sample;
             static thread_local Clock::time_point first;
-            const uint32_t sample = MEM_W(0, int32_t(0x8007E530));
             if (!previous) {
                 std::fprintf(stderr, "[wdc:render] fixed 30 Hz gameplay, display target %u/%u Hz, %u intermediate draws in first group\n",
                              rate.numerator, rate.denominator, extras);
@@ -198,6 +220,7 @@ bool draw_at_display_rate(uint8_t* rdram, recomp_context& caller) {
                 first_retrace = retrace_frames.load();
             }
         }
+        last_sample = sample;
         previous = std::move(current);
     } catch (const FenceUnavailable&) {
         // A queued action might still reference the bank. Keep its storage
@@ -212,7 +235,6 @@ bool draw_at_display_rate(uint8_t* rdram, recomp_context& caller) {
 
 extern "C" const wdc::render::FrameCallbacks* wdc_render_frame_callbacks() {
     using namespace wdc::render;
-    if (!requested_rate().numerator) return nullptr;
     static const FrameCallbacks callbacks{race_render_bank().mutex, nullptr, nullptr, diagnostics() ? observe_screen : nullptr,
                                           [] { return explicit_update; }};
     return &callbacks;

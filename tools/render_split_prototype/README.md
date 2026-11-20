@@ -5,9 +5,10 @@ sampling and simulation remain at their original fixed rate, and which state
 must be separated before those frames can be interpolated?
 
 The experimental branch also runs interpolation in the ordinary player.
-Set `WDC_EXPERIMENTAL_DISPLAY_HZ=90` before starting a single-player race
+Select an interpolated presentation rate in Graphics or set
+`WDC_EXPERIMENTAL_DISPLAY_HZ=90` before starting a single-player race
 with Native 60 fps disabled. Integer and fractional targets above 30 Hz
-through 240 Hz are accepted, including `60000/1001`. The ROM keeps its
+through 360 Hz are accepted, including `60000/1001`. The ROM keeps its
 30 Hz simulation interval. The player draws intermediate camera, car body,
 wheel and shadow poses on a private copy of the race sample.
 
@@ -17,6 +18,15 @@ For a bounded run, set `WDC_DIAGNOSTIC=1`, `WDC_WARP=1:0` and
 per 60 draw groups. The probe below supplies separate swap and pixel checks.
 Split-screen, unsupported scenes and the native 60 Hz simulation use their
 ordinary drawing path.
+
+`player_smoke.py` exercises the saved Graphics setting in the regular player.
+It checks the actual rate selected, simulation sample counts, RT64 admissions
+and absence of unsolicited retrace frames across both race loads. Each run
+uses a separate temporary settings directory and retains the diagnostic log.
+
+```powershell
+python -B tools/render_split_prototype/player_smoke.py build/worlddriverchampionship_modern.exe "World Driver Championship (USA).z64" --rate 90
+```
 
 `--async-diagnostics` moves complete probe diagnostic records to a host writer
 thread while retaining the existing record-formatting mutex. This isolates file

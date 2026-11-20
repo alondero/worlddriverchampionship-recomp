@@ -17,6 +17,7 @@ struct Settings {
     bool full_track_detail = false;
     int draw_distance = 1; // 1..4: far plane and bounded track-section range
     bool native_60fps = false; // Latches at the next input-worker startup.
+    bool interpolate_races = false;
     bool operator==(const Settings&) const = default;
 };
 Settings normalize(Settings settings);

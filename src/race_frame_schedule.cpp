@@ -5,7 +5,7 @@ bool RaceFrameSchedule::begin_group(DisplayRate rate, unsigned sample_gap, bool 
     next_ = owned_ = 0;
     native_ = false;
     if (!rate.denominator || rate.denominator > 1000000 ||
-        rate.numerator <= rate.sample_scale() || rate.numerator > 240ull * rate.denominator) {
+        rate.numerator <= rate.sample_scale() || rate.numerator > 360ull * rate.denominator) {
         group_ = {};
         return false;
     }
