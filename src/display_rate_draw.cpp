@@ -56,7 +56,7 @@ DisplayRate requested_rate() {
 thread_local bool explicit_update = false;
 std::atomic<unsigned> explicit_frames{}, retrace_frames{};
 bool diagnostics() {
-    static const bool enabled = std::getenv("WDC_DIAGNOSTIC") != nullptr;
+    static const bool enabled = std::getenv("WDC_DIAGNOSTIC") || std::getenv("WDC_RENDER_STATS");
     return enabled;
 }
 void observe_screen(uint64_t before, uint64_t after) {

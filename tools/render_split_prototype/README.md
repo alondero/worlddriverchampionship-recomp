@@ -15,7 +15,8 @@ wheel and shadow poses on a private copy of the race sample.
 For a bounded run, set `WDC_DIAGNOSTIC=1`, `WDC_WARP=1:0` and
 `WDC_WARP_AT=360:2:0:arcade:3`. The diagnostic exits with code 2 after
 15 seconds and reports elapsed time, consumed samples and RT64 admissions
-per 60 draw groups. The probe below supplies separate swap and pixel checks.
+per 60 draw groups. Use `WDC_RENDER_STATS=1` for the same counters in a run
+without the diagnostic timeout. The probe below supplies separate swap and pixel checks.
 Split-screen, unsupported scenes and the native 60 Hz simulation use their
 ordinary drawing path.
 
@@ -1250,3 +1251,10 @@ presents separately. Native Wayland and Gamescope WSI bypass paths require
 other instrumentation. A native Deck XWayland run at 1× in the eight-car
 track 2 race completed 841 flips at 85.7/s after warm-up. Of 840 intervals,
 798 took one refresh and 42 took two (median 11.11 ms, p95 22.16 ms).
+
+Add `--crop X Y WIDTH HEIGHT` to compare the game-window pixels after each
+completion. Pick a region containing moving scenery. The observer reports how
+often adjacent samples differ and counts single-color reads. It reads the
+window asynchronously after each notification, so the samples cannot uniquely
+identify every scanned-out image. A stationary crop requires checking the
+window content and game state before interpreting the measured cadence.

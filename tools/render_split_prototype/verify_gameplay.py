@@ -77,7 +77,13 @@ def main():
         config = run / "build/user-data"
         config.mkdir(parents=True)
         (config / "graphics.json").write_text(json.dumps(dict(version=2, rate=rate, interpolate_races=bool(rate))))
-        env = dict(os.environ, WDC_DIAGNOSTIC="1", WDC_WARP="1:0")
+        env = dict(os.environ, WDC_RENDER_STATS="1", WDC_WARP="1:0")
+        if name == "seed":
+            env["WDC_DIAGNOSTIC"] = "1"
+        else:
+            # The observer exits after exactly 180 samples. The boot diagnostic's
+            # independent 15-second timeout can terminate a valid slow-host run.
+            env.pop("WDC_DIAGNOSTIC", None)
         for key in ("WDC_WARP_AT", "WDC_EXPERIMENTAL_DISPLAY_HZ", "WDC_STATE_SAVE", "WDC_STATE_LOAD"):
             env.pop(key, None)
         operation = "WDC_STATE_SAVE" if name == "seed" else "WDC_STATE_LOAD"
@@ -93,7 +99,8 @@ def main():
             continue
         if result.returncode or "loaded 8388608 bytes" not in trace:
             raise SystemExit(f"Checkpoint or simulation trace failed: {log}")
-        if rate and not re.search(rf"display target {rate}/1 Hz, [1-9]\d* intermediate draws", trace):
+        if rate and (f"display target {rate}/1 Hz" not in trace or not any(
+                int(frames) > 60 for frames in re.findall(r"RT64 accepted (\d+) explicit and 0 retrace frames", trace))):
             raise SystemExit(f"No interpolated race draw in {log}")
         data = (run / "physics.bin").read_bytes()
         rows = list(struct.iter_unpack("<17I", data))
