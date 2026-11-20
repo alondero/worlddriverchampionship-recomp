@@ -21,8 +21,16 @@ bool RaceFrameSchedule::begin_group(DisplayRate rate, unsigned sample_gap, bool 
     return true;
 }
 
-std::optional<RacePresentation> RaceFrameSchedule::next(uint64_t elapsed_ns) {
+std::optional<RacePresentation> RaceFrameSchedule::next(uint64_t elapsed_ns, uint64_t native_deadline_ns) {
     if (next_ >= owned_) return std::nullopt;
+    // The next fixed simulation tick is due. The authoritative draw still
+    // runs the original game and audio work, and can present its current
+    // pose even if this fractional group normally ends between display slots.
+    if (native_deadline_ns != UINT64_MAX && elapsed_ns >= native_deadline_ns) {
+        next_ = owned_;
+        native_ = true;
+        return std::nullopt;
+    }
     const unsigned index = due_slot(next_, owned_, elapsed_ns, group_.rate);
     const unsigned skipped = index - next_;
     next_ = index + 1;

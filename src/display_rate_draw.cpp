@@ -168,13 +168,15 @@ bool draw_at_display_rate(uint8_t* rdram, recomp_context& caller) {
         const bool reset = !previous || continuity.reset();
         schedule.begin_group(rate, continuity.sample_gap, reset, true);
         unsigned extras = 0;
-        bool present_native = schedule.present_native();
-        while (const auto frame = schedule.next(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count())) {
+        bool pose_failed = false;
+        constexpr uint64_t tick_ns = 1'000'000'000 / 30;
+        const auto elapsed_ns = [&] { return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count(); };
+        while (const auto frame = schedule.next(elapsed_ns(), tick_ns)) {
             {
                 std::lock_guard lock(bank.mutex);
                 bank.restore();
                 if (!current->apply(bank, reset ? *current : *previous, frame->alpha)) {
-                    present_native = true;
+                    pose_failed = true;
                     break;
                 }
             }
@@ -190,7 +192,7 @@ bool draw_at_display_rate(uint8_t* rdram, recomp_context& caller) {
             ++extras;
         }
         {
-            RaceSwap display(rdram, present_native ? pace : nullptr);
+            RaceSwap display(rdram, (schedule.present_native() || pose_failed) ? pace : nullptr);
             func_8000A30C(rdram, &caller);
             drawn = true;
             recomp_context drain;

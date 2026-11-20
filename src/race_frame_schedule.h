@@ -16,7 +16,7 @@ struct RacePresentation {
 class RaceFrameSchedule {
 public:
     bool begin_group(DisplayRate rate, unsigned sample_gap, bool discontinuity, bool reuse_endpoint);
-    std::optional<RacePresentation> next(uint64_t elapsed_ns = 0);
+    std::optional<RacePresentation> next(uint64_t elapsed_ns = 0, uint64_t native_deadline_ns = UINT64_MAX);
     const SampleSchedule& group() const { return group_; }
     bool present_native() const { return native_; }
 

@@ -97,6 +97,19 @@ int main() {
     assert(scheduler.next() && scheduler.next()->alpha == 1.0 && !scheduler.next());
     assert(scheduler.begin_group({360,1},1,false,true) && scheduler.group().count == 12 && scheduler.present_native());
     assert(!scheduler.begin_group({361,1},1,false,true) && !scheduler.next() && !scheduler.present_native());
+    // A late private draw would delay the next authoritative simulation tick.
+    // Keep the native endpoint at both integer and fractional display rates.
+    for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{90,1}, {144,1}}) {
+        assert(scheduler.begin_group(rate,1,true,true));
+        assert(scheduler.next(0,33333333));
+        assert(!scheduler.next(33333333,33333333) && scheduler.present_native());
+        assert(!scheduler.next());
+    }
+    // Finishing a fractional group on time has already supplied its last
+    // presentation. A later poll must not add a duplicate native endpoint.
+    assert(scheduler.begin_group({75,1},1,true,true));
+    assert(scheduler.next(0,33333333) && scheduler.next(0,33333333));
+    assert(!scheduler.next(34000000,33333333) && !scheduler.present_native());
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(wdc::render::presentations_in_group(g,{144,1})==expected[g]);
     for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{60000,1001}, {120000,1001}, {2997,50}}) {
