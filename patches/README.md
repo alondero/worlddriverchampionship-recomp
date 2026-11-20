@@ -67,6 +67,7 @@ the WDC runtime demonstrates the same need.
 | `0025-runtime-task-memory.patch` | N64ModernRuntime | All | Carry the submitting guest memory image with each graphics task. |
 | `0026-runtime-graphics-fence.patch` | N64ModernRuntime | All | Fence the submitting game thread's queued graphics actions before reusing a render image. |
 | `0028-runtime-aligned-rsp-dma.patch` | N64ModernRuntime | All | Bulk-copy whole words between aligned word-swapped RSP DMEM and guest RAM. |
+| `0029-runtime-rsp-vector-access.patch` | N64ModernRuntime | All | Precompute vector element shuffle masks and transfer aligned whole RSP vectors with a word reversal. |
 
 ## Application matrix
 

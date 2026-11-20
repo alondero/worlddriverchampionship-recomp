@@ -53,6 +53,8 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME wdc_rdp_triangle_edges COMMAND wdc_rdp_triangle_edge_tests)
     add_executable(wdc_rsp_packed_load_tests tests/test_rsp_packed_loads.cpp)
+    # Match the aliasing contract used to compile the generated BOSS vector helpers.
+    target_compile_options(wdc_rsp_packed_load_tests PRIVATE -fno-strict-aliasing)
     target_include_directories(wdc_rsp_packed_load_tests PRIVATE
         "${N64MR}/N64Recomp/include" "${N64MR}/librecomp/include" "${N64MR}/ultramodern/include")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64")
