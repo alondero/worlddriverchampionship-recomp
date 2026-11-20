@@ -89,7 +89,7 @@ thread_local RaceDrawer drawer;
 
 void pace() {
     auto now = Clock::now();
-    drawer.schedule.draw_time.finish_at_swap(now);
+    drawer.schedule.finish_at_swap(now);
     while (now < drawer.deadline) {
         ultramodern::wait_for_external_message_timed(drawer.live_image, 1);
         now = Clock::now();
@@ -114,12 +114,12 @@ extern "C" void wdc_render_dispatcher_tick(uint8_t* rdram) {
 }
 
 bool RaceDrawer::draw_extra(RenderBank& bank, const recomp_context& caller, const RacePoses& current, const RacePoses& prior, double alpha) {
-    schedule.draw_time.begin_extra(Clock::now());
+    schedule.begin_private_draw(Clock::now());
     {
         std::lock_guard lock(bank.mutex);
         bank.restore();
         if (!current.apply(bank, prior, alpha)) {
-            schedule.draw_time.end_extra();
+            schedule.end_private_draw();
             return false;
         }
     }
@@ -132,7 +132,7 @@ bool RaceDrawer::draw_extra(RenderBank& bank, const recomp_context& caller, cons
     func_8000A30C(image, &ctx);
     func_800252D0(image, &ctx);
     fence(live_image);
-    schedule.draw_time.end_extra();
+    schedule.end_private_draw();
     return true;
 }
 

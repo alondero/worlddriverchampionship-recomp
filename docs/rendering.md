@@ -18,12 +18,13 @@ work still runs once per group. The dispatcher returns presentation to VI
 retrace on scene exit and discards pose history after a checkpoint load.
 
 A swap deadline includes the time spent capturing the current sample and the
-most recent private draw's time from bank restore to its first swap callback.
-The callback takes that measurement before waiting. A discontinuity clears the
+most recent private draw's time from just before acquiring the render-bank lock
+to its first swap callback. This includes waiting for the lock, restoring the
+bank and applying the pose. The callback stops the timer before pacing. A discontinuity clears the
 draw estimate. The first private frame after that reset can arrive late by
 its own draw time. Between groups, changes in the preparation allowance can
-shift the swap deadline by up to one display period at a fixed rate. The allowance is capped at one display period so a slow capture
-can skip stale slots. For example, at 240 Hz a 12 ms capture exhausts the
+shift the swap deadline by up to one display period at a fixed rate. The
+allowance is capped at one display period so a slow capture can skip stale slots. For example, at 240 Hz a 12 ms capture exhausts the
 4.17 ms allowance. Each surviving slot keeps its original interpolation fraction.
 If a private pose fails validation, the authoritative draw presents immediately.
 

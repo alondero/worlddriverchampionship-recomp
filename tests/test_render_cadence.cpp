@@ -8,33 +8,32 @@
 static void test_draw_time_estimate() {
     using namespace wdc::render;
     using namespace std::chrono_literals;
-    const DrawTimeEstimate::Time start{};
+    const std::chrono::steady_clock::time_point start{};
     RaceFrameSchedule schedule;
     assert(schedule.begin_group({240,1}, 1, true, true));
-    auto& estimate = schedule.draw_time;
-    estimate.finish_at_swap(start); // Authoritative swap before any private draw.
-    estimate.begin_extra(start);
+    schedule.finish_at_swap(start); // Authoritative swap before any private draw.
+    schedule.begin_private_draw(start);
     assert(schedule.preparation_ns(100) == 100);
-    estimate.finish_at_swap(start + 2ms);
-    estimate.finish_at_swap(start + 7ms); // Later swap in the same draw.
-    estimate.end_extra();
-    estimate.finish_at_swap(start + 10ms); // Authoritative endpoint.
+    schedule.finish_at_swap(start + 2ms);
+    schedule.finish_at_swap(start + 7ms); // Later swap in the same draw.
+    schedule.end_private_draw();
+    schedule.finish_at_swap(start + 10ms); // Authoritative endpoint.
     assert(schedule.begin_group({240,1}, 1, false, true));
     assert(schedule.preparation_ns(100) == 2000100);
-    estimate.begin_extra(start + 11ms);
-    estimate.end_extra(); // Pose failure before the private swap.
-    estimate.finish_at_swap(start + 20ms);
-    assert(estimate.value_ns() == 2000000);
-    estimate.begin_extra(start);
-    estimate.finish_at_swap(start + 8ms);
+    schedule.begin_private_draw(start + 11ms);
+    schedule.end_private_draw(); // Pose failure before the private swap.
+    schedule.finish_at_swap(start + 20ms);
+    assert(schedule.preparation_ns(0) == 2000000);
+    schedule.begin_private_draw(start);
+    schedule.finish_at_swap(start + 8ms);
     assert(schedule.preparation_ns(100) == 4166666);
     assert(schedule.begin_group({240,1}, 1, true, true));
     assert(schedule.preparation_ns(100) == 100);
-    estimate.begin_extra(start);
-    estimate.finish_at_swap(start + 3ms);
-    estimate.begin_extra(start + 4ms);
+    schedule.begin_private_draw(start);
+    schedule.finish_at_swap(start + 3ms);
+    schedule.begin_private_draw(start + 4ms);
     assert(schedule.begin_group({90,1}, 1, false, true));
-    estimate.finish_at_swap(start + 9ms);
+    schedule.finish_at_swap(start + 9ms);
     assert(schedule.preparation_ns(100) == 100);
 }
 

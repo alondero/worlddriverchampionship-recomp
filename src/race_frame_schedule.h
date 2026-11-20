@@ -40,9 +40,11 @@ class RaceFrameSchedule {
 public:
     [[nodiscard]] bool begin_group(DisplayRate rate, unsigned sample_gap, bool discontinuity, bool reuse_endpoint);
     std::optional<RacePresentation> next(uint64_t elapsed_ns = 0, uint64_t native_deadline_ns = UINT64_MAX);
-    DrawTimeEstimate draw_time;
+    void begin_private_draw(std::chrono::steady_clock::time_point now) { draw_time_.begin_extra(now); }
+    void finish_at_swap(std::chrono::steady_clock::time_point now) { draw_time_.finish_at_swap(now); }
+    void end_private_draw() { draw_time_.end_extra(); }
     int64_t preparation_ns(int64_t capture_ns) const {
-        return group_.preparation_ns(capture_ns, draw_time.value_ns());
+        return group_.preparation_ns(capture_ns, draw_time_.value_ns());
     }
     const SampleSchedule& group() const { return group_; }
     NativeSwap native_swap(bool pose_failed) const {
@@ -52,6 +54,7 @@ public:
     bool present_native() const { return native_; }
 
 private:
+    DrawTimeEstimate draw_time_;
     SampleSchedule group_{};
     unsigned next_ = 0, owned_ = 0;
     bool native_ = false;
