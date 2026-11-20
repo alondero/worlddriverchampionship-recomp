@@ -24,6 +24,7 @@ class WindowCrop:
         self.reply = bind(xcb, "xcb_get_image_reply", ptr, ptr, uint, ptr)
         self.payload = bind(xcb, "xcb_get_image_data", ptr, ptr)
         self.length = bind(xcb, "xcb_get_image_data_length", ctypes.c_int, ptr)
+        self.first_read = self.last_read = None
         self.last = None
         self.changes = 0
         self.solid = 0
@@ -37,6 +38,9 @@ class WindowCrop:
             data = ctypes.string_at(self.payload(reply), self.length(reply))
             if len(data) != self.bounds[2] * self.bounds[3] * 4:
                 raise SystemExit("Crop comparison requires 32-bit X11 pixel storage")
+            self.last_read = time.monotonic()
+            if self.first_read is None:
+                self.first_read = self.last_read
             self.solid += data.count(data[:4]) == len(data) // 4
             digest = hashlib.blake2s(data, digest_size=16).digest()
             self.changes += self.last is not None and self.last != digest
@@ -113,7 +117,7 @@ def main():
     print(f"{len(times)} completed pixmaps, {modes[2]} skipped, {1000/statistics.mean(intervals):.2f}/s, "
           f"median {statistics.median(intervals):.3f} ms, p95 {intervals[(95*len(intervals)-1)//100]:.3f} ms")
     if crop:
-        duration = (times[-1] - times[0]) / 1e6
+        duration = crop.last_read - crop.first_read
         print(f"{crop.changes} adjacent crop changes ({crop.changes / duration:.2f}/s), "
               f"{crop.solid} single-color samples")
 
