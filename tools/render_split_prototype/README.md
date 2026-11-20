@@ -1214,3 +1214,25 @@ Native Hawaii evidence covers the contact-point path. The normal-vector path
 has source mapping and host math tests, but no native qualification. Geometry
 checks do not establish pixel quality, shadow behavior on all terrain, complete
 cut handling, effects interpolation or audio fidelity.
+
+## Fixed-rate driving comparison
+
+With a Windows MinGW/Ninja player build and its compile database, run:
+
+```powershell
+python -B tools/render_split_prototype/verify_gameplay.py --reference-build build --rom "World Driver Championship (USA).z64"
+```
+
+The fixture creates a practice checkpoint and boots four trials with the same
+pending-task layout. After restoring, each trial uses the configured player
+draw path. Port zero holds the accelerator with neutral steering. A private
+copy of the translated dispatcher records the simulation sample number and all
+16 words of the player-car transform immediately after each physics call at
+`8000C6E8`. The fixture requires movement, 180 consecutive samples, and exact
+agreement between two stock trials and the 90 and 144 Hz trials. Each trial's
+log and binary trace remain in the printed temporary directory.
+
+On Windows, samples 199 through 378 matched in all four trials (SHA-256
+`49a8e352d6bfbd69e3b84912c2e7f6a8ce9ce640bc5896ae8d52327a0087a4fa`).
+Developer checkpoints require a compatible live thread/queue layout. Booting
+with interpolation active before loading a stock slot can fail this check.
