@@ -245,12 +245,12 @@ unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-`shadow-snapshot`, `shadow120`, `shadow-rate`, `pose-snapshot`, `motion120`, `motion-rate`, `motion-samples` and `endpoint120` compile copied renderer and
-runtime message-queue sources via `shadow.py`, replacing the renderer object
-and queue archive member. `shadow-source.json` records both current-source and
-copy hashes and compile commands; unbuilt reference-source edits affect this
-mode. Dependency compiler warnings are retained in `shadow-build.log` under
-the local prototype build directory. No reference file is edited.
+Owned-RAM modes compile a renderer copy via `shadow.py`. For runtimes with
+patch 0021, the probe links the compiled runtime's queue implementation.
+Older references also compile a queue copy. `shadow-source.json` records the
+renderer source/copy hashes and compiler command, plus the runtime archive
+hash or fallback queue source/copy hashes. Dependency compiler warnings are
+retained in the local `shadow-build.log`.
 
 The run opens Hawaii practice at 1x resolution, waits for 60 eligible race
 frames, performs six trials, drains the last extra graphics task through the
@@ -816,10 +816,14 @@ The combined mode also waits for all requested presentation callbacks before
 reusing a bank: RT64 reads framebuffer RAM during `update_screen`, which is
 queued after task completion. Mutual exclusion alone would permit reset before
 that queued read.
-`osSendMesg`/`osRecvMesg` use authoritative queue/thread structures. A thread-local
-receive-store adapter writes a non-null result directly into the owned bank,
-without first touching the corresponding authoritative address. The image is
-never copied back into authoritative RAM.
+`osSendMesg` and `osRecvMesg` use the live queue and thread structures. With
+runtime patch 0021 the caller supplies the result address separately. An owned
+receive writes the message word into the snapshot before the runtime resumes
+waiting senders. Normal receives use the same dequeue path with a destination
+in live RDRAM. A nonblocking empty queue preserves the destination, and a
+null destination consumes one message. The runner checks all three cases on
+the guest thread and records the queue implementation in `shadow-source.json`.
+Older reference builds use the copied queue object and thread-local adapter.
 
 Next: classify remaining authoritative changed ranges, qualify the snapshot
 handoff across transitions and reduce the combined path's measured overhead.

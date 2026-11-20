@@ -638,9 +638,9 @@ not physical scanout or intermediate motion. A separate owned-RAM experiment
 now rebuilds bounded frames from a frozen 8 MiB image: the native `252D0` path
 drains BOSS before switching memory owners, CPU/BOSS/renderer use the owned
 bank, and runtime queue operations retain authoritative queue/thread state.
-A receive-store adapter delivers message results directly into the owned bank;
-a live sentinel test checks that the matching authoritative destination is
-untouched. Eight-car geometry repeats exactly; changing only the owned camera
+Runtime patch 0021 lets the caller supply a message destination in the owned
+bank. A live queue test checks the received word, the corresponding authoritative
+sentinel, an empty nonblocking receive and a discarded message. Eight-car geometry repeats exactly; changing only the owned camera
 changes geometry without changing original camera/car records. Whole-RAM
 changed-range evidence still includes unclassified queue/input activity, so
 complete authoritative-state equivalence remains unproven.

@@ -20,7 +20,7 @@ import subprocess
 import sys
 import tempfile
 from runtime import build_runtime
-from shadow import build_shadow_renderer
+from shadow import build_shadow_renderer, runtime_receive_archive
 from rt64_profile import build_rt64_profile
 from fast_hash_build import build_fast_hash
 from draw_boundary import build_draw_boundary
@@ -172,8 +172,13 @@ def main():
     def variable(name):
         found = re.search(r"^  " + name + r" = (.*)$", block, re.M)
         return shlex.split(found[1].replace("\\", "/")) if found else []
+    receive_archive = None
+    if owned_ram:
+        nm = re.search(r"^CMAKE_NM:[^=]+=(.*)$", cache, re.M)[1]
+        receive_archive = runtime_receive_archive(reference, nm)
     probe = output / "probe.o"
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
+                    *(["-DWDC_RUNTIME_RECEIVE_DESTINATION"] if receive_archive else []),
                     *(["-DWDC_PROTOTYPE_PRESENT"] if independent_present else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE"] if args.capture_frames else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE_BOSS"] if args.capture_boss_tasks else []),
@@ -192,11 +197,12 @@ def main():
         objects.append(build_rt64_profile(reference, output, compiler, profile=args.profile_rt64, explicit_present=args.explicit_present))
     runtime = [str(build_runtime(reference, output, compiler))] if independent_present else []
     if owned_ram:
-        replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler, args.audit_present)
+        replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler, args.audit_present, receive_archive)
         if original_object not in [o.replace("\\", "/") for o in objects]:
             raise SystemExit("Reference renderer object missing from executable link")
         objects = [replacement if o.replace("\\", "/") == original_object else o for o in objects]
-        objects.append(queue_object)
+        if queue_object:
+            objects.append(queue_object)
     if endpoint_mode:
         if "libWdcRecompiledFuncs.a" not in variable("LINK_LIBRARIES"):
             raise SystemExit("Expected reference translation archive in executable link")
@@ -544,7 +550,8 @@ def main():
     queue_tests = [json.loads(line.split("[prototype-queue-test] ", 1)[1])
                    for line in log.read_text(errors="replace").splitlines() if "[prototype-queue-test] " in line]
     if owned_ram and queue_tests != [{
-            "authoritative_sentinel_preserved": True, "owned_result_received": True}]:
+            "authoritative_sentinel_preserved": True, "owned_result_received": True,
+            "empty_unchanged": True, "discard_consumed": True}]:
         raise SystemExit("Owned receive-result sentinel test did not pass")
     phases = [json.loads(line.split("[prototype-phase] ", 1)[1])
               for line in log.read_text(errors="replace").splitlines() if "[prototype-phase] " in line]

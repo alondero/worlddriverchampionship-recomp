@@ -59,6 +59,7 @@ the WDC runtime demonstrates the same need.
 | `0018-runtime-rsp-dma-rounding.patch` | N64ModernRuntime | All | Round inclusive RSP DMA lengths to eight-byte words; prevents stale stereo frames at BOSS audio block boundaries. |
 | `0019-runtime-developer-thread-snapshots.patch` | N64ModernRuntime | All | Validate the live thread roster and remove/repair native context pointers for developer RAM checkpoints. |
 | `0021-runtime-protected-function-replacements.patch` | N64ModernRuntime | Desktop | Reject ordinary and forced replacements for host functions explicitly protected by the port. |
+| `0021-runtime-receive-message-destination.patch` | N64ModernRuntime | All | Receive a live queue message into caller-owned storage while rendering a snapshot. |
 
 ## Application matrix
 

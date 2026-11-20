@@ -6,7 +6,15 @@ import shlex
 import subprocess
 
 
-def build_shadow_renderer(reference, output, compiler, audit_present=False):
+def runtime_receive_archive(reference, nm):
+    archive = reference / "lib/N64ModernRuntime/ultramodern/libultramodern.a"
+    symbols = subprocess.check_output([nm, "-g", "--defined-only", str(archive)], text=True)
+    if any(line.split()[-2:] == ["T", "ultramodern_recv_mesg"] for line in symbols.splitlines()):
+        return archive
+    return None
+
+
+def build_shadow_renderer(reference, output, compiler, audit_present, receive_archive):
     entries = json.loads((reference / "compile_commands.json").read_text())
     entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/src/renderer.cpp"))
     original = Path(entry["file"]).read_bytes()
@@ -58,6 +66,14 @@ def build_shadow_renderer(reference, output, compiler, audit_present=False):
         "copied_sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
         "compile_command": command,
     }, indent=2))
+    original_object = Path(entry["output"]).relative_to(reference).as_posix()
+    if receive_archive:
+        provenance = json.loads((output / "shadow-source.json").read_text())
+        provenance["queue"] = {"boundary": "runtime", "symbol": "ultramodern_recv_mesg",
+                               "archive_sha256": hashlib.sha256(receive_archive.read_bytes()).hexdigest()}
+        (output / "shadow-source.json").write_text(json.dumps(provenance, indent=2))
+        return str(obj), original_object, None
+
     queue_entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/ultramodern/src/mesgqueue.cpp"))
     queue_original = Path(queue_entry["file"]).read_bytes()
     queue_source = queue_original.decode("utf-8").replace("\r\n", "\n")
@@ -77,9 +93,9 @@ def build_shadow_renderer(reference, output, compiler, audit_present=False):
     queue_command[queue_command.index("-c") + 1] = str(queue_copy)
     subprocess.run(queue_command, cwd=queue_entry["directory"], check=True)
     provenance = json.loads((output / "shadow-source.json").read_text())
-    provenance["queue"] = {"source": queue_entry["file"],
+    provenance["queue"] = {"boundary": "reference-copy", "source": queue_entry["file"],
                            "source_sha256": hashlib.sha256(queue_original).hexdigest(),
                            "copied_sha256": hashlib.sha256(queue_copy.read_bytes()).hexdigest(),
                            "compile_command": queue_command}
     (output / "shadow-source.json").write_text(json.dumps(provenance, indent=2))
-    return str(obj), Path(entry["output"]).relative_to(reference).as_posix(), str(queue_obj)
+    return str(obj), original_object, str(queue_obj)

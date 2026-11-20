@@ -94,7 +94,9 @@ unsigned shadow_rebuilds = 0;
 std::vector<uint32_t> previous_pose_identity;
 uint32_t previous_pose_sample = 0;
 unsigned shadow_receives = 0, shadow_sends = 0;
+#ifndef WDC_RUNTIME_RECEIVE_DESTINATION
 thread_local uint8_t* receive_destination_memory = nullptr;
+#endif
 unsigned skipped_publish = 0, skipped_consume = 0;
 unsigned skipped_audio_build = 0, skipped_audio_retire = 0, preserved_flare_history = 0;
 unsigned skipped_car_sound = 0;
@@ -396,6 +398,7 @@ void prototype_rt64_phase(const char* name, double ms) {
     // until BOSS returns, so nested wait logging cannot inflate full-sync time.
     rt64_phase_records.emplace_back(name, ms);
 }
+#ifndef WDC_RUNTIME_RECEIVE_DESTINATION
 bool prototype_store_message(uint8_t* runtime_ram, int32_t destination, uint32_t value) {
     if (!receive_destination_memory) return false;
     const auto address = uint32_t(destination);
@@ -404,6 +407,7 @@ bool prototype_store_message(uint8_t* runtime_ram, int32_t destination, uint32_t
     std::memcpy(receive_destination_memory + (address - 0x80000000), &value, 4);
     return true;
 }
+#endif
 std::mutex& prototype_memory_mutex() { return render_memory_mutex; }
 uint8_t* prototype_task_memory() {
     std::lock_guard lock(label_mutex);
@@ -619,14 +623,23 @@ void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
     if (runtime_ram != rdram && (queue < 0x80000000 || queue > 0x807FFFE8 || (queue & 3))) probe_exit(11);
     if (runtime_ram != rdram && destination &&
         (destination < 0x80000000 || destination > 0x807FFFFC || (destination & 3))) probe_exit(11);
-    // Runtime queue/thread structures remain authoritative, but its result
-    // store is redirected before it touches memory. Each guest thread has a
-    // native thread: thread_local routing survives a scheduler yield without
-    // redirecting another guest thread's receives.
+    if (runtime_ram == rdram) {
+        __real_osRecvMesg_recomp(rdram, ctx);
+        return;
+    }
+#ifdef WDC_RUNTIME_RECEIVE_DESTINATION
+    // The live scheduler owns the queue and its waiting threads. The aligned
+    // N64 message word goes into the owned, word-swapped bank before a sender
+    // can resume. The render bank outlives this blocking call.
+    auto* result = destination ? reinterpret_cast<OSMesg*>(rdram + (destination - 0x80000000u)) : nullptr;
+    ctx->r2 = ultramodern_recv_mesg(runtime_ram, int32_t(queue), result, int32_t(ctx->r6));
+#else
+    // Compatibility with reference runtimes built before patch 0021.
     auto* previous_destination_memory = receive_destination_memory;
-    if (runtime_ram != rdram) receive_destination_memory = rdram;
+    receive_destination_memory = rdram;
     __real_osRecvMesg_recomp(runtime_ram, ctx);
     receive_destination_memory = previous_destination_memory;
+#endif
 }
 void __real_osSendMesg_recomp(uint8_t*, recomp_context*);
 void __wrap_osSendMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
@@ -666,12 +679,23 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
     __wrap_osRecvMesg_recomp(render_ram.data(), &call);
     const bool passed = call.r2 == 0 && word(rdram, base + 128) == sentinel &&
         word(render_ram.data(), base + 128) == 0x13579BDF;
+    __wrap_osRecvMesg_recomp(render_ram.data(), &call);
+    const bool empty_unchanged = int32_t(call.r2) == -1 && word(rdram, base + 128) == sentinel &&
+        word(render_ram.data(), base + 128) == 0x13579BDF;
+    call.r5 = 0x2468ACE0;
+    __real_osSendMesg_recomp(rdram, &call);
+    if (call.r2 != 0) probe_exit(13);
+    call.r5 = 0;
+    __wrap_osRecvMesg_recomp(render_ram.data(), &call);
+    const bool discarded = call.r2 == 0;
+    __wrap_osRecvMesg_recomp(render_ram.data(), &call);
+    const bool discard_consumed = discarded && int32_t(call.r2) == -1;
     std::memcpy(rdram + physical, original_bytes.data(), original_bytes.size());
     std::memcpy(render_ram.data() + physical, owned_bytes.data(), owned_bytes.size());
-    if (!passed) probe_exit(13);
+    if (!passed || !empty_unchanged || !discard_consumed) probe_exit(13);
     verified = true;
     std::lock_guard lock(output_mutex);
-    log_record("[prototype-queue-test] {\"authoritative_sentinel_preserved\":true,\"owned_result_received\":true}\n");
+    log_record("[prototype-queue-test] {\"authoritative_sentinel_preserved\":true,\"owned_result_received\":true,\"empty_unchanged\":true,\"discard_consumed\":true}\n");
 }
 void __real_osViSwapBuffer_recomp(uint8_t*, recomp_context*);
 void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {

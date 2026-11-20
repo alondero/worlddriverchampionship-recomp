@@ -82,6 +82,7 @@ Invoke-Step "apply dependency patches (restoring patch-owned paths)" {
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0018-runtime-rsp-dma-rounding.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0019-runtime-developer-thread-snapshots.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0021-runtime-protected-function-replacements.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0021-runtime-receive-message-destination.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0014-rt64-rdp-screen-clipping.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0015-rt64-raw-triangle-scissor.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0016-rt64-rdp-edge-trapezoids.patch" },
