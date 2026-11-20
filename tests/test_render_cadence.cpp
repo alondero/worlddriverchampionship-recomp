@@ -121,9 +121,15 @@ int main() {
     assert(scheduler.begin_group({75,1},1,true,true));
     assert(scheduler.begin_group({75,1},1,false,true));
     const auto& grid = scheduler.group();
-    assert(grid.swap_offset_ns(3) == -6666666 && grid.swap_offset_ns(4) == 6666666);
+    assert(grid.swap_offset_ns(3) == 0 && grid.swap_offset_ns(4) == 13333333);
     const auto after_fence = scheduler.next(20000000 - grid.swap_offset_ns(3), 40000000);
-    assert(after_fence && after_fence->slot == 4 && grid.swap_offset_ns(5) == 20000000);
+    assert(after_fence && after_fence->slot == 4 && grid.swap_offset_ns(5) == 26666666);
+    // At 59.94 Hz the second group starts just after a fractional slot.
+    // A 2 ms capture still has time to draw both intermediate frames.
+    assert(scheduler.begin_group({2997,50},1,true,true));
+    assert(scheduler.begin_group({2997,50},1,false,true));
+    const auto offset = scheduler.group().swap_offset_ns(scheduler.group().first_slot);
+    assert(scheduler.next(2'000'000 - offset)->index == 0);
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(wdc::render::presentations_in_group(g,{144,1})==expected[g]);
     for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{60000,1001}, {120000,1001}, {2997,50}}) {

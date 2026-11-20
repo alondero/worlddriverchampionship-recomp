@@ -47,7 +47,8 @@ struct SampleSchedule {
     constexpr bool ends_on_grid() const {
         return end * rate.numerator % rate.sample_scale() == 0;
     }
-    // The first swap of an aligned sample is ready immediately. Retain the
+    // Center swap deadlines half a display period ahead of draw selection.
+    // This leaves time for capture and the authoritative draw. Retain the
     // fractional grid phase across samples. Anchor catch-up groups to their
     // newest tick. Selection and the swap wait use this same group clock.
     int64_t swap_offset_ns(uint64_t slot) const {
@@ -55,7 +56,7 @@ struct SampleSchedule {
         const auto tick = end - 1;
         const int64_t slots = int64_t(slot - 1) - int64_t(rate.last_slot(tick));
         const int64_t phase = int64_t(tick * rate.numerator % scale);
-        return (slots * int64_t(scale) - phase) * 1'000'000'000 / (30ll * rate.numerator);
+        return (slots * int64_t(scale) + int64_t(scale / 2) - phase) * 1'000'000'000 / (30ll * rate.numerator);
     }
     double alpha(unsigned draw) const {
         const uint64_t offset = (first_slot + draw - 1) * rate.sample_scale() - begin * rate.numerator;
