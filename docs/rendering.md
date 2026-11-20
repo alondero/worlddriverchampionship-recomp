@@ -675,9 +675,12 @@ The prototype can also instrument a copied RT64 full-sync path and optionally
 disable framebuffer readback for disposable owned tasks. Normal task readback
 is retained. This remains an opt-in performance experiment because geometry
 checks cannot establish framebuffer-feedback or pixel equivalence.
-The frozen `shadow-rate` mode now tests integer presentation targets from 60 to
+The frozen `shadow-rate` mode now tests rational presentation targets from 60 to
 240 Hz with rational group counts and periods, independently of 60 Hz VI/AI.
-It retains exact snapshot/ownership gates. The separate `motion-rate` mode
+It retains exact snapshot/ownership gates. The scheduler accepts an exact
+display ratio such as 120000/1001 and carries fractional nanoseconds across
+swaps. The host cadence regression checks slot count and elapsed time after
+1001 simulated seconds at that rate. The separate `motion-rate` mode
 interpolates camera/body poses on the rational presentation grid and verifies
 current endpoints whenever they fall on that grid. Those modes use nominal group timing. `motion-samples` instead derives alpha
 from consumed-sample spans and selects a bounded suffix of recent presentation

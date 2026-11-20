@@ -6,6 +6,7 @@ GNU --wrap intercepts cross-object calls; runtime counters establish that the
 sound and presentation boundaries were intercepted rather than optimized away.
 """
 import argparse
+from fractions import Fraction
 import hashlib
 import json
 import math
@@ -28,6 +29,13 @@ from swap_timing import summarize_swaps
 from present_latency import join_present_latency
 
 
+def display_rate(value):
+    try:
+        return Fraction(value)
+    except (ValueError, ZeroDivisionError) as exc:
+        raise argparse.ArgumentTypeError("Expected Hz as a number or numerator/denominator") from exc
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-build", type=Path, required=True)
@@ -41,7 +49,7 @@ def main():
     parser.add_argument("--shadow-inputs", nargs="?", const="all", choices=["all", "only"], help="Interpolate shadow ground inputs; only isolates them in pose-snapshot")
     parser.add_argument("--wheel-poses", nargs="?", const="all", choices=["all", "only"], help="Interpolate four wheel matrices per car; only is a pose-snapshot geometry control")
     parser.add_argument("--skip-late-draws", action="store_true", help="motion-samples: skip elapsed group slots before starting another draw")
-    parser.add_argument("--present-hz", type=int, default=120, help="Target 60..240 Hz for cadence modes; other modes retain 120")
+    parser.add_argument("--present-hz", type=display_rate, default=Fraction(120), help="Display Hz, e.g. 144, 59.94 or 120000/1001")
     parser.add_argument("--trials", type=int, default=6, help="Bounded trial count, 6..1800")
     parser.add_argument("--no-authority-scan", action="store_true", help="Timing experiment: omit whole-RAM diagnostics; targeted state checks remain mandatory")
     parser.add_argument("--notify-renderer-completion", action="store_true", help="Experiment: wake the owned-bank fence when renderer task/callback completion advances")
@@ -80,8 +88,12 @@ def main():
         parser.error("--skip-late-draws requires motion-samples")
     motion_rate = args.mode == "motion-rate" or sample_motion
     cadence_mode = args.mode == "shadow-rate" or motion_rate
-    if not 60 <= args.present_hz <= 240 or (not cadence_mode and args.present_hz != 120):
-        parser.error("--present-hz requires a cadence mode and a rate within 60..240")
+    if not cadence_mode and args.present_hz != 120:
+        parser.error("--present-hz requires a cadence mode")
+    if not 30 < args.present_hz <= 240 or args.present_hz.denominator > 1000000:
+        parser.error("Motion cadence requires 30 < Hz <= 240 and denominator <= 1000000")
+    if args.mode == "shadow-rate" and args.present_hz < 60:
+        parser.error("Frozen cadence requires at least one extra per group (60 Hz)")
     endpoint_mode = args.mode == "endpoint120"
     motion_mode = args.mode == "motion120" or motion_rate or endpoint_mode
     pose_mode = args.mode == "pose-snapshot" or motion_mode
@@ -229,7 +241,8 @@ def main():
     env.update(WDC_WARP=args.warp, WDC_RENDER_PROTOTYPE_MODE=args.mode,
                WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames),
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
-               WDC_RENDER_PROTOTYPE_PRESENT_HZ=str(args.present_hz),
+               WDC_RENDER_PROTOTYPE_PRESENT_HZ=str(args.present_hz.numerator),
+               WDC_RENDER_PROTOTYPE_RATE_DENOMINATOR=str(args.present_hz.denominator),
                WDC_RENDER_PROTOTYPE_SHADOW_OFFSET=str(args.shadow_eye_offset))
     if args.hold_accelerator:
         env["WDC_RENDER_PROTOTYPE_ACCELERATOR"] = "1"
@@ -263,7 +276,8 @@ def main():
     (run_dir / "setup.json").write_text(json.dumps({"warp": args.warp, "mode": args.mode,
                                                   "settle_frames": args.settle_frames,
                                                   "trials": args.trials,
-                                                  "present_hz": args.present_hz,
+                                                  "present_hz": float(args.present_hz),
+                                                  "present_rate_ratio": str(args.present_hz),
                                                   "skip_late_draws": args.skip_late_draws,
                                                   "wheel_poses": args.wheel_poses,
                                                   "shadow_inputs": args.shadow_inputs,
@@ -509,7 +523,7 @@ def main():
 
         intervals = [(b["us"]-a["us"])/1000 for a, b in zip(selected, selected[1:])]
         swap_rate = 1000/statistics.mean(intervals)
-        timing = summarize_swaps(selected, args.present_hz)
+        timing = summarize_swaps(selected, float(args.present_hz))
         (run_dir / "swap-timing.json").write_text(json.dumps(timing, indent=2))
         print(f"RT64 swap audit: {len(selected)} successful ordered swaps; "
               f"{swap_rate:.1f}/s; "
@@ -571,7 +585,7 @@ def main():
             end = begin + gap
             last = end * args.present_hz // 30
             available = last - begin * args.present_hz // 30
-            count = min(available, (args.present_hz + 29) // 30)
+            count = min(available, math.ceil(args.present_hz / 30))
             expected = dict(frame=row['frame'], reset=record['reset'], begin=begin, end=end,
                             first_slot=last-count+1, count=count, skipped=available-count)
             if record != expected:

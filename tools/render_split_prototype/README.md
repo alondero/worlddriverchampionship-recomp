@@ -294,7 +294,7 @@ for roughly one minute at the nominal 30 groups/s (6..1800, default 6); increase
 | `render-only` | Two extra draws also skipping audio command generation/retirement and preserving lens-flare screen-position history |
 | `camera-snapshot` | Two render-only extras using a frozen 128-byte camera copy in owned transform-arena space; restore view/current-camera references after each draw |
 | `motion-samples` | Camera/body interpolation across actual consumed-sample spans, bounded to recent presentation slots |
-| `motion-rate` | Owned camera/body interpolation on a rational 60..240 Hz time grid; normal presentation suppressed |
+| `motion-rate` | Owned camera/body interpolation on a rational display grid; normal presentation suppressed |
 | `shadow-rate` | Frozen owned-RAM repeatability with rational 60..240 Hz presentation counts and pacing; no interpolation |
 | `shadow-snapshot` | Drain the native pipeline, capture an owned 8 MiB image, and rebuild each extra in a private RAM bank; CPU/BOSS/renderer use that bank while runtime queues stay authoritative |
 | `present120` | Three render-only extras; pace swaps at 120 Hz and queue completed framebuffers directly to the graphics worker, retaining 60 Hz VI/AI events |
@@ -902,7 +902,11 @@ Strict geometry/state gates are mandatory, with variable task counts, cumulative
 audio gating and ordered presentation labels checked independently by the runner.
 Modes other than `shadow-rate`, `motion-rate` and `motion-samples` retain their
 120 Hz setting.
-Targets are integer rates from 60..240.
+Targets accept integers, decimals and exact ratios such as `120000/1001`.
+The runner records the reduced ratio in `setup.json`. A decimal such as
+`119.88` requests that exact decimal. Motion modes accept rates above
+30 Hz through 240 Hz. The frozen control starts at 60 Hz so every
+30 Hz group contains a normal draw and at least one owned repeat.
 
 ```powershell
 python tools/render_split_prototype/test_cadence.py --reference-build build
@@ -911,7 +915,10 @@ python tools/render_split_prototype/run.py --reference-build build --rom "World 
 
 The host test verifies exact presentation totals and accumulated period lengths
 for one simulated hour at 60, 75, 90, 120, 144, 165 and 240 Hz. It does not wait
-an hour or establish native performance.
+an hour or establish native performance. The same test runs under CTest as
+`wdc_render_cadence`. It also checks gap-free slots, interpolated positions
+and exact nanosecond totals over a full denominator interval at 60000/1001,
+120000/1001 and decimal 59.94 Hz.
 
 `motion-rate --present-hz 144` adds camera/body interpolation to the rational
 cadence. Each group draws all scheduled poses in owned RAM and suppresses the

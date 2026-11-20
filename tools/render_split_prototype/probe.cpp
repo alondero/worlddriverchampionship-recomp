@@ -10,7 +10,7 @@
 #include "src/guest_context.h"
 #include "pose.h"
 #include "vectors.h"
-#include "cadence.h"
+#include "src/render_cadence.h"
 #include "render_bank.h"
 #include "async_log.h"
 #ifdef WDC_PROTOTYPE_SAMPLE_WORKER
@@ -216,14 +216,25 @@ bool skip_late_draws() {
 bool motion_rate_mode() { return std::strcmp(mode(), "motion-rate") == 0 || sample_motion_mode(); }
 bool cadence_mode() { return std::strcmp(mode(), "shadow-rate") == 0 || motion_rate_mode(); }
 bool frozen_present_mode() { return std::strcmp(mode(), "shadow120") == 0 || std::strcmp(mode(), "shadow-rate") == 0; }
-unsigned present_hz() {
-    static const unsigned hz = [] {
-        const char* value = std::getenv("WDC_RENDER_PROTOTYPE_PRESENT_HZ");
-        const unsigned rate = value ? unsigned(std::strtoul(value, nullptr, 10)) : 120;
-        if (rate < 60 || rate > 240) probe_exit(20);
-        return rate;
+wdc::render::DisplayRate present_rate() {
+    static const auto rate = [] {
+        auto field = [](const char* key, unsigned fallback, unsigned maximum) {
+            const char* value = std::getenv(key);
+            if (!value) return fallback;
+            char* end;
+            const unsigned long parsed = std::strtoul(value, &end, 10);
+            if (*end || !parsed || parsed > maximum) probe_exit(20);
+            return unsigned(parsed);
+        };
+        wdc::render::DisplayRate result{
+            field("WDC_RENDER_PROTOTYPE_PRESENT_HZ", 120, 240000000),
+            field("WDC_RENDER_PROTOTYPE_RATE_DENOMINATOR", 1, 1000000)};
+        if ((frozen_present_mode() ? result.numerator < 60u * result.denominator :
+             result.numerator <= 30u * result.denominator) ||
+            result.numerator > 240u * result.denominator) probe_exit(20);
+        return result;
     }();
-    return hz;
+    return rate;
 }
 bool endpoint_mode() { return std::strcmp(mode(), "endpoint120") == 0; }
 bool motion_mode() { return std::strcmp(mode(), "motion120") == 0 || motion_rate_mode() || endpoint_mode(); }
@@ -678,7 +689,7 @@ void __wrap_osViSwapBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
             ultramodern::wait_for_external_message_timed(queue_memory(rdram), 1);
             now = std::chrono::steady_clock::now();
         }
-        static prototype::PresentationPeriod period(present_hz());
+        static wdc::render::PresentationPeriod period(present_rate());
         deadline += std::chrono::nanoseconds(period.next_ns());
     }
     if (inside_swap) {
@@ -1227,13 +1238,13 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     // timeline arithmetic changes; no counter or clock is written. The fixed
     // address lies within 8 MiB; pose_reset handles zero/>4 gaps and identity
     // discontinuities before scheduling. Unsigned subtraction handles wrap.
-    prototype::SampleSchedule sample_schedule{};
+    wdc::render::SampleSchedule sample_schedule{};
     if (sample_motion_mode()) {
         static uint64_t sample_timeline = 0;
         if (pose_reset) sample_timeline = 0;
         const unsigned gap = pose_reset ? 1 : samples - previous_pose_sample;
-        sample_schedule = prototype::schedule_samples(sample_timeline, sample_timeline + gap,
-            present_hz(), (present_hz() + 29) / 30);
+        sample_schedule = wdc::render::schedule_samples(sample_timeline, sample_timeline + gap,
+            present_rate(), present_rate().draw_budget());
         sample_timeline += gap;
         std::lock_guard lock(output_mutex);
         log_record("[prototype-schedule] {\"frame\":%u,\"reset\":%s,\"begin\":%llu,\"end\":%llu,\"first_slot\":%llu,\"count\":%u,\"skipped\":%u}\n",
@@ -1243,14 +1254,14 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     }
     const auto start = std::chrono::steady_clock::now();
     extra = true;
-    const unsigned repeats = sample_motion_mode() ? sample_schedule.count : cadence_mode() ? prototype::presentations_in_group(trials, present_hz()) - unsigned(!motion_rate_mode()) : endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
+    const unsigned repeats = sample_motion_mode() ? sample_schedule.count : cadence_mode() ? wdc::render::presentations_in_group(trials, present_rate()) - unsigned(!motion_rate_mode()) : endpoint_mode() ? 3 : motion_mode() ? 4 : direct_present || pose_mode() ? 3 : (std::strcmp(mode(), "repeat") == 0 || render_only() ? 2 : 1);
     unsigned selected_index = 0;
     for (draw_number = 1; draw_number <= repeats; ++draw_number) {
         if (skip_late_draws()) {
             const unsigned next = draw_number == 1 ? 0 : selected_index + 1;
             const uint64_t elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - start).count();
-            selected_index = prototype::due_slot(next, repeats, elapsed, present_hz());
+            selected_index = wdc::render::due_slot(next, repeats, elapsed, present_rate());
             std::lock_guard lock(output_mutex);
             log_record("[prototype-selection] {\"frame\":%u,\"draw\":%u,\"elapsed_ns\":%llu,\"index\":%u,\"slot\":%llu,\"skipped\":%u}\n",
                 race_frame, draw_number, (unsigned long long)elapsed, selected_index,
@@ -1281,7 +1292,7 @@ void run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             if (pose_mode()) {
                 // pose-snapshot repeats a midpoint to validate determinism;
                 // motion120 presents increasing quarter steps to the endpoint.
-                const double alpha = sample_motion_mode() ? sample_schedule.alpha(skip_late_draws() ? selected_index + 1 : draw_number) : motion_rate_mode() ? prototype::presentation_alpha(trials, draw_number, present_hz()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
+                const double alpha = sample_motion_mode() ? sample_schedule.alpha(skip_late_draws() ? selected_index + 1 : draw_number) : motion_rate_mode() ? wdc::render::presentation_alpha(trials, draw_number, present_rate()) : motion_mode() ? draw_number / 4.0 : draw_number == 3 ? 1.0 : 0.5;
                 unsigned changed = 0, changed_bodies = 0, changed_wheels = 0;
                 bool camera_changed = false;
                 for (unsigned i = 0; i < current_poses.size(); ++i) {

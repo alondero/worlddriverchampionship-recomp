@@ -17,7 +17,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     exe = output / "cadence_test.exe"
     subprocess.run([compiler, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
-                    str(here / "cadence_test.cpp"), "-o", str(exe)], check=True)
+                    "-I", str(here.parents[1] / "src"), str(here.parents[1] / "tests/test_render_cadence.cpp"), "-o", str(exe)], check=True)
     env = dict(os.environ)
     env["PATH"] = str(Path(compiler).parent) + os.pathsep + env.get("PATH", "")
     subprocess.run([str(exe)], check=True, env=env)

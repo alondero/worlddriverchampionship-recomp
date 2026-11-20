@@ -1,4 +1,7 @@
 if(BUILD_TESTING)
+    add_executable(wdc_render_cadence_tests tests/test_render_cadence.cpp)
+    target_include_directories(wdc_render_cadence_tests PRIVATE src)
+    add_test(NAME wdc_render_cadence COMMAND wdc_render_cadence_tests)
     add_executable(wdc_savestate_tests tests/test_savestate.cpp src/savestate.cpp)
     target_include_directories(wdc_savestate_tests PRIVATE src
         "${N64MR}/N64Recomp/include" "${N64MR}/ultramodern/include")

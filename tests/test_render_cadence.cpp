@@ -1,17 +1,18 @@
-#include "cadence.h"
+#undef NDEBUG
+#include "render_cadence.h"
 #include <cassert>
 #include <initializer_list>
 #include <cstdio>
 #include <cmath>
 int main() {
     for (unsigned hz : {60u, 75u, 90u, 120u, 144u, 165u, 240u}) {
-        prototype::PresentationPeriod period(hz);
+        wdc::render::PresentationPeriod period({hz,1});
         // A constant-velocity pose must advance uniformly across group edges,
         // including groups that do not land on the current endpoint.
         double previous = 0;
         for (unsigned g=0; g<300; ++g) {
-            for (unsigned d=1; d<=prototype::presentations_in_group(g,hz); ++d) {
-                const double alpha=prototype::presentation_alpha(g,d,hz);
+            for (unsigned d=1; d<=wdc::render::presentations_in_group(g,{hz,1}); ++d) {
+                const double alpha=wdc::render::presentation_alpha(g,d,{hz,1});
                 assert(alpha > 0 && alpha <= 1);
                 const double position=(g+alpha)/30;
                 assert(std::abs(position-previous-1.0/hz)<1e-12);
@@ -22,13 +23,13 @@ int main() {
         for (unsigned second=0; second<3600; ++second) {
             for (unsigned f=0; f<hz; ++f) elapsed += period.next_ns();
             assert(elapsed == uint64_t(second+1)*1000000000);
-            for (unsigned g=0; g<30; ++g) frames += prototype::presentations_in_group(second*30+g,hz);
+            for (unsigned g=0; g<30; ++g) frames += wdc::render::presentations_in_group(second*30+g,{hz,1});
             assert(frames == uint64_t(second+1)*hz);
         }
     }
     // Source advances from sample 1 to 3: retain the latest five 144 Hz
     // slots, not five evenly spaced blends across the two-sample gap.
-    const auto gap=prototype::schedule_samples(1,3,144,5);
+    const auto gap=wdc::render::schedule_samples(1,3,{144,1},5);
     assert(gap.first_slot==10 && gap.count==5 && gap.skipped==5);
     assert(std::abs(gap.alpha(1)-13.0/24)<1e-12);
     assert(std::abs(gap.alpha(5)-23.0/24)<1e-12);
@@ -36,7 +37,7 @@ int main() {
         uint64_t sample=0, previous_slot=0;
         for(unsigned interval=0; interval<300; ++interval) {
             const unsigned delta=1+interval%4, budget=(hz+29)/30;
-            auto schedule=prototype::schedule_samples(sample,sample+delta,hz,budget);
+            auto schedule=wdc::render::schedule_samples(sample,sample+delta,{hz,1},budget);
             assert(schedule.count<=budget && schedule.count>0);
             assert(schedule.first_slot>previous_slot);
             for(unsigned d=1; d<=schedule.count; ++d) {
@@ -49,19 +50,38 @@ int main() {
             sample+=delta;
         }
     }
-    assert(prototype::due_slot(0,5,0,144)==0);
-    assert(prototype::due_slot(1,5,1000000,144)==1); // No repeated slot when early.
-    assert(prototype::due_slot(1,5,20833333,144)==2); // Before third-slot deadline.
-    assert(prototype::due_slot(1,5,20833334,144)==3);
-    assert(prototype::due_slot(2,5,1000000000,144)==4); // Keep final pose after stall.
+    assert(wdc::render::due_slot(0,5,0,{144,1})==0);
+    assert(wdc::render::due_slot(1,5,1000000,{144,1})==1); // No repeated slot when early.
+    assert(wdc::render::due_slot(1,5,20833333,{144,1})==2); // Before third-slot deadline.
+    assert(wdc::render::due_slot(1,5,20833334,{144,1})==3);
+    assert(wdc::render::due_slot(2,5,1000000000,{144,1})==4); // Keep final pose after stall.
+    // First fractional deadline is 16,683,333 and one third ns.
+    assert(wdc::render::due_slot(0, 2, 16683333, {60000,1001}) == 0);
+    assert(wdc::render::due_slot(0, 2, 16683334, {60000,1001}) == 1);
+    assert(wdc::render::due_slot(0, 8, UINT64_MAX, {120000,1001}) == 7);
     unsigned cursor=0, draws=0;
     for(uint64_t elapsed : {0ull, 10000000ull, 23000000ull, 35000000ull}) {
-        const auto selected=prototype::due_slot(cursor,5,elapsed,144);
+        const auto selected=wdc::render::due_slot(cursor,5,elapsed,{144,1});
         assert(selected>=cursor && selected<5);
         cursor=selected+1; ++draws;
     }
     assert(cursor==5 && draws==4); // One stale slot omitted, latest retained.
     unsigned expected[]={4,5,5,5,5};
-    for(unsigned g=0; g<5; ++g) assert(prototype::presentations_in_group(g,144)==expected[g]);
+    for(unsigned g=0; g<5; ++g) assert(wdc::render::presentations_in_group(g,{144,1})==expected[g]);
+    for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{60000,1001}, {120000,1001}, {2997,50}}) {
+        wdc::render::PresentationPeriod period(rate);
+        uint64_t elapsed = 0, slots = 0;
+        for (unsigned sample = 0; sample < 30 * rate.denominator; ++sample) {
+            auto schedule = wdc::render::schedule_samples(sample, sample + 1, rate, rate.draw_budget());
+            assert(schedule.first_slot == slots + 1 && schedule.skipped == 0);
+            for (unsigned i = 1; i <= schedule.count; ++i) {
+                elapsed += period.next_ns();
+                ++slots;
+                const double seconds = (sample + schedule.alpha(i)) / 30;
+                assert(std::abs(seconds - double(slots) * rate.denominator / rate.numerator) < 1e-12);
+            }
+        }
+        assert(slots == rate.numerator && elapsed == 1000000000ull * rate.denominator);
+    }
     puts("PASS: rational cadence and nanosecond pacing remain exact over one hour");
 }
