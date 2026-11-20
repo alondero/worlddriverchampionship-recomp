@@ -1247,6 +1247,6 @@ python3 tools/render_split_prototype/xpresent.py "$window" --warmup 2 --seconds 
 
 This observes the server's pixmap completion timestamps and counts skipped
 presents separately. Native Wayland and Gamescope WSI bypass paths require
-other instrumentation. A native Deck XWayland run at 1× in the eight-car
+other instrumentation. A native Deck XWayland run at 1Ã— in the eight-car
 track 2 race completed 841 flips at 85.7/s after warm-up. Of 840 intervals,
 798 took one refresh and 42 took two (median 11.11 ms, p95 22.16 ms).

@@ -6,13 +6,29 @@ measured facts, the rules learned while measuring them, and the questions that
 are still open. RT64 integration details (clipping, aspect, HUD fixes) live in
 the [renderer reference](reference/renderer.md).
 
-The experimental player accepts `WDC_EXPERIMENTAL_DISPLAY_HZ` for single-view
-racing with the stock 30 Hz simulation. It draws intermediate poses before
+Under **Graphics → Presentation rate**, the experimental interpolation modes
+target the display refresh rate or a custom rate in single-view races with
+stock 30 Hz simulation. If Native 60 fps was active, start a new race to switch the input worker to 30 Hz.
+Developers can also set a rational target with `WDC_EXPERIMENTAL_DISPLAY_HZ`.
+The player draws intermediate poses before
 the authoritative draw. At a rate such as 90 Hz, that draw supplies every
 third presentation. At a fractional rate, it supplies a presentation only
 when the simulation sample falls on the display grid. Its audio and gameplay
 work still runs once per group. The dispatcher returns presentation to VI
 retrace on scene exit and discards pose history after a checkpoint load.
+
+The Steam Deck OLED's 90 Hz XWayland display completed 89.2 and 89.0
+pixmaps/s in two warmed ten-second samples on track 2 with eight cars at
+1× internal resolution. The 95th-percentile interval was 11.24 ms or less.
+These measurements used the native Vulkan player with runtime patches
+0028 and 0029. With RT64 patch 0030 and automatic resolution, 32-second
+windows on tracks 1, 2 and 3 measured 88.75, 89.75 and 88.91 completions/s.
+Checkpoints on tracks 1 and 3 confirmed the player car moved during the run.
+The [presentation measurements](https://github.com/alondero/worlddriverchampionship-recomp/pull/61)
+and [observation tools](../tools/render_split_prototype/README.md) distinguish
+display completions from RT64 admissions. A separate Windows driving test
+compares all sixteen words of the player-car transform on each physics tick
+from a common checkpoint at stock, 90 and 144 Hz.
 
 The prototype's high-rate renderer callbacks are not equivalent to high-rate
 display. An RT64 swap audit found that unchanged VI registers and framebuffer
