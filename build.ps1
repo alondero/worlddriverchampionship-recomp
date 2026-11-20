@@ -87,7 +87,8 @@ Invoke-Step "apply dependency patches (restoring patch-owned paths)" {
             @{ Sub = "lib/rt64"; Patch = "patches/0014-rt64-rdp-screen-clipping.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0015-rt64-raw-triangle-scissor.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0016-rt64-rdp-edge-trapezoids.patch" },
-            @{ Sub = "lib/rt64"; Patch = "patches/0020-rt64-opaque-subpixel-coverage.patch" }
+            @{ Sub = "lib/rt64"; Patch = "patches/0020-rt64-opaque-subpixel-coverage.patch" },
+            @{ Sub = "lib/rt64"; Patch = "patches/0023-rt64-explicit-presentation.patch" }
         )
         # Group by submodule so each series is applied in one ordered run. The
         # helper restores the paths a series owns to the pinned submodule state

@@ -57,6 +57,7 @@ Both build scripts apply patch 0021 so the runtime can protect the native
 projection entry from mod replacement.
 Runtime patches 0021 and 0022 supply the owned message destination and
 independent swap presentation used by the fixed-rate rendering prototype.
+RT64 patch 0023 lets its renderer request a presentation for an unchanged VI.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 

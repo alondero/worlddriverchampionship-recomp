@@ -253,7 +253,7 @@ public:
                 vi->VI_Y_SCALE_REG, vi->VI_H_START_REG, vi->VI_V_START_REG);
         }
         const auto previous_id = app->state->presentId;
-        app->updateScreen();
+        app->updateScreen(frame_source && frame_source->force_present && frame_source->force_present());
         if (frame_source && frame_source->screen_updated) {
             frame_source->screen_updated(previous_id, app->state->presentId);
         }

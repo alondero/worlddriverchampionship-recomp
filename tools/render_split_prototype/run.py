@@ -186,9 +186,15 @@ def main():
             (output / "runtime-source.json").write_text(json.dumps({
                 "boundary": "runtime", "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest()
             }, indent=2))
+    compiled_explicit = False
+    if args.explicit_present:
+        renderer_object = next(reference / obj for obj in objects if obj.replace("\\", "/").endswith("/src/renderer.cpp.obj"))
+        symbols = subprocess.check_output([nm, "-C", "-u", str(renderer_object)], text=True)
+        compiled_explicit = " U RT64::Application::updateScreen(bool)" in symbols
     probe = output / "probe.o"
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
                     *(["-DWDC_PROTOTYPE_AUDIT_PRESENT"] if args.audit_present else []),
+                    *(["-DWDC_PLAYER_EXPLICIT_PRESENT"] if compiled_explicit else []),
                     *(["-DWDC_RUNTIME_RECEIVE_DESTINATION"] if receive_archive else []),
                     *(["-DWDC_RUNTIME_SWAP_PRESENTATION"] if compiled_presentation else []),
                     *(["-DWDC_PROTOTYPE_PRESENT"] if independent_present else []),
@@ -205,8 +211,13 @@ def main():
         objects.append(build_fast_hash(reference, output, compiler, args.cache_palette_indices, args.batch_texture_hash))
     if args.audit_present:
         objects.append(build_present_audit(reference, output, compiler, args.capture_frames))
-    if args.profile_rt64 or args.explicit_present:
-        objects.append(build_rt64_profile(reference, output, compiler, profile=args.profile_rt64, explicit_present=args.explicit_present))
+    if args.profile_rt64 or (args.explicit_present and not compiled_explicit):
+        objects.append(build_rt64_profile(reference, output, compiler, profile=args.profile_rt64,
+                                          explicit_present=args.explicit_present and not compiled_explicit))
+    if compiled_explicit:
+        (output / "explicit-present-source.json").write_text(json.dumps({
+            "boundary": "player", "renderer_sha256": hashlib.sha256(renderer_object.read_bytes()).hexdigest()
+        }, indent=2))
     runtime = [str(build_runtime(reference, output, compiler))] if independent_present and not compiled_presentation else []
     if owned_ram:
         replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler, args.audit_present, receive_archive, nm)
@@ -254,7 +265,9 @@ def main():
         shutil.copy2(output / "draw-boundary-source.json", run_dir / "draw-boundary-source.json")
     if args.audit_present:
         shutil.copy2(output / "present-audit-source.json", run_dir / "present-audit-source.json")
-    if args.profile_rt64 or args.explicit_present:
+    if compiled_explicit:
+        shutil.copy2(output / "explicit-present-source.json", run_dir / "explicit-present-source.json")
+    if args.profile_rt64 or (args.explicit_present and not compiled_explicit):
         shutil.copy2(output / "rt64-profile-source.json", run_dir / "rt64-profile-source.json")
     if independent_present:
         shutil.copy2(output / "runtime-source.json", run_dir / "runtime-source.json")

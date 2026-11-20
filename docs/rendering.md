@@ -18,6 +18,12 @@ callback timing results must not be read as achieved display rates. See the
 [prototype instructions](../tools/render_split_prototype/README.md) for both
 the failed controls and the explicit-submission experiment.
 
+With RT64 patch 0023 the compiled player renderer can explicitly request a
+swap even when change detection finds identical VI registers and framebuffer
+RAM. A frozen track 2 test with owned-task readback disabled captured all
+15 selected images. Within each of six simulation groups the ordered triangle
+headers and 1280 by 720 RGB pixels matched the original draw exactly.
+
 Patch 0022 separates screen submission from the VI clock. In the prototype,
 `osViSwapBuffer` copies the pending VI registers into a graphics-queue action.
 Only retrace advances the guest's current framebuffer and delivers VI/AI

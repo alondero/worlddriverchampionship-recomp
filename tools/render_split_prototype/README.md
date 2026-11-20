@@ -191,14 +191,16 @@ qualification. Capture-induced sample gaps also make this unsuitable for
 judging chronological smoothness.
 
 Use `--explicit-present --audit-present` to submit every prototype screen
-update even when RT64 sees unchanged VI/framebuffer RAM. The copied state
-object adds a graphics-thread-local request to `State::updateScreen`'s enqueue
-condition; ordinary VI callbacks retain deduplication. It preserves VI history,
-framebuffer handling, workload/present IDs and queue fences. The audit and all
-retained state/geometry checks are mandatory, and the measured swap rate must
-pass the target timing band as well as the callback rate. This option can be
-combined with `--profile-rt64`; `rt64-profile-source.json` records both flags,
-even when profiling is disabled and only explicit submission is enabled.
+update even when RT64 sees unchanged VI/framebuffer RAM. On builds with patch 0023 the compiled player renderer
+forwards the current frame source's explicit request to RT64. This enqueues
+the frame even with identical VI registers and framebuffer RAM. Ordinary VI
+updates retain RT64's change detection. Both paths use the same VI history,
+framebuffer handling, workload/present IDs and queue fences.
+`explicit-present-source.json` records the compiled renderer hash.
+Older builds use a copied state object for this experiment. Optional
+`--profile-rt64` instrumentation still compiles a separate state object.
+`rt64-profile-source.json` identifies each copied object and its flags.
+The runner checks the selected swap order, geometry, state, and timing.
 
 A 30-group 144 Hz practice run with wheel/shadow interpolation and sample/deadline
 scheduling produced 67 selected frames and 67 successful ordered swaps. All

@@ -586,9 +586,12 @@ const wdc::render::FrameSource* __wrap_wdc_render_frame_source() {
         },
         prototype_renderer_finished,
 #ifdef WDC_PROTOTYPE_AUDIT_PRESENT
-        prototype_present_bound
+        prototype_present_bound,
 #else
-        nullptr
+        nullptr,
+#endif
+#ifdef WDC_PLAYER_EXPLICIT_PRESENT
+        prototype_explicit_present
 #endif
     };
     return &source;
