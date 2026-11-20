@@ -678,13 +678,22 @@ source. This preserves source changes on pages never written by rendering,
 without repeating full-bank copying and comparison at the first draw.
 Default runs retain full snapshot capture and full-copy restoration.
 
-The existing pipeline drain and renderer-memory mutex exclude writers while
+The player's `capture_race_sample` drains the guest transform pipeline with a
+rebound register context, waits for renderer tasks and screen updates, then
+locks the bank and captures live RDRAM. `bank-source.json` identifies the
+bank and capture objects used for each run. Older reference players link those
+objects from the current source. The host test `wdc_render_bank` exercises both
+capture order and restore behavior.
+
+The pipeline drain and renderer-memory mutex exclude writers while
 the page list is read, pages are restored, and tracking is reset. Tracking is
 reset after the restore so those copies do not pollute the next draw's list.
 This exclusion is required by the [Windows write-watch contract](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-getwritewatch).
 The storage retains raw guest byte order, stays host-owned and never replaces
-authoritative RAM. API failure, unsupported page size or an out-of-bank page
-aborts the probe. This is Windows-only experimental tooling.
+authoritative RAM. Platforms without Windows write tracking use a full copy.
+If tracking fails during a race, the bank keeps its writable address and
+uses full copies thereafter. Runs requesting strict write-watch evidence
+require a valid tracked page size.
 
 The option forces strict checks. `bank-captures.json` requires one full-source
 capture or comparison per trial; `bank-resets.json` requires one restore per
@@ -693,8 +702,8 @@ compared bytes, page size and verification. `--verify-write-watch` compares each
 captured snapshot with authoritative RAM and each restored bank with that
 snapshot before applying interpolated inputs. It requires `--write-watch-reset`.
 These comparisons add to the `owned_capture` and reset timings, so omit
-verification for performance measurements. Capture timing also includes its
-diagnostic output; overlapping intervals must not be added as independent work.
+verification for performance measurements. The `owned_capture_and_drain` timer includes the guest drain, host wait, capture
+and diagnostic output. Earlier `owned_capture` timings started after the drain.
 
 ```powershell
 python tools/render_split_prototype/test_render_bank.py --reference-build build

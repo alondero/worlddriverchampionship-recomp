@@ -1,15 +1,39 @@
-#include "render_bank.h"
+#undef NDEBUG
+#include "race_render_sample.h"
+#include <cstring>
+#include <cstdio>
 #include <cassert>
 #include <thread>
 #include <set>
 
-int main() {
-    std::vector<uint8_t> snapshot(prototype::RenderBank::size);
-    for (size_t i = 0; i < snapshot.size(); ++i) snapshot[i] = uint8_t(i * 17 + i / 257);
-    prototype::RenderBank bank;
+namespace {
+bool guest_retired = false;
+void finish_renderer(uint8_t* rdram) {
+    assert(guest_retired);
+    rdram[0] = 42;
+}
+}
+extern "C" void func_800252D0(uint8_t* rdram, recomp_context* ctx) {
+    assert(ctx->f_odd == &ctx->f0.u32h);
+    ctx->f_odd[0] = 777;
+    ctx->r29 = 0;
+    rdram[1] = 43;
+    guest_retired = true;
+}
+
+void test_write_watch(std::vector<uint8_t>& snapshot) {
+    wdc::render::RenderBank bank;
     assert(bank.empty());
     bank.initialize(true);
     const size_t page = bank.page_size();
+    if (!page) {
+        bank.capture(snapshot.data());
+        assert(bank.restore().copied_bytes == snapshot.size());
+        bank.data()[0] ^= 1;
+        assert(bank.restore().copied_bytes == snapshot.size());
+        assert(std::memcmp(bank.data(), snapshot.data(), snapshot.size()) == 0);
+        return;
+    }
     bank.capture(snapshot.data());
     assert(bank.restore().copied_bytes == snapshot.size());
     assert(std::memcmp(bank.data(), snapshot.data(), snapshot.size()) == 0);
@@ -68,7 +92,14 @@ int main() {
     assert(bank.restore().copied_bytes == 2 * page);
     assert(std::memcmp(bank.data(), snapshot.data(), snapshot.size()) == 0);
     assert(std::memcmp(bank.snapshot(), snapshot.data(), snapshot.size()) == 0);
-    prototype::RenderBank ordinary;
+}
+
+int main() {
+    std::vector<uint8_t> snapshot(wdc::render::RenderBank::size);
+    for (size_t i = 0; i < snapshot.size(); ++i) snapshot[i] = uint8_t(i * 17 + i / 257);
+    test_write_watch(snapshot);
+    constexpr size_t page = 4096;
+    wdc::render::RenderBank ordinary;
     ordinary.initialize(false);
     ordinary.capture(snapshot.data());
     assert(ordinary.restore().copied_bytes == snapshot.size());
@@ -79,5 +110,15 @@ int main() {
     assert(ordinary.capture(snapshot.data()).copied_bytes == snapshot.size());
     assert(ordinary.restore().copied_bytes == snapshot.size());
     assert(std::memcmp(ordinary.data(), snapshot.data(), snapshot.size()) == 0);
-    std::puts("PASS: write-watch restores exact bytes across pages, threads, equal stores and new snapshots");
+    recomp_context caller{};
+    caller.f_odd = &caller.f0.u32h;
+    caller.r29 = 123;
+    wdc::render::capture_race_sample(snapshot.data(), caller, false, finish_renderer);
+    auto& race = wdc::render::race_render_bank();
+    assert(caller.r29 == 123 && *caller.f_odd == 0);
+    assert(race.snapshot()[0] == 42 && race.snapshot()[1] == 43);
+    assert(race.restore().copied_bytes == race.size);
+    race.data()[0] = 0;
+    assert(snapshot[0] == 42 && race.snapshot()[0] == 42);
+    std::puts("PASS: race capture drains guest and renderer before freezing the snapshot");
 }

@@ -169,6 +169,21 @@ def main():
     if "$" in inputs:
         raise SystemExit("Prototype linker does not support escaped Ninja object paths")
     objects = shlex.split(inputs)
+    bank_sources = {}
+    for stem in ("render_bank", "race_render_sample"):
+        relative = next((obj for obj in objects if obj.replace("\\", "/").endswith(f"/src/{stem}.cpp.obj")), None)
+        if relative:
+            obj_path = reference / relative
+        else:
+            # Link current snapshot code into a reference player predating the boundary.
+            obj_path = output / f"{stem}.o"
+            subprocess.run([compiler, "-std=c++20", "-O2", "-fno-strict-aliasing", "-I",
+                            str(source / "lib/N64ModernRuntime/N64Recomp/include"), "-c",
+                            str(here.parents[1] / f"src/{stem}.cpp"), "-o", str(obj_path)], check=True)
+            objects.append(str(obj_path))
+        if owned_ram:
+            bank_sources[stem] = {"boundary": "player" if relative else "harness",
+                                  "object_sha256": hashlib.sha256(obj_path.read_bytes()).hexdigest()}
     def variable(name):
         found = re.search(r"^  " + name + r" = (.*)$", block, re.M)
         return shlex.split(found[1].replace("\\", "/")) if found else []
@@ -257,6 +272,8 @@ def main():
     mode_dir = output / args.mode
     mode_dir.mkdir(exist_ok=True)
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=mode_dir))
+    if owned_ram:
+        (run_dir / "bank-source.json").write_text(json.dumps(bank_sources, indent=2))
     if args.sample_render_worker:
         shutil.copy2(exe, run_dir / "sampled-renderer.exe")
     if args.fast_texture_hash:

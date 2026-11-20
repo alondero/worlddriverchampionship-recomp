@@ -654,7 +654,12 @@ drains BOSS before switching memory owners. The compiled renderer can take its
 task bank from a frame source. BOSS, RT64 and the queued screen update read
 that bank, while runtime queues and threads remain authoritative. The source
 and renderer share a mutex during bank access. The producer also waits for
-both task and screen completion before resetting a bank.
+both task and screen completion before resetting a bank. The player now owns
+the race snapshot and writable image. Its capture routine drains the ROM
+transform pipeline using a rebound guest context, waits for the renderer,
+and copies the eight MiB under the same mutex that guards renderer access.
+The writable image keeps a stable address across samples. Windows can restore
+only changed pages, while the portable path restores the whole image.
 Runtime patch 0021 lets the caller supply a message destination in the owned
 bank. A live queue test checks the received word, the corresponding authoritative
 sentinel, an empty nonblocking receive and a discarded message. Eight-car geometry repeats exactly; changing only the owned camera

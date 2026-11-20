@@ -16,8 +16,11 @@ def main():
     output = here.parents[1] / "build/render-split-prototype"
     output.mkdir(parents=True, exist_ok=True)
     exe = output / "render_bank_test.exe"
+    source = Path(re.search(r"^CMAKE_HOME_DIRECTORY:INTERNAL=(.*)$", cache, re.M)[1])
     subprocess.run([compiler, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
-                    str(here / "render_bank_test.cpp"), "-o", str(exe)], check=True)
+                    "-I", str(source / "lib/N64ModernRuntime/N64Recomp/include"),
+                    "-I", str(here.parents[1] / "src"), str(here.parents[1] / "src/race_render_sample.cpp"), str(here.parents[1] / "src/render_bank.cpp"),
+                    str(here.parents[1] / "tests/test_render_bank.cpp"), "-o", str(exe)], check=True)
     env = dict(os.environ)
     env["PATH"] = str(Path(compiler).parent) + os.pathsep + env.get("PATH", "")
     subprocess.run([str(exe)], check=True, env=env)

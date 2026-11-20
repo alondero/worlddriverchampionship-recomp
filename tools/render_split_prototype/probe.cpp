@@ -12,7 +12,7 @@
 #include "vectors.h"
 #include "src/render_cadence.h"
 #include "src/render_memory.h"
-#include "render_bank.h"
+#include "src/race_render_sample.h"
 #include "async_log.h"
 #ifdef WDC_PROTOTYPE_SAMPLE_WORKER
 #include "worker_samples.h"
@@ -94,9 +94,9 @@ void finish_present_audit() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
-std::mutex render_memory_mutex;
+auto& render_ram = wdc::render::race_render_bank();
+auto& render_memory_mutex = render_ram.mutex;
 uint8_t* authoritative_memory = nullptr;
-prototype::RenderBank render_ram;
 enum class PoseKind { Camera, Body, Wheel };
 std::vector<prototype::Pose> previous_poses;
 std::vector<prototype::Vector3> previous_shadow_inputs;
@@ -1120,26 +1120,9 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
     }
     if (shadow_mode()) {
         authoritative_memory = rdram;
-        recomp_context drain_context;
-        wdc::copy_guest_context(drain_context, *ctx);
-        func_800252D0(rdram, &drain_context);
-        // 252D0 supplies an empty next transform batch, consumes completion
-        // through the ROM's usual SP/DP/swap path and clears EDB8. Waiting
-        // alone cannot finish a pipelined BOSS task. The renderer then signals
-        // after BOSS, held RDP chunks and task cleanup.
-        drain_renderer(rdram);
-        std::lock_guard lock(render_memory_mutex);
-        // Host-owned 8 MiB byte images preserve the native word-swapped
-        // layout. Capture on the guest game thread after draining graphics;
-        // guest threads are cooperatively scheduled. Only send/receive queue
-        // operations use authoritative RAM during a shadow draw. CPU, BOSS
-        // and renderer memory share render_ram until its task is drained.
-        // Never restore this image into authoritative RAM. Refreshing it is
-        // serialized with renderer send_dl/update_screen, including VI reads.
-        PhaseTimer capture_timer{"owned_capture"};
-        render_ram.initialize(write_watch_reset());
-        const auto captured = render_ram.capture(rdram);
-        if (verify_write_watch() && std::memcmp(render_ram.snapshot(), rdram, prototype::RenderBank::size)) probe_exit(25);
+        PhaseTimer capture_timer{"owned_capture_and_drain"};
+        const auto captured = wdc::render::capture_race_sample(rdram, *ctx, write_watch_reset(), drain_renderer);
+        if (verify_write_watch() && std::memcmp(render_ram.snapshot(), rdram, wdc::render::RenderBank::size)) probe_exit(25);
         if (write_watch_reset()) {
             std::lock_guard output_lock(output_mutex);
             log_record("[prototype-bank-capture] {\"frame\":%u,\"copied_bytes\":%llu,\"compared_bytes\":%llu,\"page_size\":%llu,\"verified\":%s}\n",
@@ -1365,7 +1348,7 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
             std::unique_lock memory_lock(render_memory_mutex);
             reset_times[1] = std::chrono::steady_clock::now();
             const auto bank_reset = render_ram.restore();
-            if (verify_write_watch() && std::memcmp(render_ram.data(), render_ram.snapshot(), prototype::RenderBank::size)) probe_exit(25);
+            if (verify_write_watch() && std::memcmp(render_ram.data(), render_ram.snapshot(), wdc::render::RenderBank::size)) probe_exit(25);
             reset_times[2] = std::chrono::steady_clock::now();
             drawing_ram = render_ram.data();
             if (pose_mode()) {
