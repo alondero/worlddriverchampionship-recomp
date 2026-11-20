@@ -40,7 +40,10 @@ python3 -B scripts/patch_series.py --submodule lib/N64ModernRuntime \
     --patch patches/0018-runtime-rsp-dma-rounding.patch \
     --patch patches/0019-runtime-developer-thread-snapshots.patch \
     --patch patches/0021-runtime-receive-message-destination.patch \
-    --patch patches/0022-runtime-swap-presentation.patch
+    --patch patches/0022-runtime-swap-presentation.patch \
+    --patch patches/0024-runtime-render-queue-memory.patch \
+    --patch patches/0025-runtime-task-memory.patch \
+    --patch patches/0026-runtime-graphics-fence.patch
 python3 -B scripts/patch_series.py --submodule lib/rt64 \
     --patch patches/0014-rt64-rdp-screen-clipping.patch \
     --patch patches/0016-rt64-rdp-edge-trapezoids.patch \

@@ -10,6 +10,6 @@ extern "C" void wdc_render_race_draw(uint8_t* rdram, recomp_context* ctx) {
     func_8000A30C(rdram, ctx);
 }
 
-extern "C" const wdc::render::FrameSource* wdc_render_frame_source() {
+extern "C" const wdc::render::FrameCallbacks* wdc_render_frame_callbacks() {
     return nullptr;
 }

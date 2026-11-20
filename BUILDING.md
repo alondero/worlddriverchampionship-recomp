@@ -58,6 +58,9 @@ projection entry from mod replacement.
 Runtime patches 0021 and 0022 supply the owned message destination and
 independent swap presentation used by the fixed-rate rendering prototype.
 RT64 patch 0023 lets its renderer request a presentation for an unchanged VI.
+Runtime patches 0024 and 0025 keep message queues in live RAM and carry the
+submitting RAM pointer in each queued graphics task. Patch 0026 lets the game
+thread wait for its submitted graphics work before it reuses a private image.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 

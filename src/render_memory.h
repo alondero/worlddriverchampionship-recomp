@@ -4,19 +4,12 @@
 #include <mutex>
 
 namespace wdc::render {
-struct TaskMemory {
-    uint8_t* rdram;
-    bool disable_readback;
-};
-
-// Optional source installed at renderer creation and valid until shutdown.
-// Graphics tasks and screen updates hold the same mutex as the snapshot writer.
-// The source retains each bank through its queued task and screen completion.
-struct FrameSource {
+// Optional callbacks installed at renderer creation and valid until shutdown.
+// The runtime carries task memory with each graphics action. Tasks and screen
+// updates hold the snapshot writer's mutex throughout their access.
+struct FrameCallbacks {
     std::mutex& mutex;
-    // Graphics worker, in task order. Supply a non-null, word-swapped guest
-    // memory image for the entire task and its queued framebuffer reads.
-    TaskMemory (*next_task)();
+    bool (*disable_readback)(uint8_t* task_memory);
     void (*task_finished)();
     // Optional observer for associating a screen update with RT64's swap ID.
     // Called under mutex after updateScreen returns on the graphics worker.
@@ -27,4 +20,4 @@ struct FrameSource {
 };
 }
 
-extern "C" const wdc::render::FrameSource* wdc_render_frame_source();
+extern "C" const wdc::render::FrameCallbacks* wdc_render_frame_callbacks();

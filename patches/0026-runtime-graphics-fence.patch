@@ -1,0 +1,49 @@
+diff --git a/ultramodern/include/ultramodern/swap_presentation.hpp b/ultramodern/include/ultramodern/swap_presentation.hpp
+--- a/ultramodern/include/ultramodern/swap_presentation.hpp
++++ b/ultramodern/include/ultramodern/swap_presentation.hpp
+@@ -12,2 +12,7 @@
+ };
++// Game thread, after retiring the guest graphics pipeline. Wait for this
++// producer's earlier task and screen actions to finish on the renderer thread.
++// Service external messages in authoritative RDRAM while waiting. False means
++// shutdown or failed enqueue: the caller must abandon the draw.
++bool wait_for_submitted_graphics(uint8_t* live_rdram);
+ void set_swap_presentation(bool enabled, SwapPresentation callbacks = {});
+diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
+--- a/ultramodern/src/events.cpp
++++ b/ultramodern/src/events.cpp
+@@ -8,2 +8,3 @@
+ #include <mutex>
++#include <memory>
+ #include <queue>
+@@ -44,3 +45,7 @@
+ 
+-using Action = std::variant<SpTaskAction, ScreenUpdateAction, UpdateConfigAction, DummyWorkloadAction>;
++struct GraphicsFence {
++    std::shared_ptr<moodycamel::LightweightSemaphore> done;
++};
++
++using Action = std::variant<SpTaskAction, ScreenUpdateAction, UpdateConfigAction, DummyWorkloadAction, GraphicsFence>;
+ 
+@@ -201,2 +206,15 @@
+ 
++bool ultramodern::wait_for_submitted_graphics(uint8_t* live_rdram) {
++    assert(ultramodern::is_game_thread());
++    if (exited.load()) return false;
++    auto done = std::make_shared<moodycamel::LightweightSemaphore>();
++    if (!events_context.action_queue.enqueue(GraphicsFence{done})) return false;
++    while (!done->tryWait()) {
++        if (exited.load()) return false;
++        ultramodern::wait_for_external_message_timed(live_rdram, 0);
++        if (done->wait(1000)) break;
++    }
++    return true;
++}
++
+ void set_dummy_vi(bool odd);
+@@ -418,2 +436,5 @@
+                 resolution_scale = renderer_context->get_resolution_scale();
++            }
++            else if (const auto* fence = std::get_if<GraphicsFence>(&action)) {
++                fence->done->signal();
+             }

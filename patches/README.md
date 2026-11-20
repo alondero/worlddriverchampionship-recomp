@@ -62,6 +62,9 @@ the WDC runtime demonstrates the same need.
 | `0021-runtime-protected-function-replacements.patch` | N64ModernRuntime | Desktop | Reject ordinary and forced replacements for host functions explicitly protected by the port. |
 | `0021-runtime-receive-message-destination.patch` | N64ModernRuntime | All | Receive a live queue message into caller-owned storage while rendering a snapshot. |
 | `0022-runtime-swap-presentation.patch` | N64ModernRuntime | All | Queue a framebuffer swap for presentation on the graphics thread independently of VI retrace. |
+| `0024-runtime-render-queue-memory.patch` | N64ModernRuntime | All | Route message operations from a private rendering image through live scheduler queues. |
+| `0025-runtime-task-memory.patch` | N64ModernRuntime | All | Carry the submitting guest memory image with each graphics task. |
+| `0026-runtime-graphics-fence.patch` | N64ModernRuntime | All | Fence the submitting game thread's queued graphics actions before reusing a render image. |
 
 ## Application matrix
 

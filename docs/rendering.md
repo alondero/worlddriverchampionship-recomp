@@ -650,11 +650,14 @@ current-arena packet pointers. A copied-runtime presentation experiment delivere
 geometry and no sample consumption during extras. That is callback timing,
 not physical scanout or intermediate motion. A separate owned-RAM experiment
 now rebuilds bounded frames from a frozen 8 MiB image: the native `252D0` path
-drains BOSS before switching memory owners. The compiled renderer can take its
-task bank from a frame source. BOSS, RT64 and the queued screen update read
+drains BOSS before switching memory owners. Runtime patch 0025 copies the submitting RAM pointer
+and the task descriptor into the same graphics action. The compiled renderer
+takes the bank directly from that action. BOSS, RT64 and the queued screen update read
 that bank, while runtime queues and threads remain authoritative. The source
 and renderer share a mutex during bank access. The producer also waits for
-both task and screen completion before resetting a bank. The player now owns
+both task and screen completion before resetting a bank. Runtime patch 0026
+fences earlier graphics actions submitted by that producer while it services
+live scheduler messages. Physical display scanout can occur later. The player now owns
 the race snapshot and writable image. Its capture routine drains the ROM
 transform pipeline using a rebound guest context, waits for the renderer,
 and copies the eight MiB under the same mutex that guards renderer access.
@@ -665,7 +668,8 @@ applies the interpolated words only to the writable bank. The writable image
 keeps a stable address across samples. Windows can restore
 only changed pages, while the portable path restores the whole image.
 Runtime patch 0021 lets the caller supply a message destination in the owned
-bank. A live queue test checks the received word, the corresponding authoritative
+bank. Patch 0024 applies this routing to translated receive, send and jam calls
+within a scoped render pass. A live queue test checks the received word, the corresponding authoritative
 sentinel, an empty nonblocking receive and a discarded message. Eight-car geometry repeats exactly; changing only the owned camera
 changes geometry without changing original camera/car records. Whole-RAM
 changed-range evidence still includes unclassified queue/input activity, so

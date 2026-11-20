@@ -272,14 +272,23 @@ the pose object alongside the capture and storage objects. The synthetic
 invalid camera/car bounds and the two-player fallback. The native
 `pose-snapshot` check additionally compares repeated midpoint and endpoint
 geometry from the original race draw.
-Owned-RAM modes use the compiled player renderer when it exposes a frame
-source. At renderer creation the probe supplies task memory, a snapshot mutex,
-a task-completion callback and an optional screen-update observer. The renderer
+With runtime patch 0025 the queued graphics task carries its submitting RAM
+pointer directly to the player renderer. The probe checks that pointer against
+the independently recorded submission label at BOSS entry. At renderer
+creation it supplies the snapshot mutex, readback policy, task-completion
+callback and optional screen-update observer. The renderer
 binds BOSS and RT64 to the same bank, retains it through screen update and
 restores the task's readback policy before reporting completion. The probe
 retains the bank until both task and requested screen completions arrive.
+With runtime patch 0026 it waits on a graphics-worker fence and checks task
+and screen counters independently. The fence covers submissions from the
+calling producer. GPU presentation timing comes from the swap audit.
 Normal player startup uses live RDRAM. Runtime patch 0021 separately supplies
-the queue receive destination. `shadow-source.json` identifies both compiled
+the queue receive destination. Patch 0024 routes translated receive, send and
+jam calls on the scoped bank to live scheduler memory. The queue fixture
+checks front insertion, empty/discard behavior, destination bounds and the
+authoritative sentinel. `queue-memory-source.json` records the translation
+archive used. `shadow-source.json` identifies both compiled
 components and their hashes. Older reference builds compile a renderer or
 queue copy for each unavailable boundary and record source/copy provenance.
 

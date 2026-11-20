@@ -20,9 +20,11 @@ def build_shadow_renderer(reference, output, compiler, audit_present, receive_ar
     object_path = Path(entry["output"])
     original_object = object_path.relative_to(reference).as_posix()
     undefined = subprocess.check_output([nm, "-u", str(object_path)], text=True)
-    if any(line.split() == ["U", "wdc_render_frame_source"] for line in undefined.splitlines()):
+    symbols = {line.split()[-1] for line in undefined.splitlines() if line.split()}
+    if {"wdc_render_frame_source", "wdc_render_frame_callbacks"} & symbols:
         replacement = None
-        provenance = {"renderer": "player", "object_sha256": hashlib.sha256(object_path.read_bytes()).hexdigest()}
+        provenance = {"renderer": "player", "task_memory": "queued" if "wdc_render_frame_callbacks" in symbols else "frame-source",
+                      "object_sha256": hashlib.sha256(object_path.read_bytes()).hexdigest()}
     else:
         replacement, provenance = build_renderer_copy(entry, output, compiler, audit_present)
     if receive_archive:

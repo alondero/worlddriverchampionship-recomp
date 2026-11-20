@@ -28,10 +28,10 @@ void interrupts() {
 class Renderer final : public ultramodern::renderer::RendererContext {
     std::unique_ptr<RT64::Application> app;
     uint8_t* const rdram;
-    const wdc::render::FrameSource* const frame_source = wdc_render_frame_source();
+    const wdc::render::FrameCallbacks* const frame_callbacks = wdc_render_frame_callbacks();
 
     std::unique_lock<std::mutex> lock_frame_memory() const {
-        return frame_source ? std::unique_lock(frame_source->mutex) : std::unique_lock<std::mutex>();
+        return frame_callbacks ? std::unique_lock(frame_callbacks->mutex) : std::unique_lock<std::mutex>();
     }
 
     wdc::graphics::Settings settings;
@@ -217,27 +217,29 @@ public:
     bool update_config(const ultramodern::renderer::GraphicsConfig&, const ultramodern::renderer::GraphicsConfig&) override { return false; }
     void enable_instant_present() override {}
     void send_dl(const OSTask* task) override {
+        send_dl_from(rdram, task);
+    }
+    void send_dl_from(uint8_t* task_memory, const OSTask* task) override {
         auto lock = lock_frame_memory();
-        const auto memory = frame_source ? frame_source->next_task() : wdc::render::TaskMemory{rdram, false};
-        if (frame_source) {
-            // RT64 also reads this bank in the subsequent queued screen update.
-            app->core.RDRAM = memory.rdram;
-            app->state->RDRAM = memory.rdram;
-        }
+        // The next queued screen update can still read this task's image.
+        app->core.RDRAM = task_memory;
+        app->state->RDRAM = task_memory;
+        const bool disable_readback = frame_callbacks && frame_callbacks->disable_readback &&
+                                      frame_callbacks->disable_readback(task_memory);
         const auto saved_readback = app->state->extended.renderToRAM;
-        if (memory.disable_readback) app->state->setRenderToRAM(0);
+        if (disable_readback) app->state->setRenderToRAM(0);
         sync_settings();
-        wdc::hud::active_picture_size(memory.rdram, picture_logical_h, picture_buffer_h);
+        wdc::hud::active_picture_size(task_memory, picture_logical_h, picture_buffer_h);
         wdc::rdp_capture::begin_task();
-        wdc::rsp::run(memory.rdram, task, [](void* context, uint8_t* memory, uint32_t start, uint32_t end) {
+        wdc::rsp::run(task_memory, task, [](void* context, uint8_t* memory, uint32_t start, uint32_t end) {
             static_cast<Renderer*>(context)->send_rdp(memory, start, end);
         }, this);
         wdc::hud::release_held_texrect(frame, ChunkSink{this, nullptr});
         end_hud(); // Fail closed if a task ever omits its closing marker.
         frame.fill_active = frame.fill_pending = false;
         wdc::rdp_capture::end_task();
-        if (memory.disable_readback) app->state->setRenderToRAM(saved_readback);
-        if (frame_source) frame_source->task_finished();
+        if (disable_readback) app->state->setRenderToRAM(saved_readback);
+        if (frame_callbacks) frame_callbacks->task_finished();
     }
     void send_dummy_workload(uint32_t) override {}
     void update_screen() override {
@@ -253,9 +255,9 @@ public:
                 vi->VI_Y_SCALE_REG, vi->VI_H_START_REG, vi->VI_V_START_REG);
         }
         const auto previous_id = app->state->presentId;
-        app->updateScreen(frame_source && frame_source->force_present && frame_source->force_present());
-        if (frame_source && frame_source->screen_updated) {
-            frame_source->screen_updated(previous_id, app->state->presentId);
+        app->updateScreen(frame_callbacks && frame_callbacks->force_present && frame_callbacks->force_present());
+        if (frame_callbacks && frame_callbacks->screen_updated) {
+            frame_callbacks->screen_updated(previous_id, app->state->presentId);
         }
     }
     void shutdown() override { app->end(); }

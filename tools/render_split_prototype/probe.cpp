@@ -13,6 +13,12 @@
 #include "src/render_memory.h"
 #include "src/race_render_sample.h"
 #include "src/extra_race_draw.h"
+#ifdef WDC_GRAPHICS_FENCE
+#include "ultramodern/swap_presentation.hpp"
+#endif
+#ifdef WDC_RUNTIME_QUEUE_MEMORY
+#include "librecomp/queue_memory.hpp"
+#endif
 #include "async_log.h"
 #ifdef WDC_PROTOTYPE_SAMPLE_WORKER
 #include "worker_samples.h"
@@ -274,6 +280,12 @@ void drain_renderer(uint8_t* memory) {
         return completed_tasks.load() >= submitted_tasks.load() &&
                completed_presents.load() >= requested_presents.load();
     };
+#ifdef WDC_GRAPHICS_FENCE
+    // The runtime fences this game thread's task and screen submissions.
+    // Count their completions independently so an early return fails the audit.
+    if (!ultramodern::wait_for_submitted_graphics(memory) || !ready()) probe_exit(32);
+    return;
+#endif
     while (!ready()) {
         if (notify_renderer_completion()) {
             // Service runtime queues outside the completion lock. Completion
@@ -589,13 +601,29 @@ void prototype_present_bound(uint64_t previous, uint64_t id) {
     finish_present_audit();
 #endif
 }
-const wdc::render::FrameSource* __wrap_wdc_render_frame_source() {
-    static const wdc::render::FrameSource source{
+#ifdef WDC_QUEUED_TASK_MEMORY
+const wdc::render::FrameCallbacks* __wrap_wdc_render_frame_callbacks() {
+    static const wdc::render::FrameCallbacks source{
+        render_memory_mutex,
+        prototype_disable_readback,
+#else
+// Pre-0025 renderers obtain each task's bank from their host frame source.
+struct LegacyTaskMemory { uint8_t* rdram; bool disable_readback; };
+struct LegacyFrameSource {
+    std::mutex& mutex;
+    LegacyTaskMemory (*next_task)();
+    void (*task_finished)();
+    void (*screen_updated)(uint64_t, uint64_t);
+    bool (*force_present)() = nullptr;
+};
+const LegacyFrameSource* __wrap_wdc_render_frame_source() {
+    static const LegacyFrameSource source{
         render_memory_mutex,
         [] {
             auto* memory = prototype_task_memory();
-            return wdc::render::TaskMemory{memory, prototype_disable_readback(memory)};
+            return LegacyTaskMemory{memory, prototype_disable_readback(memory)};
         },
+#endif
         prototype_renderer_finished,
 #ifdef WDC_PROTOTYPE_AUDIT_PRESENT
         prototype_present_bound,
@@ -664,6 +692,10 @@ void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
         ctx->r2 = 0;
         return;
     }
+#ifdef WDC_RUNTIME_QUEUE_MEMORY
+    if (queue_memory(rdram) != rdram) ++shadow_receives;
+    __real_osRecvMesg_recomp(rdram, ctx);
+#else
     const auto destination = uint32_t(ctx->r5);
     auto* runtime_ram = queue_memory(rdram);
     if (runtime_ram != rdram) ++shadow_receives;
@@ -688,6 +720,7 @@ void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
     __real_osRecvMesg_recomp(runtime_ram, ctx);
     receive_destination_memory = previous_destination_memory;
 #endif
+#endif
 }
 void __real_osSendMesg_recomp(uint8_t*, recomp_context*);
 void __wrap_osSendMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
@@ -696,12 +729,20 @@ void __wrap_osSendMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
         if (queue < 0x80000000 || queue > 0x807FFFE8 || (queue & 3)) probe_exit(11);
         ++shadow_sends;
     }
+#ifdef WDC_RUNTIME_QUEUE_MEMORY
+    __real_osSendMesg_recomp(rdram, ctx);
+#else
     __real_osSendMesg_recomp(queue_memory(rdram), ctx);
+#endif
 }
 void osCreateMesgQueue_recomp(uint8_t*, recomp_context*);
+void osJamMesg_recomp(uint8_t*, recomp_context*);
 void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
     static bool verified = false;
     if (verified) return;
+#ifdef WDC_RUNTIME_QUEUE_MEMORY
+    recomp::ScopedQueueMemory queue_scope(render_ram.data(), rdram, wdc::render::RenderBank::size);
+#endif
     // Borrow a 256-byte inactive stack interval below the caller's SP for an
     // immediate, nonblocking private queue test; restore both banks afterward.
     // No external producer knows this queue. All addresses are aligned KSEG0
@@ -715,7 +756,7 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
     recomp_context call;
     wdc::copy_guest_context(call, *source);
     call.r29 = int32_t(sp - 0x300);
-    call.r4 = int32_t(base); call.r5 = int32_t(base + 64); call.r6 = 1;
+    call.r4 = int32_t(base); call.r5 = int32_t(base + 64); call.r6 = 2;
     osCreateMesgQueue_recomp(rdram, &call);
     call.r4 = int32_t(base); call.r5 = 0x13579BDF; call.r6 = 0;
     __real_osSendMesg_recomp(rdram, &call);
@@ -731,13 +772,32 @@ void verify_shadow_receive(uint8_t* rdram, recomp_context* source) {
     const bool empty_unchanged = int32_t(call.r2) == -1 && word(rdram, base + 128) == sentinel &&
         word(render_ram.data(), base + 128) == 0x13579BDF;
     call.r5 = 0x2468ACE0;
-    __real_osSendMesg_recomp(rdram, &call);
+    __wrap_osSendMesg_recomp(render_ram.data(), &call);
     if (call.r2 != 0) probe_exit(13);
     call.r5 = 0;
     __wrap_osRecvMesg_recomp(render_ram.data(), &call);
     const bool discarded = call.r2 == 0;
     __wrap_osRecvMesg_recomp(render_ram.data(), &call);
     const bool discard_consumed = discarded && int32_t(call.r2) == -1;
+#ifdef WDC_RUNTIME_QUEUE_MEMORY
+    // Bad receive destination must fail before dequeuing the pending word.
+    call.r4 = int32_t(base);
+    call.r5 = 0x2468ACE0;
+    __real_osSendMesg_recomp(render_ram.data(), &call);
+    if (call.r2 != 0) probe_exit(13);
+    call.r5 = 0x13579BDF;
+    osJamMesg_recomp(render_ram.data(), &call);
+    if (call.r2 != 0) probe_exit(13);
+    call.r5 = int32_t(0x807FFFFE);
+    __real_osRecvMesg_recomp(render_ram.data(), &call);
+    if (int32_t(call.r2) != -1) probe_exit(13);
+    call.r5 = int32_t(base + 128);
+    __real_osRecvMesg_recomp(render_ram.data(), &call);
+    if (call.r2 != 0 || word(render_ram.data(), base + 128) != 0x13579BDF) probe_exit(13);
+    __real_osRecvMesg_recomp(render_ram.data(), &call);
+    if (call.r2 != 0 || word(render_ram.data(), base + 128) != 0x2468ACE0 ||
+        word(rdram, base + 128) != sentinel) probe_exit(13);
+#endif
     std::memcpy(rdram + physical, original_bytes.data(), original_bytes.size());
     std::memcpy(render_ram.data() + physical, owned_bytes.data(), owned_bytes.size());
     if (!passed || !empty_unchanged || !discard_consumed) probe_exit(13);
@@ -1341,6 +1401,9 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
                     std::chrono::duration<double, std::milli>(reset_times[i + 1] - reset_times[i]).count());
             }
         }
+#ifdef WDC_RUNTIME_QUEUE_MEMORY
+        recomp::ScopedQueueMemory queue_scope(drawing_ram, rdram, wdc::render::RenderBank::size);
+#endif
 #ifdef WDC_PLAYER_RENDER_AUDIO
         wdc::render::ExtraRaceDraw render_pass(shadow_mode() ? drawing_ram : nullptr);
 #endif

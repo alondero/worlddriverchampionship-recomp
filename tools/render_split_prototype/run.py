@@ -190,22 +190,30 @@ def main():
     receive_archive = None
     if owned_ram or independent_present:
         nm = re.search(r"^CMAKE_NM:[^=]+=(.*)$", cache, re.M)[1]
+    compiled_queues = False
     if owned_ram:
         receive_archive = runtime_receive_archive(reference, nm)
+        translation = reference / "lib/N64ModernRuntime/librecomp/liblibrecomp.a"
+        symbols = subprocess.check_output([nm, "-C", "--defined-only", str(translation)], text=True)
+        compiled_queues = " T recomp::ScopedQueueMemory::ScopedQueueMemory(" in symbols
     compiled_presentation = False
-    if independent_present:
+    graphics_fence = False
+    if owned_ram or independent_present:
         archive = reference / "lib/N64ModernRuntime/ultramodern/libultramodern.a"
         symbols = subprocess.check_output([nm, "-C", "--defined-only", str(archive)], text=True)
-        compiled_presentation = " T ultramodern::set_swap_presentation(" in symbols
+        graphics_fence = owned_ram and " T ultramodern::wait_for_submitted_graphics(" in symbols
+        compiled_presentation = independent_present and " T ultramodern::set_swap_presentation(" in symbols
         if compiled_presentation:
             (output / "runtime-source.json").write_text(json.dumps({
                 "boundary": "runtime", "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest()
             }, indent=2))
     compiled_explicit = False
-    if args.explicit_present:
+    queued_task_memory = False
+    if owned_ram:
         renderer_object = next(reference / obj for obj in objects if obj.replace("\\", "/").endswith("/src/renderer.cpp.obj"))
         symbols = subprocess.check_output([nm, "-C", "-u", str(renderer_object)], text=True)
-        compiled_explicit = " U RT64::Application::updateScreen(bool)" in symbols
+        queued_task_memory = " U wdc_render_frame_callbacks" in symbols
+        compiled_explicit = args.explicit_present and " U RT64::Application::updateScreen(bool)" in symbols
     player_audio = False
     if owned_ram and any(obj.replace("\\", "/").endswith("/src/extra_race_draw.cpp.obj") for obj in objects):
         symbols = subprocess.check_output([nm, "-u", str(reference / "libWdcRecompiledFuncs.a")], text=True)
@@ -213,6 +221,9 @@ def main():
     probe = output / "probe.o"
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
                     *(["-DWDC_PROTOTYPE_AUDIT_PRESENT"] if args.audit_present else []),
+                    *(["-DWDC_RUNTIME_QUEUE_MEMORY"] if compiled_queues else []),
+                    *(["-DWDC_GRAPHICS_FENCE"] if graphics_fence else []),
+                    *(["-DWDC_QUEUED_TASK_MEMORY"] if queued_task_memory else []),
                     *(["-DWDC_PLAYER_RENDER_AUDIO"] if player_audio else []),
                     *(["-DWDC_PLAYER_EXPLICIT_PRESENT"] if compiled_explicit else []),
                     *(["-DWDC_RUNTIME_RECEIVE_DESTINATION"] if receive_archive else []),
@@ -224,6 +235,7 @@ def main():
                     *(["-DWDC_PROTOTYPE_PRESENT_ADMISSION"] if args.pace_present_queue else []),
                     "-I", str(source / "lib/N64ModernRuntime/N64Recomp/include"),
                     "-I", str(source / "lib/N64ModernRuntime/ultramodern/include"),
+                    "-I", str(source / "lib/N64ModernRuntime/librecomp/include"),
                     "-I", str(here.parents[1]), "-I", str(source / "src"),
                     "-c", str(here / "probe.cpp"), "-o", str(probe)], check=True)
     exe = output / "render_split_prototype.exe"
@@ -261,7 +273,7 @@ def main():
                "osSendMesg_recomp", "_Z13rsp_read_cop0j", "_Z18wdc_boss_dma_writePhjjj",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     if owned_ram and not replacement:
-        wrapped.append("wdc_render_frame_source")
+        wrapped.append("wdc_render_frame_callbacks" if queued_task_memory else "wdc_render_frame_source")
     if endpoint_mode and not boundary_object:
         wrapped.append("wdc_render_race_draw")
     link = [*objects, str(probe), *runtime, *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),
@@ -279,6 +291,11 @@ def main():
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=mode_dir))
     if owned_ram:
         (run_dir / "bank-source.json").write_text(json.dumps(bank_sources, indent=2))
+        (run_dir / "queue-memory-source.json").write_text(json.dumps({
+            "boundary": "runtime" if compiled_queues else "harness",
+            "graphics_fence": "runtime" if graphics_fence else "harness",
+            "translation_sha256": hashlib.sha256(translation.read_bytes()).hexdigest()
+        }, indent=2))
         (run_dir / "render-audio-source.json").write_text(json.dumps({
             "boundary": "translated" if player_audio else "harness",
             "archive_sha256": hashlib.sha256((reference / "libWdcRecompiledFuncs.a").read_bytes()).hexdigest()
