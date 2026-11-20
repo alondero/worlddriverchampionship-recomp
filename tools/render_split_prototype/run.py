@@ -270,8 +270,8 @@ def main():
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
                "func_800013DC", "osViGetCurrentFramebuffer_recomp", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
-               "osSendMesg_recomp", "_Z13rsp_read_cop0j", "_Z18wdc_boss_dma_writePhjjj",
-               "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
+               "osSendMesg_recomp", "_Z13rsp_read_cop0jj", "_Z18wdc_boss_dma_writePhjjj",
+               "wdc_framerate_preswap", "func_80011D54", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     if owned_ram and not replacement:
         wrapped.append("wdc_render_frame_callbacks" if queued_task_memory else "wdc_render_frame_source")
     if endpoint_mode and not boundary_object:

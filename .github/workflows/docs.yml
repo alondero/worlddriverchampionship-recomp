@@ -81,7 +81,11 @@ jobs:
       - name: Configure ROM-free host tests
         run: cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
       - run: cmake --build build-host-tests --parallel 2
-      - run: ctest --test-dir build-host-tests --output-on-failure --no-tests=error --timeout 60
+      - name: Run host tests with the compiler runtime
+        run: |
+          # Git Bash also ships MinGW DLLs. Load the ones used to link the tests.
+          export PATH="$(dirname "$(command -v "$CXX")"):$PATH"
+          ctest --test-dir build-host-tests --output-on-failure --no-tests=error --timeout 60
 
   secrets:
     runs-on: ubuntu-latest

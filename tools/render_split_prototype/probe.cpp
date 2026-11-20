@@ -881,9 +881,9 @@ void __wrap_func_8002A3A8(uint8_t* rdram, recomp_context* ctx) {
     for (unsigned i = 0; i < 4; ++i) MEM_W(0, int32_t(object + 0x10 + i * 4)) = history[i];
     ++preserved_flare_history;
 }
-void __real_wdc_projection_normalize(uint8_t*, recomp_context*);
-void __wrap_wdc_projection_normalize(uint8_t* rdram, recomp_context* ctx) {
-    __real_wdc_projection_normalize(rdram, ctx);
+void __real_func_80011D54(uint8_t*, recomp_context*);
+void __wrap_func_80011D54(uint8_t* rdram, recomp_context* ctx) {
+    __real_func_80011D54(rdram, ctx);
     if (race_frame < 60) return;
     // Game-thread read, after the projection builder: 16 float32 bit patterns
     // at fixed aligned RDRAM 800B2A80..800B2ABF, word-swapped via MEM_W.
@@ -934,12 +934,12 @@ void wrapped_dma_write(uint8_t* memory, uint32_t dmem, uint32_t dram, uint32_t l
     if (high > low) rsp_audio_dma_bytes += high - low;
     original_dma_write(memory, dmem, dram, length);
 }
-uint32_t original_rsp_read_cop0(uint32_t) asm("__real__Z13rsp_read_cop0j");
-uint32_t wrapped_rsp_read_cop0(uint32_t) asm("__wrap__Z13rsp_read_cop0j");
-uint32_t wrapped_rsp_read_cop0(uint32_t reg) {
+uint32_t original_rsp_read_cop0(uint32_t, uint32_t) asm("__real__Z13rsp_read_cop0jj");
+uint32_t wrapped_rsp_read_cop0(uint32_t, uint32_t) asm("__wrap__Z13rsp_read_cop0jj");
+uint32_t wrapped_rsp_read_cop0(uint32_t reg, uint32_t pc) {
     // Graphics-worker observations only. Preserve the bridge's yield, atomic
     // status read and replay/capture behavior; no guest memory is accessed.
-    const auto value = original_rsp_read_cop0(reg);
+    const auto value = original_rsp_read_cop0(reg, pc);
     if (reg == 4) {
         if (rsp_status_reads && value == rsp_previous_status) ++rsp_status_repeats;
         ++rsp_status_reads;
