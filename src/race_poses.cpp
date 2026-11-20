@@ -1,4 +1,5 @@
 #include "race_poses.h"
+#include "race_globals.h"
 #include <cstring>
 
 namespace wdc::render {
@@ -9,19 +10,17 @@ std::optional<RacePoses> RacePoses::capture(const RenderBank& bank, bool wheels,
     constexpr uint32_t view = 0x800ABE40, first_car = 0x800BA7F0, car_stride = 0x18A0;
     // Aligned 32-bit guest words use host byte order in the word-swapped image.
     const auto word = [frozen](uint32_t address) {
-        uint32_t value;
-        std::memcpy(&value, frozen + (address - base), sizeof(value));
-        return value;
+        return race::word(frozen, address);
     };
     const uint32_t camera = word(view + 0x2DC);
-    const uint32_t cars = word(0x80080D90);
-    if (word(0x8007E580) != 1 || camera < base || camera > end - 0x80 || (camera & 3) ||
+    const uint32_t cars = word(race::cars);
+    if (word(race::views) != 1 || camera < base || camera > end - 0x80 || (camera & 3) ||
         !cars || cars > (end - first_car) / car_stride) return std::nullopt;
 
     RacePoses result;
-    result.simulation_sample = word(0x8007E530);
+    result.simulation_sample = word(race::sample);
     result.pose_fields.push_back({camera, PoseKind::Camera});
-    result.identity = {word(0x800923E4), camera, word(view + 0x74)};
+    result.identity = {word(race::scene), camera, word(view + 0x74)};
     if (shadows) {
         const uint32_t path = word(0x8007DF40);
         result.contact_shadows = path != 0;

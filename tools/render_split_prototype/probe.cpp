@@ -714,7 +714,7 @@ void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
     auto* result = destination ? reinterpret_cast<OSMesg*>(rdram + (destination - 0x80000000u)) : nullptr;
     ctx->r2 = ultramodern_recv_mesg(runtime_ram, int32_t(queue), result, int32_t(ctx->r6));
 #else
-    // Compatibility with reference runtimes built before patch 0021.
+    // Compatibility with reference runtimes built before patch 0031.
     auto* previous_destination_memory = receive_destination_memory;
     receive_destination_memory = rdram;
     __real_osRecvMesg_recomp(runtime_ram, ctx);

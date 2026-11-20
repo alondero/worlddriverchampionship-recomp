@@ -28,7 +28,7 @@ that no ignored files are tracked and scans Git history for credentials with
 
 This mode builds the same C++ host-test targets used by the player build,
 without compiling the player, renderer, frontend or ROM translation. It uses
-headers from pinned public dependencies and seven of the normal dependency
+headers from pinned public dependencies and the following dependency
 patches. From a fresh checkout:
 
 ```bash
@@ -39,7 +39,8 @@ python3 -B scripts/patch_series.py --submodule lib/N64ModernRuntime \
     --patch patches/0013-runtime-rsp-unsigned-packed-loads.patch \
     --patch patches/0018-runtime-rsp-dma-rounding.patch \
     --patch patches/0019-runtime-developer-thread-snapshots.patch \
-    --patch patches/0021-runtime-receive-message-destination.patch \
+    --patch patches/0021-runtime-protected-function-replacements.patch \
+    --patch patches/0031-runtime-receive-message-destination.patch \
     --patch patches/0022-runtime-swap-presentation.patch \
     --patch patches/0024-runtime-render-queue-memory.patch \
     --patch patches/0025-runtime-task-memory.patch \
@@ -396,3 +397,5 @@ section rejection, mode remapping, short loops and invalid extension links.
 Packet allocation and non-decision setup are explicit boundaries; final BOSS
 rendering is not mocked as a passing visual test. See
 [distance and detail evidence](reference/visibility.md).
+
+Windows host tests exercise write-tracked render-bank pages when VirtualAlloc supplies write-watch. Linux exercises the full-copy fallback. Both paths compare restored bytes.

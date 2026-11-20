@@ -3,8 +3,8 @@
 This directory is the only place for local diffs against pinned public
 submodules. The first two entries are toolchain compatibility patches carried
 forward from both sibling ports because they are required to compile the
-pinned RT64 tree with MinGW on Windows. All game/runtime patches remain gated
-on WDC evidence.
+pinned RT64 tree with MinGW on Windows. The build applies the shared RT64 and RSP changes on both desktop platforms,
+including when the player selects original presentation.
 
 ## Rules
 
@@ -77,6 +77,21 @@ the WDC runtime demonstrates the same need.
 | Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0014, 0015, 0016, 0020, 0017 (not runtime-tested) |
 | Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0014, 0015, 0016, 0020, 0017 |
 | Android | none yet |
+
+Both desktop builds compile patch 0023. Its force-present argument defaults
+to false and is set only on explicit screen actions. The original VI change
+detection still handles ordinary retrace. See the
+[swap and frozen-pixel controls](https://github.com/alondero/worlddriverchampionship-recomp/blob/e87ad6f/tools/render_split_prototype/README.md).
+
+The following optimizations run on the default path as well as in interpolated
+races. The implementation links identify the affected paths. The
+[original Deck trials and differential checks](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7048978802)
+record the vector and palette controls. The [clipping and DMA trials](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7048557820) compare both changes with their immediate predecessors.
+
+- [0027, interior triangle batches](https://github.com/alondero/worlddriverchampionship-recomp/commit/3d01548)
+- [0028, aligned DMA](https://github.com/alondero/worlddriverchampionship-recomp/commit/2b29d81)
+- [0029, vector loads and swizzles](https://github.com/alondero/worlddriverchampionship-recomp/commit/8705146)
+- [0030, palette membership and hashing](https://github.com/alondero/worlddriverchampionship-recomp/commit/f44ad56)
 
 The BOSS options default off; existing runtime renderers retain their original
 interrupt behavior. Patches are checked against the pinned dependency commits.

@@ -17,60 +17,13 @@ when the simulation sample falls on the display grid. Its audio and gameplay
 work still runs once per group. The dispatcher returns presentation to VI
 retrace on scene exit and discards pose history after a checkpoint load.
 
-The Steam Deck OLED's 90 Hz XWayland display completed 89.2 and 89.0
-pixmaps/s in two warmed ten-second samples on track 2 with eight cars at
-1× internal resolution. The 95th-percentile interval was 11.24 ms or less.
-These measurements used the native Vulkan player with runtime patches
-0028 and 0029. With RT64 patch 0030 and automatic resolution, 32-second
-windows on tracks 1, 2 and 3 measured 88.75, 89.75 and 88.91 completions/s.
-Checkpoints on tracks 1 and 3 confirmed the player car moved during the run.
-Using the Gaming Mode Gamescope WSI layer directly, two longer arcade runs
-measured 89.80 and 89.93 compositor presentations/s on tracks 7 and 13.
-Both windows had an 11.11 ms p95 and a 22.22 ms maximum interval. The
-compositor reported zero discarded commits, with no logged SDL audio
-starvation or backlog after the race-ready marker. These timings measure
-presentation events. Sampling moving window pixels separately on track 7
-observed 70.11 and 85.00 changes/s with interpolation and 30.05 with the
-legacy Display setting.
-The [presentation measurements](https://github.com/alondero/worlddriverchampionship-recomp/pull/61)
-and [observation tools](../tools/render_split_prototype/README.md) distinguish
-display completions from RT64 admissions. A separate Windows driving test
-compares all sixteen words of the player-car transform on each physics tick
-from a common checkpoint at stock, 90 and 144 Hz.
-
-The prototype's high-rate renderer callbacks are not equivalent to high-rate
-display. An RT64 swap audit found that unchanged VI registers and framebuffer
-RAM cause `State::updateScreen` to omit a presentation even after a new GPU
-draw. With owned readback disabled, a 144 Hz practice experiment produced 143
-callbacks but only 30 swap calls; readback enabled still omitted three initial
-identical poses. The prototype now has an opt-in strict presentation-ID/swap
-audit. Optional explicit submission now produced one successful swap per
-selected frame in a bounded run, but failed the high-rate timing gate. Earlier
-callback timing results must not be read as achieved display rates. See the
-[prototype instructions](../tools/render_split_prototype/README.md) for both
-the failed controls and the explicit-submission experiment.
-
-With RT64 patch 0023 the compiled player renderer can explicitly request a
-swap even when change detection finds identical VI registers and framebuffer
-RAM. A frozen track 2 test with owned-task readback disabled captured all
-15 selected images. Within each of six simulation groups the ordered triangle
-headers and 1280 by 720 RGB pixels matched the original draw exactly.
-
-Patch 0022 separates screen submission from the VI clock. In the prototype,
-`osViSwapBuffer` copies the pending VI registers into a graphics-queue action.
-Only retrace advances the guest's current framebuffer and delivers VI/AI
-events. This distinction is visible at `800015D4`, where the race swap routine
-compares the latched framebuffer with the pointer at `8007D750`. A mismatch
-takes an additional receive at `800015E8`. The probe counts that branch for
-each draw when checking swap waits.
-
-Driving captures now use an optional held-accelerator fixture. They exposed
-ordinary ground-contact references incorrectly resetting interpolation history;
-tracking contact availability fixes those resets. A further driving mismatch
-was isolated to the tachometer needle's per-draw smoothing. Replaying its
-pre-normal input in owned extras restores exact frozen geometry and allows a
-bounded driving interpolation capture to pass. Sustained driving performance,
-other HUD layouts and general visual correctness remain unqualified.
+Patch 0022 queues screen submission independently of the VI clock. Retrace still
+latches the guest framebuffer and delivers VI/AI events. Patch 0023 lets an
+explicit swap present a new GPU image when VI registers and framebuffer RAM
+are unchanged. Measure presentation with compositor feedback, and sample
+moving pixels separately to check for repeat frames. See the
+[reproduction commands](../tools/render_split_prototype/README.md) and
+[hardware measurements](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7049340903).
 
 All addresses are for the USA ROM (SHA-256
 `e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97`).
@@ -524,7 +477,7 @@ Two consequences for the plan in issue #38:
   6.4-8.0 ms), and that decode is inside the task, so it is not what holds
   the game at 30 fps either.
 
-## Why higher presentation rates add no motion
+## Why RT64 alone repeats raw triangles
 
 `src/renderer.cpp` gives RT64 raw RDP commands
 (`processDisplayLists(..., false)`). RT64 creates in-between frames by
@@ -537,7 +490,7 @@ own rate only repeats frames. The player-facing note is in
 
 ## Routes past 30 fps
 
-### Native 60 fps (current route)
+### Native 60 fps
 
 Let the game itself produce a frame every VI. Simulation steps are tied to
 input samples, and the race loop drains them before drawing. Three things
@@ -567,205 +520,25 @@ Any change that lifts the limiter belongs behind an option, as reviewed
 
 ### Above 60 Hz
 
-Not reachable by replaying BOSS:
+The ordinary Display and Custom options control RT64 presentation. The
+interpolated variants rebuild race geometry between fixed 30 Hz samples.
+At the race draw call (8000C870), the port drains the transform pipeline,
+waits for submitted graphics work, and freezes an 8 MiB snapshot. A copy
+of the guest register context rebinds the odd floating-point register view
+to its own storage. Each extra draw restores a private working image and
+rebuilds view-space bounds, ZSort and BOSS geometry using camera, vehicle,
+wheel and ground poses from the same point on the display grid.
 
-- A finished task can be replayed byte-exactly. Replaying it with a camera
-  matrix several seconds old still produced **byte-identical racing output**,
-  in 2,038 of 2,038 racing replays.
-- Racing makes no direct loads of the combined matrix at DMEM `0x8B0`, so
-  correcting those loads changes nothing.
-- The triangles come from CPU ZSort data written after the camera transform.
+Car words +B80..+B8C hold transformed bounds. The pointers at +B90..+B9C
+belong to the current geometry arena. Each submitted graphics action carries
+its image through the renderer fence. Scheduler queues stay live, and the
+original race draw owns audio and gameplay effects. An unsupported scene,
+multiple views, or an inactive sample clock returns to native presentation.
 
-For geometry-based interpolation with fixed-rate gameplay, the route is a
-**guest render split**: re-run camera build, ZSort CPU emission and BOSS from
-an interpolated view of two simulation snapshots. Raising simulation/VI rate
-is a different design: it changes integration and sample-counted behavior,
-and does not meet the requirement that display rate leave gameplay unchanged.
-Image-based frame generation would be another approach, but is not implemented
-or evaluated here.
-
-The existing Presentation rate setting selects RT64's output target only.
-It does not implement this split. Neither changing that target nor generalizing
-the four 60 Hz corrections unlocks intermediate geometry.
-
-#### Verified split boundaries and blockers
-
-The race loop `func_8000C560` consumes input at `8000C5B8` and `8000C75C`,
-advances physics at `8000C6E8`, and updates elapsed-time effects at
-`8000C788..8000C798`. At `8000C870`, the player routes the race draw
-through `wdc_render_race_draw` in `src/game_render.cpp`. It passes the live
-guest context to `func_8000A30C` before the original post-draw work at
-`8000C878`. The ROM-backed boundary test exercises the port entry and checks
-the resulting call order and persistent render state.
-This is a useful extraction boundary, **not a repeatable pure draw function**:
-
-| Boundary | Existing work | Requirement for intermediate frames |
-| --- | --- | --- |
-| `8000C648 -> 8000FC18` | View/layout and camera setup inside the sample loop | Separate camera evolution from building an interpolated view; rerunning the whole helper is not safe |
-| `8000A324 -> 80011BB8` | Clears car-record words `+9F8/+9FC` through `80011BA0` | Identify the fields' readers and ownership before treating them as render scratch |
-| `8000A32C -> 8001F9CC` | Rolls sound-event lists, clears current counters and toggles the list buffer | Retain event publication on the authoritative path; do not consume it on extra draws |
-| `8000A378/8000A438` | Calls `80010A5C/80010ECC` for each view (`800ABE40`, stride `1418`) | Rebuild transforms and CPU ZSort from a render snapshot for each view |
-| `8000A380/8000A440` | Calls HUD helpers `8004D020/8004D120` per view | Audit persistent HUD writes, including `8004D120`'s writes to `80092D2C` |
-| `8000A520 -> 80024FCC` | Includes audio generation (`80043274/80042FA8`), task submission and the swap wait | Separate audio generation and authoritative buffer/queue transitions from presentation-only submissions |
-| `8000A528 -> 80025350` | Decrements `8007EDBC` and clears `8007ED78` | Classify as submission/clear policy; it is not simulation timing |
-| `8000A530 -> 800214C8` | Processes sound events after submission | Keep event processing at the authoritative cadence |
-
-`wdc_render_boundary_rom` executes the translated draw root, car-field reset,
-sound-list rollover and submission cleanup. Drawing, task submission and the
-sound consumer are observed doubles. With zero, one and two views it checks
-call order, view addresses and saved registers. Calling it twice without
-advancing simulation really does toggle the sound-list buffer twice and replace
-the previous event list with an empty one. This is an executable counterexample
-to treating `8000A30C` as a pure draw function. It is not a complete write audit,
-an audio synthesis test, or proof that repeated rendering is safe.
-
-The pinned runtime's `ultramodern/src/events.cpp::vi_thread_func` also couples
-the 60 Hz clock to screen updates, framebuffer landing, VI messages and AI
-messages. Presentation-only frames need their own scheduling and buffer
-ownership; changing this loop's rate would also change guest event delivery.
-The existing renderer's `get_display_framerate()` already reads RT64's display
-rate, but that does not provide an independent game render clock.
-
-#### Implementation sequence
-
-1. Recover the draw root and separate sound-event publication/consumption,
-   audio generation and authoritative frame bookkeeping from repeatable
-   geometry construction. Preserve the original ordering at 30/60 Hz against
-   the translated reference. Audit transitive writes, including HUD and
-   per-view helpers; a top-level separation alone is insufficient.
-2. Define render snapshots for player/AI transforms, camera, wheels and effects.
-   Keep interpolation out of authoritative RDRAM. Handle rotations, object
-   creation/destruction, camera cuts, scene changes and save-state loads by
-   resetting history where appropriate. Recompute culling and ZSort from the
-   same interpolated view that draws the frame.
-3. Schedule presentation independently of guest VI, input and audio clocks.
-   Rebuild CPU geometry and BOSS for intermediate frames, with explicit arena,
-   framebuffer and completion ownership. Preserve the CPU/RSP write-back
-   handshake; do not replay a finished task with a different camera matrix.
-   Bound catch-up work when rendering cannot keep up.
-4. Connect the existing Display/Custom target to this scheduler. Support
-   non-integer ratios (for example 60 Hz simulation to 144 Hz output), display
-   changes and targets below the simulation rate. Do not add a second competing
-   FPS setting before there is a working independent render path.
-
-Acceptance requires identical authoritative state for the same input samples
-at several presentation rates, plus unchanged replay consumption, timers and
-audio event counts. Test 60, 75, 120, 144, 165 and 240 Hz, stalls, pause/resume,
-scene transitions and split-screen. Visual checks must additionally establish
-that intermediate frames contain new motion without geometry/HUD artifacts.
-Interpolation between completed ticks normally adds one simulation tick of
-visual latency (16.7 ms at 60 Hz or 33.3 ms at 30 Hz); extrapolation has different
-prediction and correction trade-offs. Fixed-rate rendering does not by itself
-fix the pre-existing incompatibility between 30 Hz and 60 Hz recordings.
-
-Arbitrary-rate motion is **not implemented**. The boundary fixture establishes
-a prerequisite for the refactor, not a new player-facing capability.
-
-A [throwaway native prototype](../tools/render_split_prototype/README.md)
-now exercises extra draws in the real player, gates the two sound-list calls,
-and compares emitted triangle geometry. The original consecutive-draw mismatch
-was traced to a shallow `recomp_context` copy: its `f_odd` self-pointer still
-referenced the caller, corrupting registers and producing different projection
-matrices from identical inputs. Rebinding that pointer makes the bounded Hawaii
-normal/extra/extra triangle headers exactly equal without advancing consumed
-simulation samples or rewinding the alternating geometry arenas. An isolated
-ROM-backed projection fixture repeats from frozen memory and catches the old
-copy as a negative control. The probe and the player's race-warp hooks share
-the same context-copy helper. A second driving fixture (track ID 2, arcade)
-also matched ordered headers in six frozen groups. With interpolation enabled,
-each repeated midpoint matched and the current endpoint reproduced the normal
-draw while the native wheel and shadow paths rebuilt from owned inputs.
-A render-only mode also skips audio build/retirement
-and preserves the lens-flare history; the remaining observed view changes are
-current-arena packet pointers. A copied-runtime presentation experiment delivered
-24 renderer callbacks averaging 117.5 Hz across 12 VI ticks, with exact repeated
-geometry and no sample consumption during extras. That is callback timing,
-not physical scanout or intermediate motion. A separate owned-RAM experiment
-now rebuilds bounded frames from a frozen 8 MiB image: the native `252D0` path
-drains BOSS before switching memory owners. Runtime patch 0025 copies the submitting RAM pointer
-and the task descriptor into the same graphics action. The compiled renderer
-takes the bank directly from that action. BOSS, RT64 and the queued screen update read
-that bank, while runtime queues and threads remain authoritative. The source
-and renderer share a mutex during bank access. The producer also waits for
-both task and screen completion before resetting a bank. Runtime patch 0026
-fences earlier graphics actions submitted by that producer while it services
-live scheduler messages. Physical display scanout can occur later. The player now owns
-the race snapshot and writable image. Its capture routine drains the ROM
-transform pipeline using a rebound guest context, waits for the renderer,
-and copies the eight MiB under the same mutex that guards renderer access.
-The compiled race pose reader takes view zero's camera, car bodies, wheels and
-shadow ground inputs from this frozen image. It checks the single-player count
-at `8007E580` before sampling. It compares identity and sample continuity and
-applies the interpolated words only to the writable bank. The writable image
-keeps a stable address across samples. Windows can restore
-only changed pages, while the portable path restores the whole image.
-Runtime patch 0021 lets the caller supply a message destination in the owned
-bank. Patch 0024 applies this routing to translated receive, send and jam calls
-within a scoped render pass. A live queue test checks the received word, the corresponding authoritative
-sentinel, an empty nonblocking receive and a discarded message. Eight-car geometry repeats exactly; changing only the owned camera
-changes geometry without changing original camera/car records. Whole-RAM
-changed-range evidence still includes unclassified queue/input activity, so
-complete authoritative-state equivalence remains unproven.
-The combined `shadow120` mode preserves exact frozen geometry across three
-owned extra draws while presenting independently. Diagnostic output overhead
-can dominate timing: batching complete lines allows a short practice run to
-pass its 120 Hz callback gate, while longer practice and eight-car workloads
-still fail. Per-phase evidence separates bank reset, native pipeline drain and
-full-RAM diagnostic scanning. Use the prototype's bounded `--trials` option to
-extend validation; a short pass is not sustained high-refresh acceptance.
-Run measurements remain in [draft PR #61](https://github.com/alondero/worlddriverchampionship-recomp/pull/61).
-An eight-car Arcade extension found sound-ramp updates inside `218F0 -> 1FC64`,
-including car halfword `+A0E`. Skipping that call and the distant-car sound
-retirement path on extras preserves every observed car non-link word in the
-bounded run. The heavier scene still failed the 120 Hz timing gate (62.0
-renderer callbacks/s), so the practice timing does not establish sustained
-high-rate performance.
-A separate `pose-snapshot` validation now interpolates camera and main car-body
-rigid poses in owned RAM. Two identical midpoint renders must repeat exactly,
-and a bit-exact current endpoint must reproduce normal geometry. `motion120` presents four increasing quarter steps from those poses while
-suppressing the normal-draw presentation. Callback labels verify their order,
-and the endpoint still matches normal geometry. Optional wheel-pose capture
-now includes four independent matrices per car; a wheel-only control verifies
-that they affect geometry without changing camera/body inputs. High-speed spin
-phase, effects interpolation, visual qualification, full discontinuity
-handling and sustained performance remain open. Optional shadow ground-input
-interpolation now feeds the original cache rebuild; contact-point midpoint and
-endpoint geometry pass in Hawaii, including a shadow-only control. Other
-terrain and the alternate normal-vector path remain unqualified.
-`endpoint120` moves that experiment to the original race draw call: three
-owned blends precede the original authoritative draw, which supplies both the
-current endpoint and normal audio work. Task/callback gates verify this four-draw
-sequence and one original audio lifecycle. It removes a redundant graphics pass
-but does not by itself establish sustained high-rate performance or audio fidelity.
-The player's race scheduler advances between fixed 30 Hz samples on the exact
-display-rate ratio. Its cursor selects each owned pose at most once, including
-after stalls, and can reserve the native draw at an exact endpoint. On an
-owned draw and its trailing drain, the translated sound entry points return
-before advancing car or voice state. The audio builder returns its original
-command cursor. The scope matches both the game thread and its private RAM
-pointer so authoritative work continues to process sound normally.
-
-The prototype can also instrument a copied RT64 full-sync path and optionally
-disable framebuffer readback for disposable owned tasks. Normal task readback
-is retained. This remains an opt-in performance experiment because geometry
-checks cannot establish framebuffer-feedback or pixel equivalence.
-The frozen `shadow-rate` mode now tests rational presentation targets from 60 to
-240 Hz with rational group counts and periods, independently of 60 Hz VI/AI.
-It retains exact snapshot/ownership gates. The scheduler accepts an exact
-display ratio such as 120000/1001 and carries fractional nanoseconds across
-swaps. The host cadence regression checks slot count and elapsed time after
-1001 simulated seconds at that rate. The separate `motion-rate` mode
-interpolates camera/body poses on the rational presentation grid and verifies
-current endpoints whenever they fall on that grid. Those modes use nominal group timing. `motion-samples` instead derives alpha
-from consumed-sample spans and selects a bounded suffix of recent presentation
-slots, skipping older slots when rendering falls behind. An optional group-relative deadline selector can also skip slots before
-starting another draw, always retaining the final pose. The sample-driven path
-can also use the original authoritative draw for a display slot that coincides
-with the simulation endpoint. Between those coincidences, owned draws supply
-every scheduled display slot while the original draw maintains game and audio
-state. End-to-end deadline
-and latency qualification and sustained performance remain open.
-The prototype README records the car-list, per-view and arena ownership evidence.
+The [prototype guide](../tools/render_split_prototype/README.md) describes
+frozen geometry, pixel comparisons, and the stock/interpolated driving test.
+The [PR](https://github.com/alondero/worlddriverchampionship-recomp/pull/61)
+records mode coverage, timing and known limits.
 
 ## Tools and methods
 

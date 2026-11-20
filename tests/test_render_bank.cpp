@@ -21,7 +21,7 @@ extern "C" void func_800252D0(uint8_t* rdram, recomp_context* ctx) {
     guest_retired = true;
 }
 
-void test_write_watch(std::vector<uint8_t>& snapshot) {
+void test_page_tracking_or_full_copy_fallback(std::vector<uint8_t>& snapshot) {
     wdc::render::RenderBank bank;
     assert(bank.empty());
     bank.initialize(true);
@@ -97,7 +97,7 @@ void test_write_watch(std::vector<uint8_t>& snapshot) {
 int main() {
     std::vector<uint8_t> snapshot(wdc::render::RenderBank::size);
     for (size_t i = 0; i < snapshot.size(); ++i) snapshot[i] = uint8_t(i * 17 + i / 257);
-    test_write_watch(snapshot);
+    test_page_tracking_or_full_copy_fallback(snapshot);
     constexpr size_t page = 4096;
     wdc::render::RenderBank ordinary;
     ordinary.initialize(false);

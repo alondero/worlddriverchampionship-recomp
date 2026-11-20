@@ -1,10 +1,15 @@
 #undef NDEBUG
 #include "race_frame_schedule.h"
+#include "race_globals.h"
 #include <cassert>
 #include <initializer_list>
 #include <cstdio>
 #include <cmath>
 int main() {
+    wdc::render::race::DispatcherHistory history;
+    assert(!history.restored_while_presenting(false, 1));
+    assert(!history.restored_while_presenting(true, 1));
+    assert(history.restored_while_presenting(true, 2));
     for (unsigned hz : {60u, 75u, 90u, 120u, 144u, 165u, 240u, 480u, 540u, 1000u}) {
         wdc::render::PresentationPeriod period({hz,1});
         // A constant-velocity pose must advance uniformly across group edges,
@@ -111,6 +116,14 @@ int main() {
     assert(scheduler.begin_group({75,1},1,true,true));
     assert(scheduler.next(0,33333333) && scheduler.next(0,33333333));
     assert(!scheduler.next(34000000,33333333) && !scheduler.present_native());
+    // A fence taking 20 ms advances the same fractional clock used by the
+    // swap. Skipping slot 3 does not shift slot 4 or the next group.
+    assert(scheduler.begin_group({75,1},1,true,true));
+    assert(scheduler.begin_group({75,1},1,false,true));
+    const auto& grid = scheduler.group();
+    assert(grid.swap_offset_ns(3) == -6666666 && grid.swap_offset_ns(4) == 6666666);
+    const auto after_fence = scheduler.next(20000000 - grid.swap_offset_ns(3), 40000000);
+    assert(after_fence && after_fence->slot == 4 && grid.swap_offset_ns(5) == 20000000);
     unsigned expected[]={4,5,5,5,5};
     for(unsigned g=0; g<5; ++g) assert(wdc::render::presentations_in_group(g,{144,1})==expected[g]);
     for (wdc::render::DisplayRate rate : {wdc::render::DisplayRate{60000,1001}, {120000,1001}, {2997,50}}) {
