@@ -67,6 +67,7 @@ runtime_patches=(
     "$ROOT/patches/0024-runtime-render-queue-memory.patch"
     "$ROOT/patches/0025-runtime-task-memory.patch"
     "$ROOT/patches/0026-runtime-graphics-fence.patch"
+    "$ROOT/patches/0028-runtime-aligned-rsp-dma.patch"
 )
 frontend_patches=(
     "$ROOT/patches/0010-frontend-enum-wrap.patch"

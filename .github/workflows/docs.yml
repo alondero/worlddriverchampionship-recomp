@@ -61,6 +61,7 @@ jobs:
           git -C lib/N64ModernRuntime apply ../../patches/0024-runtime-render-queue-memory.patch
           git -C lib/N64ModernRuntime apply ../../patches/0025-runtime-task-memory.patch
           git -C lib/N64ModernRuntime apply ../../patches/0026-runtime-graphics-fence.patch
+          git -C lib/N64ModernRuntime apply ../../patches/0028-runtime-aligned-rsp-dma.patch
           git -C lib/rt64 apply ../../patches/0014-rt64-rdp-screen-clipping.patch
           git -C lib/rt64 apply ../../patches/0016-rt64-rdp-edge-trapezoids.patch
           git -C lib/rt64 apply ../../patches/0020-rt64-opaque-subpixel-coverage.patch

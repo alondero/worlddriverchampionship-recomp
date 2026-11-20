@@ -66,6 +66,7 @@ the WDC runtime demonstrates the same need.
 | `0024-runtime-render-queue-memory.patch` | N64ModernRuntime | All | Route message operations from a private rendering image through live scheduler queues. |
 | `0025-runtime-task-memory.patch` | N64ModernRuntime | All | Carry the submitting guest memory image with each graphics task. |
 | `0026-runtime-graphics-fence.patch` | N64ModernRuntime | All | Fence the submitting game thread's queued graphics actions before reusing a render image. |
+| `0028-runtime-aligned-rsp-dma.patch` | N64ModernRuntime | All | Bulk-copy whole words between aligned word-swapped RSP DMEM and guest RAM. |
 
 ## Application matrix
 

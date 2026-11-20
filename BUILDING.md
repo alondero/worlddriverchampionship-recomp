@@ -62,6 +62,7 @@ Runtime patches 0024 and 0025 keep message queues in live RAM and carry the
 submitting RAM pointer in each queued graphics task. Patch 0026 lets the game
 thread wait for its submitted graphics work before reusing a private image.
 RT64 patch 0027 submits interior triangle batches from their decoded arrays.
+Runtime patch 0028 copies aligned RSP DMA transfers in bulk.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 
