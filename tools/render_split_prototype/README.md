@@ -1236,3 +1236,17 @@ On Windows, samples 199 through 378 matched in all four trials (SHA-256
 `49a8e352d6bfbd69e3b84912c2e7f6a8ce9ce640bc5896ae8d52327a0087a4fa`).
 Developer checkpoints require a compatible live thread/queue layout. Booting
 with interpolation active before loading a stock slot can fail this check.
+
+To sample the player window's X11 Present completions during a Linux XWayland
+run, use its X11 window ID (available from `xdotool search --onlyvisible --pid`
+with the player PID). Run on the same display while the race is active:
+
+```sh
+python3 tools/render_split_prototype/xpresent.py "$window" --warmup 2 --seconds 10
+```
+
+This observes the server's pixmap completion timestamps and counts skipped
+presents separately. Native Wayland and Gamescope WSI bypass paths require
+other instrumentation. A native Deck XWayland run at 1× in the eight-car
+track 2 race completed 841 flips at 85.7/s after warm-up. Of 840 intervals,
+798 took one refresh and 42 took two (median 11.11 ms, p95 22.16 ms).
