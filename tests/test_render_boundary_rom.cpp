@@ -1,10 +1,13 @@
 #undef NDEBUG
 #include "recomp.h"
 #include "extra_race_draw.h"
+#include "display_rate_draw.h"
 #include <cassert>
 #include <cstdint>
 #include <vector>
 
+// Exercise the ordinary dispatcher when independent presentation is disabled.
+bool wdc::render::draw_at_display_rate(uint8_t*, recomp_context&) { return false; }
 namespace {
 std::vector<unsigned> calls;
 unsigned views = 0, prepared = 0, drawn = 0;

@@ -124,7 +124,7 @@ text = "{ extern void wdc_wait_for_preview_reload(void); wdc_wait_for_preview_re
 [[hooks]]
 func = "func_80001D88"
 before_vram = 0x80001D90
-text = "{ extern void wdc_savestate_tick(uint8_t*, recomp_context*); wdc_savestate_tick(rdram, ctx); }"
+text = "{ extern void wdc_savestate_tick(uint8_t*, recomp_context*); extern void wdc_render_dispatcher_tick(uint8_t*); wdc_savestate_tick(rdram, ctx); wdc_render_dispatcher_tick(rdram); }"
 
 # Developer warp boundaries; guest-memory contracts live in src/game_warp.cpp.
 [[hooks]]
@@ -209,6 +209,22 @@ before_vram = 0x80042FA8
 text = "{ extern _Bool wdc_is_extra_race_draw(const uint8_t*); if (wdc_is_extra_race_draw(rdram)) return; }"
 
 # Native 60 fps: latch sampling and swap policy together at worker startup.
+# The fixed-rate renderer can own presentation inside these USA swap calls.
+# Each table checks the JAL and its argument-setting delay instruction.
+[[render_swap_calls]]
+func = "func_800013DC"
+target = 0x8006ED70
+delay = 0x24060001
+bridge = "wdc_render_swap_wait"
+sites = [0x80001520, 0x80001534, 0x8000157C, 0x8000159C, 0x800015BC, 0x800015E8]
+
+[[render_swap_calls]]
+func = "func_800013DC"
+target = 0x8006F590
+delay = 0x8C84D750
+bridge = "wdc_render_swap_buffer"
+sites = [0x80001568, 0x800015A8]
+
 [[hooks]]
 func = "func_8002CB0C"
 before_vram = 0x8002CB0C

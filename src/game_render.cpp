@@ -1,5 +1,5 @@
 #include "recomp.h"
-#include "render_memory.h"
+#include "display_rate_draw.h"
 
 extern "C" void func_8000A30C(uint8_t*, recomp_context*);
 
@@ -7,9 +7,5 @@ extern "C" void func_8000A30C(uint8_t*, recomp_context*);
 // for the duration of the call. Its original draw owns audio, arena turnover
 // and graphics submission. All guest outputs flow back to that same caller.
 extern "C" void wdc_render_race_draw(uint8_t* rdram, recomp_context* ctx) {
-    func_8000A30C(rdram, ctx);
-}
-
-extern "C" const wdc::render::FrameCallbacks* wdc_render_frame_callbacks() {
-    return nullptr;
+    if (!wdc::render::draw_at_display_rate(rdram, *ctx)) func_8000A30C(rdram, ctx);
 }

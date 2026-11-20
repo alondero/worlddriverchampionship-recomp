@@ -239,7 +239,7 @@ public:
         frame.fill_active = frame.fill_pending = false;
         wdc::rdp_capture::end_task();
         if (disable_readback) app->state->setRenderToRAM(saved_readback);
-        if (frame_callbacks) frame_callbacks->task_finished();
+        if (frame_callbacks && frame_callbacks->task_finished) frame_callbacks->task_finished();
     }
     void send_dummy_workload(uint32_t) override {}
     void update_screen() override {

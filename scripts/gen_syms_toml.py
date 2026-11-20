@@ -211,13 +211,25 @@ def main() -> int:
         f'rom_file_path = "{config["filename"]}"', "", "[patches]",
         f"stubs = {stubs_toml}", "ignored = []", "",
     ]
-    instructions = symbol_config.get("instructions", [])
+    instructions = list(symbol_config.get("instructions", []))
     # An instruction replacement may supply the translated operation at that
     # same address, including when the instruction occupies a delay slot.
     hooks = symbol_config.get("hooks", []) + [
         {"func": patch["func"], "before_vram": patch["vram"], "text": patch["text"]}
         for patch in instructions if "text" in patch
     ]
+    for call in symbol_config.get("render_swap_calls", []):
+        jal = 0x0C000000 | ((call["target"] >> 2) & 0x03FFFFFF)
+        for site in call["sites"]:
+            # Execute the original argument setup before calling the bridge.
+            # Both words are checked against the ROM by the patch emitter.
+            instructions.extend([
+                dict(func=call["func"], vram=site, expected=jal, value=call["delay"]),
+                dict(func=call["func"], vram=site + 4, expected=call["delay"], value=0),
+            ])
+            bridge = call["bridge"]
+            hooks.append(dict(func=call["func"], before_vram=site + 4,
+                              text=f"{{ extern void {bridge}(uint8_t*, recomp_context*); {bridge}(rdram, ctx); }}"))
     try:
         hooks = hooks + link_register_hooks(
             rom, symbol_config.get("link_register_targets", []), functions,

@@ -4,6 +4,20 @@ Question: can the real race drawing code produce additional frames while input
 sampling and simulation remain at their original fixed rate, and which state
 must be separated before those frames can be interpolated?
 
+The experimental branch also runs interpolation in the ordinary player.
+Set `WDC_EXPERIMENTAL_DISPLAY_HZ=90` before starting a single-player race
+with Native 60 fps disabled. Integer and fractional targets above 30 Hz
+through 240 Hz are accepted, including `60000/1001`. The ROM keeps its
+30 Hz simulation interval. The player draws intermediate camera, car body,
+wheel and shadow poses on a private copy of the race sample.
+
+For a bounded run, set `WDC_DIAGNOSTIC=1`, `WDC_WARP=1:0` and
+`WDC_WARP_AT=360:2:0:arcade:3`. The diagnostic exits with code 2 after
+15 seconds and reports elapsed time, consumed samples and RT64 admissions
+per 60 draw groups. The probe below supplies separate swap and pixel checks.
+Split-screen, unsupported scenes and the native 60 Hz simulation use their
+ordinary drawing path.
+
 `--async-diagnostics` moves complete probe diagnostic records to a host writer
 thread while retaining the existing record-formatting mutex. This isolates file
 I/O from that mutex; it does not eliminate formatting or scheduling contention.

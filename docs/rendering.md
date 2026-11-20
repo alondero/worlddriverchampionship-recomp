@@ -6,6 +6,14 @@ measured facts, the rules learned while measuring them, and the questions that
 are still open. RT64 integration details (clipping, aspect, HUD fixes) live in
 the [renderer reference](reference/renderer.md).
 
+The experimental player accepts `WDC_EXPERIMENTAL_DISPLAY_HZ` for single-view
+racing with the stock 30 Hz simulation. It draws intermediate poses before
+the authoritative draw. At a rate such as 90 Hz, that draw supplies every
+third presentation. At a fractional rate, it supplies a presentation only
+when the simulation sample falls on the display grid. Its audio and gameplay
+work still runs once per group. The dispatcher returns presentation to VI
+retrace on scene exit and discards pose history after a checkpoint load.
+
 The prototype's high-rate renderer callbacks are not equivalent to high-rate
 display. An RT64 swap audit found that unchanged VI registers and framebuffer
 RAM cause `State::updateScreen` to omit a presentation even after a new GPU

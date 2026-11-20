@@ -13,6 +13,7 @@ roots = {"func_800013DC", "func_8000C0D0", "func_8000C164", "func_80017164",
 natives = {
     "func_8002AC60", "func_80000678", "func_800216D0", "func_80019E28",
     "func_80001304", "func_8002AE50", "func_8006F63C", "func_8006F1E0",
+    "wdc_render_swap_wait", "wdc_render_swap_buffer",
     "osViBlack_recomp", "osSendMesg_recomp", "osRecvMesg_recomp",
     "osViSetMode_recomp", "osViSetSpecialFeatures_recomp",
     "osViSwapBuffer_recomp", "osViGetCurrentFramebuffer_recomp",

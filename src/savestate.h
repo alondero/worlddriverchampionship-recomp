@@ -8,4 +8,6 @@ namespace wdc::state {
 bool configure(const std::filesystem::path& default_slot);
 void request_save();
 void request_load();
+// Game dispatcher thread only. Advances after a successful restoration.
+uint64_t restore_generation();
 }
