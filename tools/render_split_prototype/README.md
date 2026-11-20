@@ -238,13 +238,15 @@ python tools/render_split_prototype/test_context.py --reference-build build --ro
 probe uses **that build's** game/runtime/renderer, not unbuilt source changes
 in this worktree. Ordinary modes compile only `probe.cpp` and relink into a separate
 executable. It does not perform a full player rebuild.
-The `present120`, `shadow120`, `shadow-rate`, `motion120`, `motion-rate`, `motion-samples` and `endpoint120` modes additionally compile a copied `events.cpp` with guarded
-substitutions from `runtime.py`, linked ahead of the reference runtime archive.
-This copy uses the current source named by the reference compile database;
-unbuilt changes to that file will therefore affect this mode.
-Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
-The substitutions fail on unexpected source structure; other modes use the
-unmodified runtime archive.
+Independent presentation modes use the reference runtime's compiled swap
+presentation API when available (patch 0022). The graphics worker receives an
+immutable VI register snapshot for each selected swap. Guest current/next
+framebuffer state still latches on retrace. The VI thread also retains ownership
+of VI/AI message delivery. Normal player startup uses retrace-driven updates.
+The per-run `runtime-source.json` identifies the linked runtime archive by hash.
+Older reference builds compile a separate copy of `events.cpp` using the
+reference compile database and the guarded substitutions in `runtime.py`.
+Those runs record the source hash, copy hash and compiler command.
 Owned-RAM modes use the compiled player renderer when it exposes a frame
 source. At renderer creation the probe supplies task memory, a snapshot mutex,
 a task-completion callback and an optional screen-update observer. The renderer

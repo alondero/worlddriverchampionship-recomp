@@ -35,7 +35,15 @@
 #include <vector>
 
 namespace ultramodern { void wait_for_external_message_timed(uint8_t*, uint32_t); }
-#ifdef WDC_PROTOTYPE_PRESENT
+#if defined(WDC_RUNTIME_SWAP_PRESENTATION)
+#include "ultramodern/swap_presentation.hpp"
+extern "C" void prototype_screen_begin(bool);
+extern "C" void prototype_present_observed(uint32_t);
+extern "C" void prototype_vi_observed();
+static void prototype_set_present(bool enabled) {
+    ultramodern::set_swap_presentation(enabled, {prototype_screen_begin, prototype_present_observed, prototype_vi_observed});
+}
+#elif defined(WDC_PROTOTYPE_PRESENT)
 extern "C" void prototype_set_present(bool);
 #else
 static void prototype_set_present(bool) {}
@@ -54,6 +62,7 @@ unsigned early_trials = 0, early_settled = 0;
 std::chrono::steady_clock::time_point early_frame_start;
 unsigned normal_publish = 0, normal_consume = 0, normal_audio_build = 0, normal_audio_retire = 0;
 unsigned skipped_vi_waits = 0;
+unsigned framebuffer_waits = 0;
 std::atomic_uint prototype_vi_ticks{0}, accelerator_samples{0};
 bool hold_accelerator() {
     static const bool enabled = std::getenv("WDC_RENDER_PROTOTYPE_ACCELERATOR") != nullptr;
@@ -623,6 +632,13 @@ void __wrap_func_800013DC(uint8_t* rdram, recomp_context* ctx) {
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
     }
 }
+void __real_osViGetCurrentFramebuffer_recomp(uint8_t*, recomp_context*);
+void __wrap_osViGetCurrentFramebuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
+    __real_osViGetCurrentFramebuffer_recomp(rdram, ctx);
+    // The branch at 800015D4 compares the returned VI latch to this guest
+    // framebuffer pointer. On mismatch the ROM receives once more at 015E8.
+    if (inside_swap && uint32_t(ctx->r2) != word(rdram, 0x8007D750)) ++framebuffer_waits;
+}
 void __real_osRecvMesg_recomp(uint8_t*, recomp_context*);
 void __wrap_osRecvMesg_recomp(uint8_t* rdram, recomp_context* ctx) {
     // Only the swap routine's VI queue, not SP_BREAK, DP completion, audio
@@ -1018,9 +1034,9 @@ void __wrap_wdc_render_race_draw(uint8_t* rdram, recomp_context* ctx) {
     drain_renderer(rdram);
     normal_endpoint = false;
     std::lock_guard lock(output_mutex);
-    log_record("[prototype-endpoint] {\"frame\":%u,\"sample_before\":%u,\"sample_after\":%u,\"publish\":%u,\"consume\":%u,\"audio_build\":%u,\"audio_retire\":%u,\"skipped_vi_waits\":%u}\n",
+    log_record("[prototype-endpoint] {\"frame\":%u,\"sample_before\":%u,\"sample_after\":%u,\"publish\":%u,\"consume\":%u,\"audio_build\":%u,\"audio_retire\":%u,\"framebuffer_waits\":%u,\"skipped_vi_waits\":%u}\n",
         race_frame, samples, word(rdram, 0x8007E530), normal_publish-publish, normal_consume-consume,
-        normal_audio_build-build, normal_audio_retire-retire, skipped_vi_waits);
+        normal_audio_build-build, normal_audio_retire-retire, framebuffer_waits, skipped_vi_waits);
 }
 void __wrap_func_8000C560(uint8_t* rdram, recomp_context* ctx) {
     if (!rdram || !ctx) return;
@@ -1529,11 +1545,11 @@ bool run_render_trial(uint8_t* rdram, recomp_context* ctx, unsigned scene,
         "\"sound_buffer_before\":%u,\"sound_buffer_after\":%u,"
         "\"divider_before\":%u,\"divider_after\":%u,\"ticks_before\":%u,\"ticks_after\":%u,"
         "\"skipped_publish\":%u,\"skipped_consume\":%u,\"skipped_audio_build\":%u,"
-        "\"skipped_audio_retire\":%u,\"preserved_flare_history\":%u,\"skipped_vi_waits\":%u,\"car_word_changes\":[",
+        "\"skipped_audio_retire\":%u,\"preserved_flare_history\":%u,\"framebuffer_waits\":%u,\"skipped_vi_waits\":%u,\"car_word_changes\":[",
         ++trials, race_frame, gated() ? "true" : "false", scene, ms, frame_ms, samples,
         word(rdram, 0x8007E530), unsigned(list), unsigned(MEM_BU(0, int32_t(0x8007E844))),
         divider, word(rdram, 0x8007FE1C), ticks, word(rdram, 0x8007FDF4),
-        skipped_publish, skipped_consume, skipped_audio_build, skipped_audio_retire, preserved_flare_history, skipped_vi_waits);
+        skipped_publish, skipped_consume, skipped_audio_build, skipped_audio_retire, preserved_flare_history, framebuffer_waits, skipped_vi_waits);
     unsigned changed = 0;
     for (unsigned i = 0; i < before.size(); ++i) {
         const auto after = word(rdram, 0x800BA7F0 + 4 * i);

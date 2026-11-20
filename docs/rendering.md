@@ -18,6 +18,14 @@ callback timing results must not be read as achieved display rates. See the
 [prototype instructions](../tools/render_split_prototype/README.md) for both
 the failed controls and the explicit-submission experiment.
 
+Patch 0022 separates screen submission from the VI clock. In the prototype,
+`osViSwapBuffer` copies the pending VI registers into a graphics-queue action.
+Only retrace advances the guest's current framebuffer and delivers VI/AI
+events. This distinction is visible at `800015D4`, where the race swap routine
+compares the latched framebuffer with the pointer at `8007D750`. A mismatch
+takes an additional receive at `800015E8`. The probe counts that branch for
+each draw when checking swap waits.
+
 Driving captures now use an optional held-accelerator fixture. They exposed
 ordinary ground-contact references incorrectly resetting interpolation history;
 tracking contact availability fixes those resets. A further driving mismatch

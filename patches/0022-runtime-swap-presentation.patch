@@ -1,0 +1,154 @@
+diff --git a/ultramodern/include/ultramodern/swap_presentation.hpp b/ultramodern/include/ultramodern/swap_presentation.hpp
+new file mode 100644
+--- /dev/null
++++ b/ultramodern/include/ultramodern/swap_presentation.hpp
+@@ -0,0 +1,14 @@
++#pragma once
++#include <cstdint>
++
++namespace ultramodern {
++// Optional graphics-thread callbacks bracket presentation and report physical VI
++// origin in bytes. vi_tick runs on the retrace thread. Callbacks must outlive
++// queued actions. Disabling restores retrace-driven presentation.
++struct SwapPresentation {
++    void (*bind)(bool) = nullptr;
++    void (*presented)(uint32_t) = nullptr;
++    void (*vi_tick)() = nullptr;
++};
++void set_swap_presentation(bool enabled, SwapPresentation callbacks = {});
++}
+diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
+--- a/ultramodern/src/events.cpp
++++ b/ultramodern/src/events.cpp
+@@ -17,6 +17,7 @@
+ 
+ #include "ultramodern/rsp.hpp"
+ #include "ultramodern/renderer_context.hpp"
++#include "ultramodern/swap_presentation.hpp"
+ 
+ static ultramodern::events::callbacks_t events_callbacks{};
+ 
+@@ -30,6 +31,7 @@
+ 
+ struct ScreenUpdateAction {
+     ultramodern::renderer::ViRegs regs;
++    ultramodern::SwapPresentation callbacks{};
+ };
+ 
+ struct UpdateConfigAction {
+@@ -69,7 +71,7 @@
+         ViState* get_cur_state() {
+             return &states[cur_state];
+         }
+-        void update_vi() {
++        void read_next_regs(ultramodern::renderer::ViRegs& regs) {
+             ViState* next_state = get_next_state();
+             const OSViMode* next_mode = next_state->mode;
+             if (next_mode == nullptr) {
+@@ -111,6 +113,11 @@
+             regs.VI_Y_SCALE_REG = yScale; // TODO implement osViSetYScale
+             regs.VI_STATUS_REG = next_state->control;
+             
++        }
++
++        void update_vi() {
++            if (get_next_state()->mode == nullptr) return;
++            read_next_regs(regs);
+             // Swap VI states.
+             cur_state ^= 1;
+             *get_next_state() = *get_cur_state();
+@@ -176,6 +183,15 @@
+     next_state->retrace_count = retrace_count;
+ }
+ 
++// Accessed under message_mutex. Each queued update retains its own callbacks.
++static bool present_on_swap = false;
++static ultramodern::SwapPresentation swap_callbacks{};
++void ultramodern::set_swap_presentation(bool enabled, SwapPresentation callbacks) {
++    std::lock_guard lock{events_context.message_mutex};
++    present_on_swap = enabled;
++    swap_callbacks = callbacks;
++}
++
+ uint64_t total_vis = 0;
+ 
+ 
+@@ -218,21 +234,27 @@
+         }
+         total_vis = new_total_vis;
+ 
+-        // If the game hasn't started yet, set a dummy VI mode and origin.
+-        if (!ultramodern::is_game_started()) {
+-            static bool odd = false;
+-            set_dummy_vi(odd);
+-            odd = !odd;
+-
+-            events_context.action_queue.enqueue(DummyWorkloadAction{events_context.vi.get_next_state()->framebuffer});
+-        }
+-
+-        // Queue a screen update for the graphics thread with the current VI register state.
+-        // Doing this before the VI update is equivalent to updating the screen after the previous frame's scanout finished.
+-        events_context.action_queue.enqueue(ScreenUpdateAction{ events_context.vi.regs });
+-
+-        // Update VI registers and swap VI modes.
+-        events_context.vi.update_vi();
++        void (*observe_vi)() = nullptr;
++        {
++            std::lock_guard lock{events_context.message_mutex};
++            // If the game hasn't started yet, set a dummy VI mode and origin.
++            if (!ultramodern::is_game_started()) {
++                static bool odd = false;
++                set_dummy_vi(odd);
++                odd = !odd;
++
++                events_context.action_queue.enqueue(DummyWorkloadAction{events_context.vi.get_next_state()->framebuffer});
++            }
++
++            // Queue a screen update for the graphics thread with the current VI register state.
++            // Doing this before the VI update is equivalent to updating the screen after the previous frame's scanout finished.
++            if (!present_on_swap) events_context.action_queue.enqueue(ScreenUpdateAction{ events_context.vi.regs });
++
++            // Update VI registers and swap VI modes.
++            events_context.vi.update_vi();
++            if (present_on_swap) observe_vi = swap_callbacks.vi_tick;
++        }
++        if (observe_vi) observe_vi();
+ 
+         // If the game has started, handle sending VI and AI events.
+         if (ultramodern::is_game_started()) {
+@@ -386,7 +408,11 @@
+             }
+             else if (const auto* screen_update_action = std::get_if<ScreenUpdateAction>(&action)) {
+                 events_context.vi.update_screen_regs = screen_update_action->regs;
++                const auto& callbacks = screen_update_action->callbacks;
++                if (callbacks.bind) callbacks.bind(true);
+                 renderer_context->update_screen();
++                if (callbacks.bind) callbacks.bind(false);
++                if (callbacks.presented) callbacks.presented(screen_update_action->regs.VI_ORIGIN_REG);
+                 display_refresh_rate = renderer_context->get_display_framerate();
+                 resolution_scale = renderer_context->get_resolution_scale();
+             }
+@@ -462,6 +488,11 @@
+ extern "C" void osViSwapBuffer(RDRAM_ARG PTR(void) frameBufPtr) {
+     std::lock_guard lock{ events_context.message_mutex };
+     events_context.vi.get_next_state()->framebuffer = frameBufPtr;
++    if (present_on_swap) {
++        auto regs = events_context.vi.regs;
++        events_context.vi.read_next_regs(regs);
++        events_context.action_queue.enqueue(ScreenUpdateAction{regs, swap_callbacks});
++    }
+ }
+ 
+ extern "C" void osViSetMode(RDRAM_ARG PTR(OSViMode) mode_) {
+@@ -555,9 +586,11 @@
+ }
+ 
+ extern "C" PTR(void) osViGetNextFramebuffer() {
++    std::lock_guard lock{events_context.message_mutex};
+     return events_context.vi.get_next_state()->framebuffer;
+ }
+ 
+ extern "C" PTR(void) osViGetCurrentFramebuffer() {
++    std::lock_guard lock{events_context.message_mutex};
+     return events_context.vi.get_cur_state()->framebuffer;
+ }

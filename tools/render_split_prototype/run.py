@@ -173,13 +173,24 @@ def main():
         found = re.search(r"^  " + name + r" = (.*)$", block, re.M)
         return shlex.split(found[1].replace("\\", "/")) if found else []
     receive_archive = None
-    if owned_ram:
+    if owned_ram or independent_present:
         nm = re.search(r"^CMAKE_NM:[^=]+=(.*)$", cache, re.M)[1]
+    if owned_ram:
         receive_archive = runtime_receive_archive(reference, nm)
+    compiled_presentation = False
+    if independent_present:
+        archive = reference / "lib/N64ModernRuntime/ultramodern/libultramodern.a"
+        symbols = subprocess.check_output([nm, "-C", "--defined-only", str(archive)], text=True)
+        compiled_presentation = " T ultramodern::set_swap_presentation(" in symbols
+        if compiled_presentation:
+            (output / "runtime-source.json").write_text(json.dumps({
+                "boundary": "runtime", "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest()
+            }, indent=2))
     probe = output / "probe.o"
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
                     *(["-DWDC_PROTOTYPE_AUDIT_PRESENT"] if args.audit_present else []),
                     *(["-DWDC_RUNTIME_RECEIVE_DESTINATION"] if receive_archive else []),
+                    *(["-DWDC_RUNTIME_SWAP_PRESENTATION"] if compiled_presentation else []),
                     *(["-DWDC_PROTOTYPE_PRESENT"] if independent_present else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE"] if args.capture_frames else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE_BOSS"] if args.capture_boss_tasks else []),
@@ -196,7 +207,7 @@ def main():
         objects.append(build_present_audit(reference, output, compiler, args.capture_frames))
     if args.profile_rt64 or args.explicit_present:
         objects.append(build_rt64_profile(reference, output, compiler, profile=args.profile_rt64, explicit_present=args.explicit_present))
-    runtime = [str(build_runtime(reference, output, compiler))] if independent_present else []
+    runtime = [str(build_runtime(reference, output, compiler))] if independent_present and not compiled_presentation else []
     if owned_ram:
         replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler, args.audit_present, receive_archive, nm)
         if original_object not in [o.replace("\\", "/") for o in objects]:
@@ -215,7 +226,7 @@ def main():
                "func_80043274", "func_80042FA8", "func_8002A3A8",
                "func_8001FC64", "func_8001F7F8",
                "func_80024038", "func_80010A5C", "func_80010ECC", "func_80024FCC", "func_80025350",
-               "func_800013DC", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
+               "func_800013DC", "osViGetCurrentFramebuffer_recomp", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
                "osSendMesg_recomp", "_Z13rsp_read_cop0j", "_Z18wdc_boss_dma_writePhjjj",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
     if owned_ram and not replacement:
@@ -245,7 +256,7 @@ def main():
         shutil.copy2(output / "present-audit-source.json", run_dir / "present-audit-source.json")
     if args.profile_rt64 or args.explicit_present:
         shutil.copy2(output / "rt64-profile-source.json", run_dir / "rt64-profile-source.json")
-    if runtime:
+    if independent_present:
         shutil.copy2(output / "runtime-source.json", run_dir / "runtime-source.json")
     if owned_ram:
         shutil.copy2(output / "shadow-source.json", run_dir / "shadow-source.json")
@@ -825,10 +836,11 @@ def main():
         print(f"PASS: one authoritative audio lifecycle per group; {used} original draws supplied scheduled endpoints")
     if independent_present:
         wait_rows = endpoints if endpoint_mode else rows
-        skipped_deltas = [b['skipped_vi_waits'] - a for a, b in zip(
-            [0] + [r['skipped_vi_waits'] for r in wait_rows[:-1]], wait_rows)]
-        # Suppressing the normal swap can trigger 013DC's additional receive
-        # at 015E8 when osViGetCurrentFramebuffer differs from the game target.
+        # At 015D4 the ROM compares the current framebuffer to its target.
+        # Each mismatch independently adds one receive at 015E8. Subtract
+        # those observed branches before checking the fixed waits per draw.
+        fixed_waits = [r['skipped_vi_waits'] - r['framebuffer_waits'] for r in wait_rows]
+        skipped_deltas = [b - a for a, b in zip([0] + fixed_waits[:-1], fixed_waits)]
         valid_waits = all(10 <= delta <= 11 for delta in skipped_deltas) if motion_mode else all(
             delta == 8 for delta in skipped_deltas)
         if endpoint_mode:
@@ -838,8 +850,7 @@ def main():
             expected_count = cumulative_repeats(args.trials) + sum(present_endpoint(r['trial']) for r in rows)
             # Every owned draw and the normal drain traverse the swap waits.
             # The initial warm-up drain can add up to one extra swap sequence.
-            valid_waits = all(2 * (frame_repeats(r['trial']) + 1) <= d <=
-                              2 * (frame_repeats(r['trial']) + 1) + (3 if i == 0 else 1)
+            valid_waits = all(d - 2 * (frame_repeats(r['trial']) + 1) in ((0, 2) if i == 0 else (0,))
                               for i, (r, d) in enumerate(zip(rows, skipped_deltas)))
         elif cadence_mode:
             valid_waits = all(2 * (frame_repeats(r['trial']) + 1) <= d <= 2 * (frame_repeats(r['trial']) + 1) + int(motion_rate) for d, r in zip(skipped_deltas, rows))

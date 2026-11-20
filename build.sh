@@ -61,6 +61,7 @@ runtime_patches=(
     "$ROOT/patches/0019-runtime-developer-thread-snapshots.patch"
     "$ROOT/patches/0021-runtime-protected-function-replacements.patch"
     "$ROOT/patches/0021-runtime-receive-message-destination.patch"
+    "$ROOT/patches/0022-runtime-swap-presentation.patch"
 )
 frontend_patches=(
     "$ROOT/patches/0010-frontend-enum-wrap.patch"

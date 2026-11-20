@@ -60,6 +60,7 @@ the WDC runtime demonstrates the same need.
 | `0019-runtime-developer-thread-snapshots.patch` | N64ModernRuntime | All | Validate the live thread roster and remove/repair native context pointers for developer RAM checkpoints. |
 | `0021-runtime-protected-function-replacements.patch` | N64ModernRuntime | Desktop | Reject ordinary and forced replacements for host functions explicitly protected by the port. |
 | `0021-runtime-receive-message-destination.patch` | N64ModernRuntime | All | Receive a live queue message into caller-owned storage while rendering a snapshot. |
+| `0022-runtime-swap-presentation.patch` | N64ModernRuntime | All | Queue a framebuffer swap for presentation on the graphics thread independently of VI retrace. |
 
 ## Application matrix
 
