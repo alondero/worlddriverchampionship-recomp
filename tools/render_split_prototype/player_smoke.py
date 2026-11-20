@@ -1,5 +1,6 @@
 """Check the ordinary player's saved interpolation setting across a race change."""
 import argparse
+from fractions import Fraction
 import json
 import os
 from pathlib import Path
@@ -12,18 +13,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("player", type=Path)
     parser.add_argument("rom", type=Path)
-    parser.add_argument("--rate", default="display", help="display or a whole number from 31 through 1000")
+    parser.add_argument("--rate", default="display", help="display or a decimal target above 30 through 1000 Hz")
     parser.add_argument("--resolution", type=int, choices=range(9), default=0)
     args = parser.parse_args()
-    rate = -1 if args.rate == "display" else int(args.rate)
+    rate = -1 if args.rate == "display" else Fraction(args.rate)
     if rate != -1 and not 30 < rate <= 1000:
-        parser.error("custom rate must be in 31..1000")
+        parser.error("custom rate must be greater than 30 and at most 1000 Hz")
+    if rate != -1 and (rate * 1000).denominator != 1:
+        parser.error("custom targets accept up to three decimal places")
     player, rom = args.player.resolve(strict=True), args.rom.resolve(strict=True)
     work = Path(tempfile.mkdtemp(prefix="wdc-display-"))
     config = work / "build/user-data"
     config.mkdir(parents=True)
     (config / "graphics.json").write_text(json.dumps(dict(
-        version=2, rate=rate, resolution=args.resolution, interpolate_races=True,
+        version=2, rate=(int(rate) if rate == int(rate) else float(rate)), resolution=args.resolution, interpolate_races=True,
         native_60fps=True,  # The saved interpolation choice selects fixed 30 Hz.
     )))
     env = dict(os.environ, WDC_WARP="1:0", WDC_WARP_AT="360:2:0:arcade:3", WDC_DIAGNOSTIC="1")
@@ -41,10 +44,10 @@ def main():
     if len(tracks) != 3:
         raise SystemExit("Expected two race loads")
     for track, trace in enumerate(tracks[1:], 1):
-        start = re.search(r"fixed 30 Hz gameplay, display target (\d+)/1 Hz", trace)
+        start = re.search(r"fixed 30 Hz gameplay, display target (\d+)/(\d+) Hz", trace)
         if not trace.startswith(f"{track} ") or "race ready:" not in trace or not start:
             raise SystemExit(f"Track {track} did not enter the fixed-rate draw")
-        hz = int(start[1])
+        hz = Fraction(int(start[1]), int(start[2]))
         if rate != -1 and hz != rate:
             raise SystemExit(f"Player selected {hz} Hz for a {rate} Hz request")
         windows = re.findall(r"60 groups, ([\d.]+) s, (\d+) samples, RT64 accepted (\d+) explicit and (\d+) retrace frames", trace)

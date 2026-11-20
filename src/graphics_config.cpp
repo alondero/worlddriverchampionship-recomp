@@ -4,6 +4,8 @@
 #include "game_framerate.h"
 #include "json/json.hpp"
 #include <algorithm>
+#include <cmath>
+#include <sstream>
 #include <cstdio>
 #include <fstream>
 #include <mutex>
@@ -24,7 +26,11 @@ Settings normalize(Settings s) {
     s.resolution = std::clamp(s.resolution, 0, 8);
     if (s.aspect < 0 || s.aspect > 1) s.aspect = 1;
     if (s.hud < 0 || s.hud > 2) s.hud = 1;
-    if (s.rate != 0 && s.rate != -1 && (s.rate < 30 || s.rate > int(render::DisplayRate::max_hz))) s.rate = 0;
+    if (s.rate != 0 && s.rate != -1) {
+        if (!std::isfinite(s.rate) || s.rate < 30 || s.rate > render::DisplayRate::max_hz) s.rate = 0;
+        else if (s.interpolate_races) s.rate = std::round(s.rate * 1000) / 1000;
+        else s.rate = std::round(s.rate);
+    }
     if (s.rate == 0) s.interpolate_races = false;
     if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8) s.samples = 1;
     if (s.filtering < 0 || s.filtering > 2) s.filtering = 1;
@@ -56,7 +62,11 @@ void load(const std::filesystem::path& path) {
             };
             integer("resolution", s.resolution); integer("aspect", s.aspect);
             integer("hud", s.hud);
-            integer("rate", s.rate); integer("samples", s.samples);
+            if (j.contains("rate")) {
+                if (!j.at("rate").is_number()) throw std::runtime_error("rate");
+                s.rate = j.at("rate").get<double>();
+            }
+            integer("samples", s.samples);
             integer("filtering", s.filtering); integer("precision", s.precision);
             s.fullscreen = j.value("fullscreen", false);
             s.full_car_detail = j.value("full_car_detail", false);
@@ -88,12 +98,14 @@ bool apply(Settings s) {
     try {
         if (file.empty()) throw std::runtime_error("settings path is not configured");
         nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
-            {"aspect", s.aspect}, {"rate", s.rate}, {"samples", s.samples},
+            {"aspect", s.aspect}, {"samples", s.samples},
             {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen},
             {"hud", s.hud},
             {"full_car_detail", s.full_car_detail}, {"full_track_detail", s.full_track_detail},
             {"draw_distance", s.draw_distance}, {"native_60fps", s.native_60fps},
             {"interpolate_races", s.interpolate_races}};
+        // Keep whole rates readable by older players with an integer-only setting.
+        j["rate"] = s.rate == std::trunc(s.rate) ? nlohmann::json(int(s.rate)) : nlohmann::json(s.rate);
         auto temporary = file;
         temporary += ".tmp";
         std::ofstream out(temporary, std::ios::trunc);
@@ -114,9 +126,15 @@ bool apply(Settings s) {
     }
 }
 std::string describe(const Settings& s) {
+    std::ostringstream rate;
+    if (s.interpolate_races) rate << "Interpolated ";
+    if (s.rate == 0) rate << "Original rate";
+    else if (s.rate == -1) rate << "Display rate";
+    else rate << s.rate << " Hz";
+    if (s.rate != 0) rate << " (experimental)";
     return (s.resolution ? std::to_string(s.resolution) + "x" : "Auto resolution") +
         (s.aspect == 0 ? " | 4:3" : " | Window aspect") +
-        " | " + (s.rate == 0 ? "Original rate" : s.rate == -1 ? "Display rate (experimental)" : std::to_string(s.rate) + " Hz (experimental)") +
+        " | " + rate.str() +
         " | AA " + std::to_string(s.samples) + "x";
 }
 }

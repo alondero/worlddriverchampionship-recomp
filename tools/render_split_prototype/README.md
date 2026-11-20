@@ -7,7 +7,8 @@ must be separated before those frames can be interpolated?
 The experimental branch also runs interpolation in the ordinary player.
 Select an interpolated presentation rate in Graphics or set
 `WDC_EXPERIMENTAL_DISPLAY_HZ=90` before starting a single-player race
-with Native 60 fps disabled. Integer and fractional targets above 30 Hz
+with Native 60 fps disabled. The custom setting accepts millihertz precision.
+The environment override accepts exact ratios. Integer and fractional targets above 30 Hz
 through 1000 Hz are accepted, including `60000/1001`. The ROM keeps its
 30 Hz simulation interval. The player draws intermediate camera, car body,
 wheel and shadow poses on a private copy of the race sample.

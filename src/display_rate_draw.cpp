@@ -15,6 +15,7 @@
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string_view>
@@ -47,8 +48,12 @@ DisplayRate requested_rate() {
     if (rate.numerator) return rate;
     const auto settings = graphics::snapshot();
     if (!settings.interpolate_races) return {0, 1};
-    const unsigned hz = settings.rate == -1 ? ultramodern::get_display_refresh_rate() : unsigned(settings.rate);
-    return {hz > 30 ? std::min(hz, DisplayRate::max_hz) : 0, 1};
+    if (settings.rate == -1) {
+        const unsigned hz = ultramodern::get_display_refresh_rate();
+        return {hz > 30 ? std::min(hz, DisplayRate::max_hz) : 0, 1};
+    }
+    return settings.rate > 30 ? DisplayRate::from_millihertz(unsigned(std::lround(settings.rate * 1000)))
+                              : DisplayRate{0, 1};
 }
 
 // Renderer worker TLS is bound to each explicit screen action by the runtime.

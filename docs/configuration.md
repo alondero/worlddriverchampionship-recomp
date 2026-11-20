@@ -168,7 +168,8 @@ Existing settings keep their previous behavior. See the
 [rendering notes](rendering.md) for the measured differences.
 
 The overlay offers every resolution multiplier from 1x to 8x and a Custom
-presentation target from 30 to 1000 Hz. Existing custom values are retained.
+presentation target from 30 to 1000 Hz. Interpolated custom rates accept up to
+three decimal places, including 59.94 and 119.88 Hz. Existing custom values are retained.
 You can also edit the file while the player is closed. Schema version 2:
 
 ```json

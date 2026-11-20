@@ -1,6 +1,7 @@
 // Host-only rational presentation cadence. No guest clock or memory access.
 #pragma once
 #include <cstdint>
+#include <numeric>
 
 namespace wdc::render {
 
@@ -10,6 +11,10 @@ struct DisplayRate {
     // Match RT64's upper bound for a custom refresh target.
     static constexpr unsigned max_hz = 1000;
     unsigned numerator, denominator;
+    static constexpr DisplayRate from_millihertz(unsigned value) {
+        const auto divisor = std::gcd(value, 1000u);
+        return {value / divisor, 1000u / divisor};
+    }
     constexpr bool supported() const {
         return denominator && denominator <= 1000000 && numerator > sample_scale() &&
                numerator <= uint64_t(max_hz) * denominator;

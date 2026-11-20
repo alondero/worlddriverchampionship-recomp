@@ -162,6 +162,10 @@ int main() {
             require(requested && requested->rate == (mode == 0 ? 0 : mode == 4 ? 144 : -1) &&
                     requested->interpolate_races == (mode >= 3), "presentation mode mapping failed");
         }
+        page.update_option_value("rate", 59.94);
+        page.save_config();
+        require(requested && requested->interpolate_races && requested->rate == 59.94,
+            "fractional interpolated rate lost at Apply");
         // Enhancement edits are staged separately and preserve graphics choices.
         requested.reset();
         auto& enhancements = recompui::config::get_config("enhancements");

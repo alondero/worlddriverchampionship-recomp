@@ -35,7 +35,7 @@ int main() {
         load(path);
         require(snapshot() == Settings{}, "missing file must use defaults");
         Settings s;
-        s.resolution = 4; s.rate = 540; s.samples = 4;
+        s.resolution = 4; s.rate = 539.975; s.samples = 4;
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
         s.hud = 2;
         s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 4;

@@ -20,7 +20,7 @@ inline void configure(RT64::UserConfiguration& c, Settings requested,
     c.extAspectTarget = framebuffer_aspect * (4.0f / 3.0f);
     c.refreshRate = s.interpolate_races || s.rate == 0 ? C::RefreshRate::Original :
                     s.rate == -1 ? C::RefreshRate::Display : C::RefreshRate::Manual;
-    c.refreshRateTarget = s.rate > 0 ? s.rate : 60;
+    c.refreshRateTarget = s.rate > 0 ? int(s.rate + 0.5) : 60;
     c.antialiasing = s.samples == 8 ? C::Antialiasing::MSAA8X : s.samples == 4 ? C::Antialiasing::MSAA4X : s.samples == 2 ? C::Antialiasing::MSAA2X : C::Antialiasing::None;
     c.filtering = s.filtering == 0 ? C::Filtering::Nearest : s.filtering == 1 ? C::Filtering::Linear : C::Filtering::AntiAliasedPixelScaling;
     c.internalColorFormat = s.precision == 0 ? C::InternalColorFormat::Automatic : s.precision == 1 ? C::InternalColorFormat::Standard : C::InternalColorFormat::High;
