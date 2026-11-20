@@ -636,8 +636,11 @@ current-arena packet pointers. A copied-runtime presentation experiment delivere
 geometry and no sample consumption during extras. That is callback timing,
 not physical scanout or intermediate motion. A separate owned-RAM experiment
 now rebuilds bounded frames from a frozen 8 MiB image: the native `252D0` path
-drains BOSS before switching memory owners, CPU/BOSS/renderer use the owned
-bank, and runtime queue operations retain authoritative queue/thread state.
+drains BOSS before switching memory owners. The compiled renderer can take its
+task bank from a frame source. BOSS, RT64 and the queued screen update read
+that bank, while runtime queues and threads remain authoritative. The source
+and renderer share a mutex during bank access. The producer also waits for
+both task and screen completion before resetting a bank.
 Runtime patch 0021 lets the caller supply a message destination in the owned
 bank. A live queue test checks the received word, the corresponding authoritative
 sentinel, an empty nonblocking receive and a discarded message. Eight-car geometry repeats exactly; changing only the owned camera

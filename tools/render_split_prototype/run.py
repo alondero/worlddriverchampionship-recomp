@@ -178,6 +178,7 @@ def main():
         receive_archive = runtime_receive_archive(reference, nm)
     probe = output / "probe.o"
     subprocess.run([compiler, "-std=c++20", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-fno-strict-aliasing",
+                    *(["-DWDC_PROTOTYPE_AUDIT_PRESENT"] if args.audit_present else []),
                     *(["-DWDC_RUNTIME_RECEIVE_DESTINATION"] if receive_archive else []),
                     *(["-DWDC_PROTOTYPE_PRESENT"] if independent_present else []),
                     *(["-DWDC_PROTOTYPE_CAPTURE"] if args.capture_frames else []),
@@ -197,10 +198,11 @@ def main():
         objects.append(build_rt64_profile(reference, output, compiler, profile=args.profile_rt64, explicit_present=args.explicit_present))
     runtime = [str(build_runtime(reference, output, compiler))] if independent_present else []
     if owned_ram:
-        replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler, args.audit_present, receive_archive)
+        replacement, original_object, queue_object = build_shadow_renderer(reference, output, compiler, args.audit_present, receive_archive, nm)
         if original_object not in [o.replace("\\", "/") for o in objects]:
             raise SystemExit("Reference renderer object missing from executable link")
-        objects = [replacement if o.replace("\\", "/") == original_object else o for o in objects]
+        if replacement:
+            objects = [replacement if o.replace("\\", "/") == original_object else o for o in objects]
         if queue_object:
             objects.append(queue_object)
     if endpoint_mode:
@@ -216,6 +218,8 @@ def main():
                "func_800013DC", "osRecvMesg_recomp", "osViSwapBuffer_recomp",
                "osSendMesg_recomp", "_Z13rsp_read_cop0j", "_Z18wdc_boss_dma_writePhjjj",
                "wdc_framerate_preswap", "wdc_projection_normalize", "_ZN3wdc3rsp3runEPhPK6OSTaskPFvPvS1_jjES5_"]
+    if owned_ram and not replacement:
+        wrapped.append("wdc_render_frame_source")
     if endpoint_mode and not boundary_object:
         wrapped.append("wdc_render_race_draw")
     link = [*objects, str(probe), *runtime, *variable("LINK_PATH"), *variable("LINK_LIBRARIES"),

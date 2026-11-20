@@ -11,6 +11,7 @@
 #include "pose.h"
 #include "vectors.h"
 #include "src/render_cadence.h"
+#include "src/render_memory.h"
 #include "render_bank.h"
 #include "async_log.h"
 #ifdef WDC_PROTOTYPE_SAMPLE_WORKER
@@ -566,6 +567,22 @@ void prototype_present_bound(uint64_t previous, uint64_t id) {
     // file output stalls its present worker. Never used for timing acceptance.
     finish_present_audit();
 #endif
+}
+const wdc::render::FrameSource* __wrap_wdc_render_frame_source() {
+    static const wdc::render::FrameSource source{
+        render_memory_mutex,
+        [] {
+            auto* memory = prototype_task_memory();
+            return wdc::render::TaskMemory{memory, prototype_disable_readback(memory)};
+        },
+        prototype_renderer_finished,
+#ifdef WDC_PROTOTYPE_AUDIT_PRESENT
+        prototype_present_bound
+#else
+        nullptr
+#endif
+    };
+    return &source;
 }
 void prototype_swap_observed(uint64_t id, uint32_t index, bool valid, int64_t begin_us) {
     const auto now = prototype_present_clock();

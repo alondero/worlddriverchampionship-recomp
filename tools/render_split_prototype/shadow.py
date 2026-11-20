@@ -1,4 +1,4 @@
-"""Compile a copied renderer for the owned-RAM experiment, reference read-only."""
+"""Use compiled renderer and queue boundaries, adapting older reference builds as needed."""
 import hashlib
 import json
 from pathlib import Path
@@ -14,9 +14,50 @@ def runtime_receive_archive(reference, nm):
     return None
 
 
-def build_shadow_renderer(reference, output, compiler, audit_present, receive_archive):
+def build_shadow_renderer(reference, output, compiler, audit_present, receive_archive, nm):
     entries = json.loads((reference / "compile_commands.json").read_text())
     entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/src/renderer.cpp"))
+    object_path = Path(entry["output"])
+    original_object = object_path.relative_to(reference).as_posix()
+    undefined = subprocess.check_output([nm, "-u", str(object_path)], text=True)
+    if any(line.split() == ["U", "wdc_render_frame_source"] for line in undefined.splitlines()):
+        replacement = None
+        provenance = {"renderer": "player", "object_sha256": hashlib.sha256(object_path.read_bytes()).hexdigest()}
+    else:
+        replacement, provenance = build_renderer_copy(entry, output, compiler, audit_present)
+    if receive_archive:
+        provenance["queue"] = {"boundary": "runtime", "symbol": "ultramodern_recv_mesg",
+                               "archive_sha256": hashlib.sha256(receive_archive.read_bytes()).hexdigest()}
+        (output / "shadow-source.json").write_text(json.dumps(provenance, indent=2))
+        return replacement, original_object, None
+
+    queue_entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/ultramodern/src/mesgqueue.cpp"))
+    queue_original = Path(queue_entry["file"]).read_bytes()
+    queue_source = queue_original.decode("utf-8").replace("\r\n", "\n")
+    old_store = "        *TO_PTR(OSMesg, msg_) = TO_PTR(OSMesg, mq->msg)[mq->first];"
+    if queue_source.count(old_store) != 1:
+        raise RuntimeError("Runtime receive-result seam changed")
+    queue_source = ('#include <cstdint>\nextern "C" bool prototype_store_message(uint8_t*, int32_t, uint32_t);\n' +
+                    queue_source.replace(old_store, '''        const auto value = TO_PTR(OSMesg, mq->msg)[mq->first];
+        if (!prototype_store_message(rdram, msg_, uint32_t(value)))
+            *TO_PTR(OSMesg, msg_) = value;'''))
+    queue_copy = output / "shadow_mesgqueue.cpp"
+    queue_copy.write_text(queue_source)
+    queue_obj = output / "shadow_mesgqueue.o"
+    queue_command = shlex.split(queue_entry["command"])
+    queue_command[0] = compiler
+    queue_command[queue_command.index("-o") + 1] = str(queue_obj)
+    queue_command[queue_command.index("-c") + 1] = str(queue_copy)
+    subprocess.run(queue_command, cwd=queue_entry["directory"], check=True)
+    provenance["queue"] = {"boundary": "reference-copy", "source": queue_entry["file"],
+                           "source_sha256": hashlib.sha256(queue_original).hexdigest(),
+                           "copied_sha256": hashlib.sha256(queue_copy.read_bytes()).hexdigest(),
+                           "compile_command": queue_command}
+    (output / "shadow-source.json").write_text(json.dumps(provenance, indent=2))
+    return replacement, original_object, str(queue_obj)
+
+
+def build_renderer_copy(entry, output, compiler, audit_present):
     original = Path(entry["file"]).read_bytes()
     source = original.decode("utf-8").replace("\r\n", "\n")
 
@@ -61,41 +102,9 @@ def build_shadow_renderer(reference, output, compiler, audit_present, receive_ar
     (output / "shadow-build.log").write_text(result.stdout)
     if result.returncode:
         raise RuntimeError("Copied renderer compilation failed; inspect shadow-build.log")
-    (output / "shadow-source.json").write_text(json.dumps({
+    return str(obj), {
+        "renderer": "reference-copy",
         "source": entry["file"], "source_sha256": hashlib.sha256(original).hexdigest(),
         "copied_sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
         "compile_command": command,
-    }, indent=2))
-    original_object = Path(entry["output"]).relative_to(reference).as_posix()
-    if receive_archive:
-        provenance = json.loads((output / "shadow-source.json").read_text())
-        provenance["queue"] = {"boundary": "runtime", "symbol": "ultramodern_recv_mesg",
-                               "archive_sha256": hashlib.sha256(receive_archive.read_bytes()).hexdigest()}
-        (output / "shadow-source.json").write_text(json.dumps(provenance, indent=2))
-        return str(obj), original_object, None
-
-    queue_entry = next(e for e in entries if e["file"].replace("\\", "/").endswith("/ultramodern/src/mesgqueue.cpp"))
-    queue_original = Path(queue_entry["file"]).read_bytes()
-    queue_source = queue_original.decode("utf-8").replace("\r\n", "\n")
-    old_store = "        *TO_PTR(OSMesg, msg_) = TO_PTR(OSMesg, mq->msg)[mq->first];"
-    if queue_source.count(old_store) != 1:
-        raise RuntimeError("Runtime receive-result seam changed")
-    queue_source = ('#include <cstdint>\nextern "C" bool prototype_store_message(uint8_t*, int32_t, uint32_t);\n' +
-                    queue_source.replace(old_store, '''        const auto value = TO_PTR(OSMesg, mq->msg)[mq->first];
-        if (!prototype_store_message(rdram, msg_, uint32_t(value)))
-            *TO_PTR(OSMesg, msg_) = value;'''))
-    queue_copy = output / "shadow_mesgqueue.cpp"
-    queue_copy.write_text(queue_source)
-    queue_obj = output / "shadow_mesgqueue.o"
-    queue_command = shlex.split(queue_entry["command"])
-    queue_command[0] = compiler
-    queue_command[queue_command.index("-o") + 1] = str(queue_obj)
-    queue_command[queue_command.index("-c") + 1] = str(queue_copy)
-    subprocess.run(queue_command, cwd=queue_entry["directory"], check=True)
-    provenance = json.loads((output / "shadow-source.json").read_text())
-    provenance["queue"] = {"boundary": "reference-copy", "source": queue_entry["file"],
-                           "source_sha256": hashlib.sha256(queue_original).hexdigest(),
-                           "copied_sha256": hashlib.sha256(queue_copy.read_bytes()).hexdigest(),
-                           "compile_command": queue_command}
-    (output / "shadow-source.json").write_text(json.dumps(provenance, indent=2))
-    return str(obj), original_object, str(queue_obj)
+    }

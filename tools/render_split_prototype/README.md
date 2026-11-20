@@ -245,12 +245,16 @@ unbuilt changes to that file will therefore affect this mode.
 Its per-run `runtime-source.json` records source/copy hashes and the compiler command.
 The substitutions fail on unexpected source structure; other modes use the
 unmodified runtime archive.
-Owned-RAM modes compile a renderer copy via `shadow.py`. For runtimes with
-patch 0021, the probe links the compiled runtime's queue implementation.
-Older references also compile a queue copy. `shadow-source.json` records the
-renderer source/copy hashes and compiler command, plus the runtime archive
-hash or fallback queue source/copy hashes. Dependency compiler warnings are
-retained in the local `shadow-build.log`.
+Owned-RAM modes use the compiled player renderer when it exposes a frame
+source. At renderer creation the probe supplies task memory, a snapshot mutex,
+a task-completion callback and an optional screen-update observer. The renderer
+binds BOSS and RT64 to the same bank, retains it through screen update and
+restores the task's readback policy before reporting completion. The probe
+retains the bank until both task and requested screen completions arrive.
+Normal player startup uses live RDRAM. Runtime patch 0021 separately supplies
+the queue receive destination. `shadow-source.json` identifies both compiled
+components and their hashes. Older reference builds compile a renderer or
+queue copy for each unavailable boundary and record source/copy provenance.
 
 The run opens Hawaii practice at 1x resolution, waits for 60 eligible race
 frames, performs six trials, drains the last extra graphics task through the

@@ -1,4 +1,5 @@
 #include "recomp.h"
+#include "render_memory.h"
 
 extern "C" void func_8000A30C(uint8_t*, recomp_context*);
 
@@ -7,4 +8,8 @@ extern "C" void func_8000A30C(uint8_t*, recomp_context*);
 // and graphics submission. All guest outputs flow back to that same caller.
 extern "C" void wdc_render_race_draw(uint8_t* rdram, recomp_context* ctx) {
     func_8000A30C(rdram, ctx);
+}
+
+extern "C" const wdc::render::FrameSource* wdc_render_frame_source() {
+    return nullptr;
 }
