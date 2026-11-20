@@ -84,7 +84,8 @@ jobs:
       - name: Run host tests with the compiler runtime
         run: |
           # Git Bash also ships MinGW DLLs. Load the ones used to link the tests.
-          export PATH="$(dirname "$(command -v "$CXX")"):$PATH"
+          compiler_dir=$(dirname "$(command -v "$CXX")")
+          export PATH="$compiler_dir:$PATH"
           ctest --test-dir build-host-tests --output-on-failure --no-tests=error --timeout 60
 
   secrets:
