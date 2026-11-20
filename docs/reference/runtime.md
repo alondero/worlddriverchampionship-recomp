@@ -88,6 +88,19 @@ That page separates the timings a reader can reproduce from the tree
 (`wdc_boss_bench`) from those taken with temporary live instrumentation, which
 is kept out of the tree on purpose.
 
+### Quick Race car preview reload
+
+The menu's preview loader at `0x8005C198` can overwrite car texture commands
+still referenced by the previous BOSS main list. Changing class or car can
+make BOSS read a zero command and exit on an invalid microcode jump.
+
+The port tracks submissions at `osSpTaskStartGo` and waits at the preview
+loader until BOSS finishes or reaches the EndMainDL wait for SIG0. In the USA
+microcode, `0x11AC` marks the main list done in DMEM byte `0x941`, then
+`0x1138` polls SP_STATUS. The menu builds the next sublist after the reload
+and publishes it at the call to `0x80024094` from `0x8004EBDC`. BOSS can then
+read the updated car data and finish the task. [Issue #63](https://github.com/alondero/worlddriverchampionship-recomp/issues/63)
+
 Runtime patches must be listed in `patches/README.md`, applied by the scripts,
 and accompanied by a focused reproducer or test. A patch that is useful to a
 general upstream project should also be compared with upstream before being

@@ -17,6 +17,8 @@ void set_game_event_sink(GameEventSink sink);
 // The sink the game installs: posts OS event `event` to the queue the game
 // registered (boss_events.cpp). An event the game never registered is ignored.
 void post_game_event(unsigned event);
+// The game thread calls this once before each live task is queued for run().
+void task_submitted();
 // One graphics worker owns DMEM/RSP/DPC throughout a task. CPU status writes
 // use atomics; event registrations use a mutex; the event sink is an atomic
 // pointer. Addresses are physical byte offsets in word-swapped guest RAM,

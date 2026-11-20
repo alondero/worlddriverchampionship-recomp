@@ -5,6 +5,14 @@
 #include <mutex>
 
 extern "C" void osSetEventMesg_recomp(uint8_t*, recomp_context*);
+extern "C" void osSpTaskStartGo_recomp(uint8_t*, recomp_context*);
+
+extern "C" void wdc_sp_start_task(uint8_t* rdram, recomp_context* ctx) {
+    // Both USA callers (80025204 and 800252B8) submit BOSS graphics tasks.
+    // Publish the pending task before the runtime can dispatch it.
+    wdc::rsp::task_submitted();
+    osSpTaskStartGo_recomp(rdram, ctx);
+}
 
 // Game-side OS event registrations for the BOSS device in boss_rsp.cpp. Kept
 // apart so offline replay tools link the device without the guest OS.

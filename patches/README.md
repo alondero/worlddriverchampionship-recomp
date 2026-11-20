@@ -44,7 +44,7 @@ the WDC runtime demonstrates the same need.
 | `0004-plume-d3d12-mingw-com-abi-struct-return.patch` | RT64/Plume | Windows | Adapt D3D12 COM struct-return calls for MinGW's ABI. |
 | `0005-rt64-mingw-gcc-compat.patch` | RT64 | Windows | Compile RT64's texture hasher with MinGW GCC. |
 | `0006-runtime-lle-interrupt-ownership.patch` | N64ModernRuntime | All | Allow the BOSS renderer to own SP/DP completion and intermediate interrupts. |
-| `0007-rsprecomp-boss-support.patch` | N64Recomp | All | COP0 callbacks, CFC2/CTC2, exhaustive indirect dispatch option, fail-loud unsupported instructions. |
+| `0007-rsprecomp-boss-support.patch` | N64Recomp | All | COP0 callbacks with instruction addresses on reads, CFC2/CTC2, exhaustive indirect dispatch option, fail-loud unsupported instructions. |
 | `0008-runtime-controller-pak-kind.patch` | N64ModernRuntime | All | Expose the ControllerPak enum for status reporting; WDC owns block storage and retains its ROM filesystem. |
 | `0009-runtime-host-config-storage.patch` | N64ModernRuntime | Desktop | Let the overlay use configuration schemas without overwriting host-owned graphics.json. |
 | `0010-frontend-enum-wrap.patch` | RecompFrontend | Desktop | Wrap resolution/other choices to fit the overlay's option column. |

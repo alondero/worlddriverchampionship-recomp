@@ -3,9 +3,11 @@
 #include "boss_dma.h"
 #include "guest_memory.h"
 #include <atomic>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -15,6 +17,16 @@ extern "C" [[noreturn]] void wdc_unimplemented(const char*);
 namespace {
 namespace capture = wdc::boss_capture;
 std::atomic<uint32_t> status{1};
+constexpr uint32_t sig0 = 0x80;
+constexpr uint32_t set_sig0 = 0x400;
+
+// The game thread queues tasks and publishes their sublists. The graphics
+// worker can still read the old car's material lists until it finishes the
+// main list. Track queued tasks as well as work already on the worker.
+std::mutex task_mutex;
+std::condition_variable task_changed;
+unsigned pending_tasks = 0;
+bool waiting_for_sublist = false;
 uint32_t dp_start{}, dp_end{}, dp_current{}, dp_status{};
 uint8_t* memory;
 wdc::rsp::RdpSink rdp_sink;
@@ -75,6 +87,12 @@ void write_status(uint32_t value, bool from_rsp) {
     }
 }
 
+void write_cpu_status(uint32_t value) {
+    std::lock_guard lock(task_mutex);
+    if (value & set_sig0) waiting_for_sublist = false;
+    write_status(value, false);
+}
+
 void begin_recording(const OSTask* task) {
     auto& start = recording->capture;
     static_assert(sizeof(OSTask) == sizeof(start.task));
@@ -112,10 +130,23 @@ void finish_recording(const uint8_t* rdram, unsigned final_event) {
 }
 }
 
-extern "C" void wdc_sp_yield(uint8_t*, recomp_context*) { write_status(0x400, false); }
-extern "C" void wdc_sp_set_status(uint8_t*, recomp_context* ctx) { write_status(ctx->r4, false); }
+extern "C" void wdc_sp_yield(uint8_t*, recomp_context*) { write_cpu_status(set_sig0); }
+extern "C" void wdc_sp_set_status(uint8_t*, recomp_context* ctx) { write_cpu_status(ctx->r4); }
 
 void wdc::rsp::set_game_event_sink(GameEventSink sink) { game_event_sink.store(sink); }
+
+void wdc::rsp::task_submitted() {
+    std::lock_guard lock(task_mutex);
+    ++pending_tasks;
+}
+
+extern "C" void wdc_wait_for_preview_reload() {
+    // USA 8005C198 runs on the menu thread before it builds and publishes the
+    // new sublist at 8004EBDC. BOSS needs that publication to reach BREAK.
+    // With one task parked at the handoff, the caller owns the next SIG0.
+    std::unique_lock lock(task_mutex);
+    task_changed.wait(lock, [] { return pending_tasks == 0 || (pending_tasks == 1 && waiting_for_sublist); });
+}
 
 // Generated BOSS writes RDRAM only here (src/boss_dma.h redirects every
 // DO_DMA_WRITE), on the graphics worker during run() or an offline replay.
@@ -133,12 +164,23 @@ void wdc_boss_dma_write(uint8_t* rdram, uint32_t dmem_addr, uint32_t dram_addr, 
     dma_dmem_to_rdram(rdram, dmem_addr, dram_addr, wr_len);
 }
 
-uint32_t rsp_read_cop0(uint32_t reg) {
+uint32_t rsp_read_cop0(uint32_t reg, uint32_t pc) {
     switch (reg) {
     case 4: {
         if (playback) return playback->next(replay_status.load());
         std::this_thread::yield();
-        const uint32_t value = status.load();
+        uint32_t value = status.load();
+        // BOSS's SIG0 poll at IMEM 0x1138. EndMainDL at 0x11AC sets the
+        // signed byte at DMEM 0x941 to -1 before entering this poll. The
+        // graphics worker reads its own DMEM through the word-swapped helper.
+        if (pc == 0x1138 && !(value & sig0) && RSP_MEM_B(0x941, 0) == -1) {
+            std::lock_guard lock(task_mutex);
+            value = status.load();
+            if (!waiting_for_sublist && !(value & sig0)) {
+                waiting_for_sublist = true;
+                task_changed.notify_all();
+            }
+        }
         if (recording) capture::record_status(recording->capture.status_reads, value);
         return value;
     }
@@ -212,6 +254,12 @@ void wdc::rsp::run(uint8_t* rdram, const OSTask* task, RdpSink sink, void* conte
     const unsigned final_event = (status.load() & 0x300) ? 4 : 11;
     if (recording) finish_recording(rdram, final_event);
     else call_sink(final_event);
+    {
+        std::lock_guard lock(task_mutex);
+        --pending_tasks;
+        waiting_for_sublist = false;
+    }
+    task_changed.notify_all();
 }
 
 wdc::rsp::ReplayResult wdc::rsp::replay(const capture::Capture& recorded, uint8_t* rdram, RdpSink sink, void* context) {

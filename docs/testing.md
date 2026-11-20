@@ -256,7 +256,11 @@ would leave the override quietly dead.
 scripted stand-in for the generated microcode reads the recorded SP_STATUS
 values, writes DP ranges and restores DMEM, and the test checks that the
 recorded reads are consumed in order, that an over-read or an under-read is
-reported, and that no game event is posted during a replay. `wdc_boss_bench`
+reported, and that no game event is posted during a replay. Its live-task
+fixture also checks the Quick Race reload wait while BOSS is queued and while
+it still reads the old material data. The reload can proceed at BREAK or the
+EndMainDL handoff. At the handoff, BOSS sees the new data after the menu
+publishes SIG0. `wdc_boss_bench`
 is the regression check against real captures: it must reproduce a capture's
 RDP output exactly on every iteration, and it must not signal the game. Its
 argument handling is in `tools/boss/boss_bench_args.h` and is checked by
