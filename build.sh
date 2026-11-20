@@ -52,6 +52,7 @@ rt64_patches=(
     "$ROOT/patches/0016-rt64-rdp-edge-trapezoids.patch"
     "$ROOT/patches/0020-rt64-opaque-subpixel-coverage.patch"
     "$ROOT/patches/0023-rt64-explicit-presentation.patch"
+    "$ROOT/patches/0027-rt64-interior-triangle-batch.patch"
 )
 runtime_patches=(
     "$ROOT/patches/0006-runtime-lle-interrupt-ownership.patch"

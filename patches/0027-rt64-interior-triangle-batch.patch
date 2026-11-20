@@ -1,0 +1,46 @@
+diff --git a/src/gbi/rt64_rdp_triangle_clip.h b/src/gbi/rt64_rdp_triangle_clip.h
+--- a/src/gbi/rt64_rdp_triangle_clip.h
++++ b/src/gbi/rt64_rdp_triangle_clip.h
+@@ -14,5 +14,10 @@
+         std::array<float, 4> color;
+     };
+-    struct TriangleScissor { float left, top, right, bottom; };
++    struct TriangleScissor {
++        float left, top, right, bottom;
++        bool contains(float x, float y, float w) const {
++            return x >= left && x <= right && y >= top && y <= bottom && w > 0;
++        }
++    };
+     inline TriangleScissor rasterClipBounds(TriangleScissor scissor) {
+         if (!(scissor.right > scissor.left) || !(scissor.bottom > scissor.top)) return scissor;
+@@ -34,6 +39,5 @@
+             original.vertices[i] = triangle[i];
+             const auto& p = triangle[i].position;
+-            fullyInside &= p[0] >= scissor.left && p[0] <= scissor.right &&
+-                           p[1] >= scissor.top && p[1] <= scissor.bottom && p[3] > 0;
++            fullyInside &= scissor.contains(p[0], p[1], p[3]);
+         }
+         original.vertexCount = 3;
+diff --git a/src/gbi/rt64_gbi_rdp.cpp b/src/gbi/rt64_gbi_rdp.cpp
+--- a/src/gbi/rt64_gbi_rdp.cpp
++++ b/src/gbi/rt64_gbi_rdp.cpp
+@@ -492,4 +492,19 @@
+             const auto& scissor = state->rdp->scissorRectStack[state->rdp->scissorStackSize - 1];
+             const TriangleScissor clipBounds = rasterClipBounds({scissor.ulx / 4.0f, scissor.uly / 4.0f, scissor.lrx / 4.0f, scissor.lry / 4.0f});
++            // The clipper returns these exact vertices when every triangle
++            // is inside. Submit the existing attribute arrays in that case.
++            bool fullyInside = areaVertexCount != 0;
++            for (uint32_t i = 0; i < areaVertexCount; ++i) {
++                const auto& p = posWorkBuffer[i];
++                if (!clipBounds.contains(p[0], p[1], p[3])) {
++                    fullyInside = false;
++                    break;
++                }
++            }
++            if (fullyInside) {
++                state->rdp->drawTris(areaVertexCount / 3, &posWorkBuffer[0][0], &texcoordWorkBuffer[0][0],
++                                     &colorWorkBuffer[0][0], tile, level);
++                return trianglesEnd;
++            }
+             // Each edge-area triangle can clip into a polygon of several triangles.
+             constexpr size_t maxClippedVertices = (MaxEdgeVertices / 3) * std::tuple_size_v<decltype(ClippedTriangle::vertices)>;

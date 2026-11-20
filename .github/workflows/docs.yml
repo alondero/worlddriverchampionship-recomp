@@ -65,6 +65,7 @@ jobs:
           git -C lib/rt64 apply ../../patches/0016-rt64-rdp-edge-trapezoids.patch
           git -C lib/rt64 apply ../../patches/0020-rt64-opaque-subpixel-coverage.patch
           git -C lib/rt64 apply ../../patches/0023-rt64-explicit-presentation.patch
+          git -C lib/rt64 apply ../../patches/0027-rt64-interior-triangle-batch.patch
       - name: Configure ROM-free host tests
         run: cmake -S . -B build-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_TESTS_ONLY=ON
       - run: cmake --build build-host-tests --parallel 2
