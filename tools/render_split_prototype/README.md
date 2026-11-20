@@ -1258,3 +1258,20 @@ often adjacent samples differ and counts single-color reads. It reads the
 window asynchronously after each notification, so the samples cannot uniquely
 identify every scanned-out image. A stationary crop requires checking the
 window content and game state before interpreting the measured cadence.
+
+For a SteamOS Gaming Mode Vulkan test, use the running session's
+`ENABLE_GAMESCOPE_WSI` and `GAMESCOPE_WAYLAND_DISPLAY` values on the player
+process. With `WAYLAND_DEBUG=client`, the Mesa swapchain reports compositor
+feedback in the player log. After the race-ready marker, count
+`wp_presentation_feedback.presented` and `discarded` events for the game
+surface. Compute intervals from the seconds and nanoseconds in the presented
+payload. The bracketed debug timestamp measures protocol dispatch. The
+reported refresh cycle on the tested OLED was 11,110,617 ns.
+
+A delayed automatic-start test on track 7 also checks window contents. With
+a 1.4-second startup delay the old launcher remained on top in both stock
+and interpolated controls while the car moved. Hiding the launcher when the
+runtime starts the ROM restored moving scenery. At normal startup, seven-second
+XWayland observations of the same region gave 30.05 changes/s in legacy
+Display and 85.00 and 70.11 changes/s with interpolation. These samples measure
+changes in a 280 by 128 window region, at (280, 180), after presentation.

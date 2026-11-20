@@ -24,6 +24,14 @@ These measurements used the native Vulkan player with runtime patches
 0028 and 0029. With RT64 patch 0030 and automatic resolution, 32-second
 windows on tracks 1, 2 and 3 measured 88.75, 89.75 and 88.91 completions/s.
 Checkpoints on tracks 1 and 3 confirmed the player car moved during the run.
+Using the Gaming Mode Gamescope WSI layer directly, two longer arcade runs
+measured 89.80 and 89.93 compositor presentations/s on tracks 7 and 13.
+Both windows had an 11.11 ms p95 and a 22.22 ms maximum interval. The
+compositor reported zero discarded commits, with no logged SDL audio
+starvation or backlog after the race-ready marker. These timings measure
+presentation events. Sampling moving window pixels separately on track 7
+observed 70.11 and 85.00 changes/s with interpolation and 30.05 with the
+legacy Display setting.
 The [presentation measurements](https://github.com/alondero/worlddriverchampionship-recomp/pull/61)
 and [observation tools](../tools/render_split_prototype/README.md) distinguish
 display completions from RT64 admissions. A separate Windows driving test
