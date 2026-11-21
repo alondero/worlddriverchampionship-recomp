@@ -79,6 +79,8 @@ size_t wdc::audio::frames_remaining() {
 void wdc::audio::pump() {
     std::lock_guard lock(mutex);
     const auto now = SDL_GetTicks64();
+    const bool report = statistics();
+    static uint64_t report_at{}, submitted_frames{};
     if (device_generation != generation) {
         if (requested_frequency != device_frequency) close_device();
         else if (device) { rebuffer(); SDL_ClearQueuedAudio(device); device_frames = 0; }
@@ -125,6 +127,7 @@ void wdc::audio::pump() {
             // queue_samples() trims pending output to at most 250 ms.
             const auto bytes = static_cast<uint32_t>(samples.size() * sizeof(int16_t));
             failed = SDL_QueueAudio(device, samples.data(), bytes) != 0;
+            if (!failed && report) submitted_frames += samples.size() / 2;
         }
         if (failed) {
             std::fprintf(stderr, "[wdc] audio submission failed; reopening: %s\n", SDL_GetError());
@@ -138,4 +141,10 @@ void wdc::audio::pump() {
     }
     pending.clear(); pending_frames = 0;
     device_frames = device ? SDL_GetQueuedAudioSize(device) / 4 : 0;
+    if (report && now >= report_at) {
+        std::fprintf(stderr, "[wdc] audio PCM submitted=%llu frames, playing=%d\n",
+                     static_cast<unsigned long long>(submitted_frames), device && !prime);
+        submitted_frames = 0;
+        report_at = now + 2000;
+    }
 }

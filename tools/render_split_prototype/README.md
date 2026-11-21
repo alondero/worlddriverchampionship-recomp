@@ -14,7 +14,7 @@ through 1000 Hz are accepted, including `60000/1001`. The ROM keeps its
 wheel and shadow poses on a private copy of the race sample.
 
 For a bounded run, set `WDC_DIAGNOSTIC=1`, `WDC_WARP=1:0` and
-`WDC_WARP_AT=360:2:0:arcade:3`. The diagnostic exits with code 2 after
+`WDC_WARP_AT=480:2:0:arcade:3`. The diagnostic exits with code 2 after
 15 seconds and reports elapsed time, consumed samples and RT64 admissions
 per 60 draw groups. Use `WDC_RENDER_STATS=1` for the same counters in a run
 without the diagnostic timeout. The probe below supplies separate swap and pixel checks.
@@ -22,13 +22,64 @@ Split-screen, unsupported scenes and the native 60 Hz simulation use their
 ordinary drawing path.
 
 `player_smoke.py` exercises the saved Graphics setting in the regular player.
-It checks the actual rate selected, simulation sample counts, RT64 admissions
-and absence of unsolicited retrace frames across both race loads. Each run
-uses a separate temporary settings directory and retains the diagnostic log.
+It checks the selected rate, simulation sample counts and RT64 admissions in
+both races. It requires RT64 to accept retrace presentation between races and
+fails if RT64 accepts a retrace frame after swap presentation has taken over
+and before it is released. Each run uses a separate temporary settings
+directory and retains the diagnostic log.
 
 ```powershell
-python -B tools/render_split_prototype/player_smoke.py build/worlddriverchampionship_modern.exe "World Driver Championship (USA).z64" --rate 90
+python -B tools/render_split_prototype/player_smoke.py build/worlddriverchampionship_modern.exe "World Driver Championship (USA).z64" --rate 90 --resolution 1
+python -B tools/render_split_prototype/player_smoke.py build/worlddriverchampionship_modern.exe "World Driver Championship (USA).z64" --rate 59.94 --resolution 1
 ```
+
+### Live transitions and recovery
+
+Use a fresh working directory and a fresh shell for each target. The following
+PowerShell example starts a three-lap Arcade race at 90 Hz from the repository
+root. Repeat with 59.94 in the graphics settings. Let the countdown finish
+before sending Start.
+
+```powershell
+$player = (Resolve-Path build/worlddriverchampionship_modern.exe).Path
+$rom = (Resolve-Path 'World Driver Championship (USA).z64').Path
+$work = Join-Path $env:TEMP "wdc-transitions-$([guid]::NewGuid())"
+New-Item -ItemType Directory "$work/build/user-data" -Force | Out-Null
+'{"version":2,"rate":90,"resolution":1,"interpolate_races":true}' |
+    Set-Content -Encoding ascii "$work/build/user-data/graphics.json"
+Remove-Item Env:WDC_EXPERIMENTAL_DISPLAY_HZ -ErrorAction SilentlyContinue
+$env:WDC_WARP = '1:0:arcade:3'
+$env:WDC_RENDER_STATS = '1'
+$env:WDC_AUDIO_STATS = '1'
+Push-Location $work
+try { & $player $rom *> player.log } finally { Pop-Location }
+```
+
+| Action | Evidence to retain |
+| --- | --- |
+| Press Enter to pause, wait a few seconds, then press Enter to resume | Swap release, a retrace admission while paused, and a fresh first group after resuming. |
+| Save with F7, drive forward, then load with F8 in the same race | A successful load followed by a checkpoint release and a fresh group at the restored sample. Record any rejected loads and retry when settled. |
+| Minimize and restore the focused race window | SDL focus loss and gain, followed by continued swap admissions and advancing simulation samples. |
+| Select Restart Race with X from the native pause menu | A loader callback and a new race at sample zero, with retrace during the handoff. |
+| Apply Original, then Interpolate to custom at a different rate during the race | Retrace admissions at Original and a fresh first group at the new target. |
+| Start Practice Laps through the native Quick Race menus, exit from its pause menu and enter another race | Menu callback `8004e950` with retrace presentation, then a fresh race group and swap admissions. |
+
+In each settled race window, check for roughly 30 simulation samples per
+second, explicit admissions and zero retrace admissions. Record PCM submissions,
+playback state and rebuffer messages before and after each action. These
+counters measure admissions to RT64 and PCM accepted by SDL. Compositor
+timestamps, moving pixels and recorded output audio can qualify delivery
+and fidelity separately.
+
+For the native menu cycle, clear `WDC_WARP` before boot. Choose Quick Race,
+Practice Laps and Hawaii, accept automatic gears, then use Exit Practice in
+the pause menu. To script re-entry, set `WDC_WARP_AT=2400:2:0:arcade:3` before
+launching and return to the menu before VI 2400. The developer shortcut that
+boots directly into Arcade can leave a Quick Race car record uninitialized
+and crash after Exit Arcade Race, including at Original rate.
+
+The [testing notes](../../docs/testing.md#high-refresh-transitions) record
+the Windows runs and host-test coverage for this sequence.
 
 ## Diagnostic builds
 

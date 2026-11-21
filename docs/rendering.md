@@ -30,7 +30,10 @@ slots and preserves the interpolation fraction of each surviving slot. If a
 private pose fails validation, the authoritative draw presents immediately.
 
 Patch 0022 queues screen submission independently of the VI clock. Retrace still
-latches the guest framebuffer and delivers VI/AI events. Patch 0023 lets an
+latches the guest framebuffer and delivers VI/AI events. The graphics worker
+discards queued retrace updates from before the latest switch to swap
+presentation. VI and game-thread submissions use separate producers, so a
+queued retrace can reach the graphics worker after a newer swap. Patch 0023 lets an
 explicit swap present a new GPU image when VI registers and framebuffer RAM
 are unchanged. Measure presentation with compositor feedback, and sample
 moving pixels separately to check for repeat frames. See the

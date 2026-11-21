@@ -48,6 +48,46 @@ player build already patched. `git apply --reverse --check` cannot verify that
 state for patch 0014, because patch 0016 rewrites the context it matched.
 `tests/test_patch_series.py` covers the helper on a synthetic repository.
 
+## High-refresh transitions
+
+Run the [player smoke and live transition sequence](../tools/render_split_prototype/README.md#live-transitions-and-recovery)
+with the verified USA ROM. The smoke caught a stale queued retrace admission
+between explicit admissions at both 90 and 59.94 Hz before the fix to patch
+0022. With the fix, both targets returned to retrace between Hawaii Practice
+and the eight-car Arcade race at track 2, then re-entered interpolation at
+sample zero. The 60-group windows measured 29.6â€“30.6 simulation samples per
+second and 87.4â€“90.2 or 57.3â€“60.2 RT64 admissions per second, respectively,
+with zero retrace admissions inside those windows.
+
+The live race tests used Windows 11 x64, Direct3D 12 on an RTX 3080 and SDL
+WASAPI at 1x internal resolution. Windows reported one 3840Ã—2160 desktop at
+119 Hz. The 90 and 59.94 Hz values were custom targets. Pause returned
+presentation to retrace, and resume began a fresh pose history. Native Restart
+Race passed through the loader and re-entered at sample zero. Live F8 restore
+began a fresh group one or two samples after the saved sample. A baseline
+checkpoint attempt was rejected by the live thread/queue guard. Minimize and
+restore delivered SDL focus events while simulation and swap admissions
+continued. Applying Original returned presentation to retrace. Applying
+interpolated 60 Hz and then selecting 120 Hz with F4 opened a fresh group at
+each target while the race continued. At both initial targets, entering
+Practice Laps through Quick Race and choosing Exit Practice returned to
+the menu. A timed warp from that menu loaded Arcade at sample zero with
+swap presentation and PCM playback.
+
+Direct Arcade warp exposed a separate menu crash after retrace had taken over.
+It reproduced with interpolation disabled. GDB stopped in the translated
+car-record reader `800565E0` with a null argument from `8006A64C`. The caller
+loaded the selected record from `800DF930`, which the native setup uses
+before the race. This limits the developer warp as a fixture for exiting
+Arcade to the normal menu.
+
+In settled live race windows, SDL accepted roughly 44,000 PCM frames every
+two seconds at 22 kHz. One 90 Hz restart rebuffered during the loader and
+returned to playing in the new race. These runs cover the RT64 admission and
+SDL queue boundaries. Linux coverage consists of focused host tests on WSL2.
+Native Linux/Vulkan and Steam Deck gameplay, physical presentation cadence,
+and output audio fidelity remain unverified.
+
 ## ROM-backed and player checks
 
 `wdc_savestate`, `wdc_savestate_automatic`, `wdc_savestate_automatic_load`

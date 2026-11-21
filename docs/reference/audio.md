@@ -84,8 +84,8 @@ changes. SDL owns any persistent conversion to the physical endpoint; the port
 does not create a fresh resampler per DMA fragment. Windows defaults to WASAPI
 before SDL initialization, while honoring an explicit `SDL_AUDIODRIVER`.
 `WDC_AUDIO_STATS=1` logs device period/reserve, detected empty queues, playback
-starts and backlog discards. These are host queue observations, not a measure
-of physical speaker latency or proof of synthesis fidelity.
+starts and backlog discards. Every two seconds it also reports PCM frames
+submitted to SDL and whether the device has started playing.
 
 Peer comparison: [Zelda64Recomp](https://github.com/Zelda64Recomp/Zelda64Recomp/blob/dev/src/main/main.cpp)
 and [BanjoRecomp](https://github.com/BanjoRecomp/BanjoRecomp/blob/main/src/main/main.cpp)
