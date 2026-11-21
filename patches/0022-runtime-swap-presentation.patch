@@ -20,7 +20,13 @@ new file mode 100644
 diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
 --- a/ultramodern/src/events.cpp
 +++ b/ultramodern/src/events.cpp
-@@ -17,6 +17,7 @@
+@@ -9,4 +9,5 @@
+ #include <queue>
+ #include <cstring>
++#include <optional>
+ 
+ #include "blockingconcurrentqueue.h"
+@@ -17,6 +18,7 @@
  
  #include "ultramodern/rsp.hpp"
  #include "ultramodern/renderer_context.hpp"
@@ -28,15 +34,16 @@ diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
  
  static ultramodern::events::callbacks_t events_callbacks{};
  
-@@ -30,6 +31,7 @@
+@@ -30,6 +32,8 @@
  
  struct ScreenUpdateAction {
      ultramodern::renderer::ViRegs regs;
 +    ultramodern::SwapPresentation callbacks{};
++    std::optional<uint64_t> retrace_epoch{};
  };
  
  struct UpdateConfigAction {
-@@ -69,7 +71,7 @@
+@@ -69,7 +73,7 @@
          ViState* get_cur_state() {
              return &states[cur_state];
          }
@@ -45,7 +52,7 @@ diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
              ViState* next_state = get_next_state();
              const OSViMode* next_mode = next_state->mode;
              if (next_mode == nullptr) {
-@@ -111,6 +113,11 @@
+@@ -111,6 +115,11 @@
              regs.VI_Y_SCALE_REG = yScale; // TODO implement osViSetYScale
              regs.VI_STATUS_REG = next_state->control;
              
@@ -57,15 +64,18 @@ diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
              // Swap VI states.
              cur_state ^= 1;
              *get_next_state() = *get_cur_state();
-@@ -176,6 +183,15 @@
+@@ -176,6 +185,18 @@
      next_state->retrace_count = retrace_count;
  }
  
 +// Accessed under message_mutex. Each queued update retains its own callbacks.
 +static bool present_on_swap = false;
 +static ultramodern::SwapPresentation swap_callbacks{};
++// Changed under message_mutex and checked independently by the graphics worker.
++static std::atomic<uint64_t> retrace_epoch{};
 +void ultramodern::set_swap_presentation(bool enabled, SwapPresentation callbacks) {
 +    std::lock_guard lock{events_context.message_mutex};
++    if (enabled && !present_on_swap) ++retrace_epoch;
 +    present_on_swap = enabled;
 +    swap_callbacks = callbacks;
 +}
@@ -73,7 +83,7 @@ diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
  uint64_t total_vis = 0;
  
  
-@@ -218,21 +234,27 @@
+@@ -218,21 +239,29 @@
          }
          total_vis = new_total_vis;
  
@@ -106,7 +116,9 @@ diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
 +
 +            // Queue a screen update for the graphics thread with the current VI register state.
 +            // Doing this before the VI update is equivalent to updating the screen after the previous frame's scanout finished.
-+            if (!present_on_swap) events_context.action_queue.enqueue(ScreenUpdateAction{ events_context.vi.regs });
++            if (!present_on_swap) {
++                events_context.action_queue.enqueue(ScreenUpdateAction{events_context.vi.regs, {}, retrace_epoch.load()});
++            }
 +
 +            // Update VI registers and swap VI modes.
 +            events_context.vi.update_vi();
@@ -116,9 +128,13 @@ diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
  
          // If the game has started, handle sending VI and AI events.
          if (ultramodern::is_game_started()) {
-@@ -386,7 +408,11 @@
+@@ -386,7 +415,15 @@
              }
              else if (const auto* screen_update_action = std::get_if<ScreenUpdateAction>(&action)) {
++                // The VI and game threads are different queue producers.
++                // A retrace queued before handoff can arrive after a swap.
++                const auto epoch = screen_update_action->retrace_epoch;
++                if (epoch && *epoch != retrace_epoch.load()) continue;
                  events_context.vi.update_screen_regs = screen_update_action->regs;
 +                const auto& callbacks = screen_update_action->callbacks;
 +                if (callbacks.bind) callbacks.bind(true);
@@ -128,7 +144,7 @@ diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
                  display_refresh_rate = renderer_context->get_display_framerate();
                  resolution_scale = renderer_context->get_resolution_scale();
              }
-@@ -462,6 +488,11 @@
+@@ -462,6 +499,11 @@
  extern "C" void osViSwapBuffer(RDRAM_ARG PTR(void) frameBufPtr) {
      std::lock_guard lock{ events_context.message_mutex };
      events_context.vi.get_next_state()->framebuffer = frameBufPtr;
@@ -140,7 +156,7 @@ diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
  }
  
  extern "C" void osViSetMode(RDRAM_ARG PTR(OSViMode) mode_) {
-@@ -555,9 +586,11 @@
+@@ -555,9 +597,11 @@
  }
  
  extern "C" PTR(void) osViGetNextFramebuffer() {

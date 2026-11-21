@@ -29,7 +29,7 @@ def main():
         version=2, rate=(int(rate) if rate == int(rate) else float(rate)), resolution=args.resolution, interpolate_races=True,
         native_60fps=True,  # The saved interpolation choice selects fixed 30 Hz.
     )))
-    env = dict(os.environ, WDC_WARP="1:0", WDC_WARP_AT="360:2:0:arcade:3", WDC_DIAGNOSTIC="1")
+    env = dict(os.environ, WDC_WARP="1:0", WDC_WARP_AT="480:2:0:arcade:3", WDC_DIAGNOSTIC="1")
     for key in ("WDC_EXPERIMENTAL_DISPLAY_HZ", "WDC_STATE_FILE", "WDC_STATE_LOAD", "WDC_STATE_SAVE"):
         env.pop(key, None)
     log = work / "player.log"
@@ -40,16 +40,32 @@ def main():
     data = log.read_text(errors="replace")
     if run.returncode != 2 or "diagnostic timeout: boot=1" not in data or "graphics fence unavailable" in data:
         raise SystemExit("Player failed its bounded diagnostic")
+    swap_owner = False
+    for line in data.splitlines():
+        if line == "[wdc:render] RT64 accepted presentation owner=swap":
+            swap_owner = True
+        elif line.startswith("[wdc:render] releasing swap presentation:"):
+            swap_owner = False
+        elif line == "[wdc:render] RT64 accepted presentation owner=retrace" and swap_owner:
+            raise SystemExit("RT64 accepted a stale retrace frame before swap presentation was released")
     tracks = data.split("[wdc:warp] loading track=")
     if len(tracks) != 3:
         raise SystemExit("Expected two race loads")
+    # The outgoing race can release during its fade. The first accepted
+    # retrace may land on either side of the loader's log line.
+    handoff = tracks[1] + tracks[2].partition("60 groups")[0]
+    if not re.search(r"releasing swap presentation:[^\n]+\n.*?owner=retrace\n.*?owner=swap\n",
+                     handoff, re.S):
+        raise SystemExit("Expected RT64 to accept retrace presentation between the two swap-driven races")
     for track, trace in enumerate(tracks[1:], 1):
-        start = re.search(r"fixed 30 Hz gameplay, display target (\d+)/(\d+) Hz", trace)
+        start = re.search(r"fixed 30 Hz gameplay, display target (\d+)/(\d+) Hz, "
+                          r"\d+ intermediate draws in first group \(sample=(\d+)\)", trace)
         if not trace.startswith(f"{track} ") or "race ready:" not in trace or not start:
             raise SystemExit(f"Track {track} did not enter the fixed-rate draw")
         hz = Fraction(int(start[1]), int(start[2]))
         if rate != -1 and hz != rate:
             raise SystemExit(f"Player selected {hz} Hz for a {rate} Hz request")
+        print(f"Track {track} entered at simulation sample {start[3]}")
         windows = re.findall(r"60 groups, ([\d.]+) s, (\d+) samples, RT64 accepted (\d+) explicit and (\d+) retrace frames", trace)
         if not windows:
             raise SystemExit(f"No complete observation window on track {track}")
@@ -59,6 +75,7 @@ def main():
                 raise SystemExit(f"Unexpected fixed-rate sample or presentation counts on track {track}: {windows}")
             print(f"Track {track}: {hz} Hz target, {int(frames)/elapsed:.1f} RT64 admissions/s, "
                   f"{int(samples)/elapsed:.1f} simulation samples/s")
+    print("RT64 accepted retrace presentation between races, then returned to swap presentation")
 
 
 if __name__ == "__main__":

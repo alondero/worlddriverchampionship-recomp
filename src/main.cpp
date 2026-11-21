@@ -21,6 +21,7 @@
 #include "audio.h"
 #include "graphics_config.h"
 #include "graphics_window.h"
+#include "render_statistics.h"
 #include "ui/frontend.h"
 #ifdef WDC_ENABLE_FRONTEND
 #include "ui/input.h"
@@ -180,6 +181,12 @@ int main(int argc, char** argv) {
         bool captured = wdc::ui::captures_input();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_WINDOWEVENT && event.window.windowID == SDL_GetWindowID(window) &&
+                (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
+                 event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) && wdc::render::diagnostics()) {
+                std::fprintf(stderr, "[wdc:render] window focus=%s\n",
+                    event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED ? "gained" : "lost");
+            }
             if (event.type == SDL_KEYDOWN && !event.key.repeat && !captured &&
                 (event.key.keysym.sym == SDLK_F7 || event.key.keysym.sym == SDLK_F8)) {
                 if (event.key.keysym.sym == SDLK_F7) wdc::state::request_save();

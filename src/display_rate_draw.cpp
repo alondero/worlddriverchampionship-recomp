@@ -76,7 +76,8 @@ struct RaceDrawer {
         ultramodern::set_swap_presentation(enabled, {[](bool active) { explicit_update = active; }});
         presenting = enabled;
     }
-    void end_race_presentation() {
+    void end_race_presentation(const char* reason) {
+        if (presenting) record_release(reason);
         set_presenting(false);
         previous.reset();
         last_sample.reset();
@@ -110,8 +111,17 @@ void fence(uint8_t* live) {
 // endpoint. Release it before handing the display back to another scene.
 extern "C" void wdc_render_dispatcher_tick(uint8_t* rdram) {
     const bool restored = drawer.history.restored_while_presenting(drawer.presenting, state::restore_generation());
-    if (drawer.presenting && (restored || !rdram || !race::active(rdram)))
-        drawer.end_race_presentation();
+    if (restored) drawer.end_race_presentation("checkpoint restore");
+    else if (drawer.presenting && (!rdram || !race::active(rdram)))
+        drawer.end_race_presentation("scene transition");
+    if (rdram && diagnostics()) {
+        static thread_local uint32_t previous_callback;
+        const auto callback = race::word(rdram, race::callback);
+        if (callback != previous_callback) {
+            previous_callback = callback;
+            std::fprintf(stderr, "[wdc:render] dispatcher callback=%08x\n", callback);
+        }
+    }
 }
 
 bool RaceDrawer::draw_extra(RenderBank& bank, const recomp_context& caller, const RacePoses& current, const RacePoses& prior, double alpha) {
@@ -140,21 +150,21 @@ bool RaceDrawer::draw_extra(RenderBank& bank, const recomp_context& caller, cons
 bool RaceDrawer::draw(uint8_t* rdram, recomp_context& caller) {
     const auto rate = requested_rate();
     if (!rate.numerator || failed) {
-        if (presenting) end_race_presentation();
+        if (presenting) end_race_presentation("interpolation disabled");
         return false;
     }
     if (active_rate.numerator != rate.numerator || active_rate.denominator != rate.denominator) {
-        end_race_presentation();
+        end_race_presentation("display target changed");
         active_rate = rate;
     }
     if (!rdram || !race::eligible(rdram)) {
-        end_race_presentation();
+        end_race_presentation("race ineligible");
         return false;
     }
 
     const uint32_t sample = race::word(rdram, race::sample);
     if (last_sample == sample) {
-        end_race_presentation();
+        end_race_presentation("repeated simulation sample");
         last_sample = sample;
         return false;
     }
@@ -171,13 +181,13 @@ bool RaceDrawer::draw(uint8_t* rdram, recomp_context& caller) {
         auto& bank = race_render_bank();
         auto current = RacePoses::capture(bank, true, true);
         if (!current) {
-            end_race_presentation();
+            end_race_presentation("invalid pose");
             return false;
         }
         const auto continuity = current->compare_with(previous ? *previous : *current);
         const bool reset = !previous || continuity.reset();
         if (!schedule.begin_group(rate, continuity.sample_gap, reset, true)) {
-            end_race_presentation();
+            end_race_presentation("invalid display target");
             return false;
         }
         const auto& grid = schedule.group();
@@ -221,7 +231,7 @@ bool RaceDrawer::draw(uint8_t* rdram, recomp_context& caller) {
         // A queued action might still reference the bank. Keep its storage
         // alive for the renderer and retire it permanently for this run.
         failed = true;
-        end_race_presentation();
+        end_race_presentation("graphics fence unavailable");
         std::fprintf(stderr, "[wdc:render] graphics fence unavailable, retiring render bank\n");
     }
     return drawn;
