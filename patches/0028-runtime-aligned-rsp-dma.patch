@@ -1,0 +1,31 @@
+diff --git a/librecomp/include/librecomp/rsp.hpp b/librecomp/include/librecomp/rsp.hpp
+--- a/librecomp/include/librecomp/rsp.hpp
++++ b/librecomp/include/librecomp/rsp.hpp
+@@ -3,4 +3,5 @@
+
+ #include <cstdio>
++#include <cstring>
+
+ #include "rsp_vu.hpp"
+@@ -100,4 +101,10 @@
+     dram_addr &= 0xFFFFF8;
+     assert(dmem_addr + rd_len <= 0x1000);
++    // Both images store each guest word in the same host byte order.
++    // Unaligned or wrapping DMEM transfers still need per-byte addressing.
++    if ((dmem_addr & 3u) == 0 && dmem_addr < 0x1000 && rd_len <= 0x1000 - dmem_addr) {
++        std::memcpy(dmem + dmem_addr, rdram + dram_addr, rd_len);
++        return;
++    }
+     for (uint32_t i = 0; i < rd_len; i++) {
+         RSP_MEM_B(i, dmem_addr) = MEM_B(0, (int64_t)(int32_t)(dram_addr + i + 0x80000000));
+@@ -110,4 +117,10 @@
+     dram_addr &= 0xFFFFF8;
+     assert(dmem_addr + wr_len <= 0x1000);
++    // Both images store each guest word in the same host byte order.
++    // Unaligned or wrapping DMEM transfers still need per-byte addressing.
++    if ((dmem_addr & 3u) == 0 && dmem_addr < 0x1000 && wr_len <= 0x1000 - dmem_addr) {
++        std::memcpy(rdram + dram_addr, dmem + dmem_addr, wr_len);
++        return;
++    }
+     for (uint32_t i = 0; i < wr_len; i++) {
+         MEM_B(0, (int64_t)(int32_t)(dram_addr + i + 0x80000000)) = RSP_MEM_B(i, dmem_addr);

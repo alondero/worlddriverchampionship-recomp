@@ -1,0 +1,91 @@
+diff --git a/librecomp/include/librecomp/rsp_vu_impl.hpp b/librecomp/include/librecomp/rsp_vu_impl.hpp
+--- a/librecomp/include/librecomp/rsp_vu_impl.hpp
++++ b/librecomp/include/librecomp/rsp_vu_impl.hpp
+@@ -62,31 +62,32 @@
+
+     if constexpr (Accuracy::RSP::SIMD) {
+ #if ARCHITECTURE_SUPPORTS_SSE4_1
+-        static const __m128i shuffle[16] = {
++        alignas(16) static constexpr uint8_t shuffle[16][16] = {
+             //vector
+-            _mm_set_epi8(15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),  //01234567
+-            _mm_set_epi8(15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),  //01234567
++            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},  //01234567
++            {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},  //01234567
+             //scalar quarter
+-            _mm_set_epi8(15,14,15,14,11,10,11,10, 7, 6, 7, 6, 3, 2, 3, 2),  //00224466
+-            _mm_set_epi8(13,12,13,12, 9, 8, 9, 8, 5, 4, 5, 4, 1, 0, 1, 0),  //11335577
++            {2, 3, 2, 3, 6, 7, 6, 7, 10, 11, 10, 11, 14, 15, 14, 15},  //00224466
++            {0, 1, 0, 1, 4, 5, 4, 5, 8, 9, 8, 9, 12, 13, 12, 13},  //11335577
+             //scalar half
+-            _mm_set_epi8(15,14,15,14,15,14,15,14, 7, 6, 7, 6, 7, 6, 7, 6),  //00004444
+-            _mm_set_epi8(13,12,13,12,13,12,13,12, 5, 4, 5, 4, 5, 4, 5, 4),  //11115555
+-            _mm_set_epi8(11,10,11,10,11,10,11,10, 3, 2, 3, 2, 3, 2, 3, 2),  //22226666
+-            _mm_set_epi8(9, 8, 9, 8, 9, 8, 9, 8, 1, 0, 1, 0, 1, 0, 1, 0),  //33337777
++            {6, 7, 6, 7, 6, 7, 6, 7, 14, 15, 14, 15, 14, 15, 14, 15},  //00004444
++            {4, 5, 4, 5, 4, 5, 4, 5, 12, 13, 12, 13, 12, 13, 12, 13},  //11115555
++            {2, 3, 2, 3, 2, 3, 2, 3, 10, 11, 10, 11, 10, 11, 10, 11},  //22226666
++            {0, 1, 0, 1, 0, 1, 0, 1, 8, 9, 8, 9, 8, 9, 8, 9},  //33337777
+             //scalar whole
+-            _mm_set_epi8(15,14,15,14,15,14,15,14,15,14,15,14,15,14,15,14),  //00000000
+-            _mm_set_epi8(13,12,13,12,13,12,13,12,13,12,13,12,13,12,13,12),  //11111111
+-            _mm_set_epi8(11,10,11,10,11,10,11,10,11,10,11,10,11,10,11,10),  //22222222
+-            _mm_set_epi8(9, 8, 9, 8, 9, 8, 9, 8, 9, 8, 9, 8, 9, 8, 9, 8),  //33333333
+-            _mm_set_epi8(7, 6, 7, 6, 7, 6, 7, 6, 7, 6, 7, 6, 7, 6, 7, 6),  //44444444
+-            _mm_set_epi8(5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4),  //55555555
+-            _mm_set_epi8(3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2),  //66666666
+-            _mm_set_epi8(1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0),  //77777777
++            {14, 15, 14, 15, 14, 15, 14, 15, 14, 15, 14, 15, 14, 15, 14, 15},  //00000000
++            {12, 13, 12, 13, 12, 13, 12, 13, 12, 13, 12, 13, 12, 13, 12, 13},  //11111111
++            {10, 11, 10, 11, 10, 11, 10, 11, 10, 11, 10, 11, 10, 11, 10, 11},  //22222222
++            {8, 9, 8, 9, 8, 9, 8, 9, 8, 9, 8, 9, 8, 9, 8, 9},  //33333333
++            {6, 7, 6, 7, 6, 7, 6, 7, 6, 7, 6, 7, 6, 7, 6, 7},  //44444444
++            {4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5},  //55555555
++            {2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3},  //66666666
++            {0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1},  //77777777
+         };
+-        //todo: benchmark to see if testing for cases 0&1 to return value directly is faster
++        // Selectors 0 and 1 preserve every lane.
++        if (index < 2) return *this;
+         r128 ret;
+-        ret.v128 = _mm_shuffle_epi8(v128, shuffle[index]);
++        ret.v128 = _mm_shuffle_epi8(v128, _mm_load_si128(reinterpret_cast<const __m128i*>(shuffle[index])));
+         return ret;
+ #endif
+     }
+@@ -231,6 +232,17 @@
+ template<u8 e>
+ auto RSP::LQV(r128& vt, cr32& rs, s8 imm) -> void {
+     auto address = rs + imm * 16;
++#if ARCHITECTURE_SUPPORTS_SSE4_1
++    if constexpr (e == 0) {
++        if ((address & 15) == 0) {
++            // DMEM and vector elements reverse guest byte order within each
++            // word. Only the order of the four words differs.
++            auto* words = reinterpret_cast<__m128i*>(dmem + (address & 0xFFF));
++            vt.v128 = _mm_shuffle_epi32(_mm_loadu_si128(words), 0x1B);
++            return;
++        }
++    }
++#endif
+     auto start = e;
+     auto end = std::min((u32)(16 + e - (address & 15)), (u32)16);
+     for (u32 offset = start; offset < end; offset++) {
+@@ -421,6 +433,17 @@
+ template<u8 e>
+ auto RSP::SQV(cr128& vt, cr32& rs, s8 imm) -> void {
+     auto address = rs + imm * 16;
++#if ARCHITECTURE_SUPPORTS_SSE4_1
++    if constexpr (e == 0) {
++        if ((address & 15) == 0) {
++            // DMEM and vector elements reverse guest byte order within each
++            // word. Only the order of the four words differs.
++            auto* words = reinterpret_cast<__m128i*>(dmem + (address & 0xFFF));
++            _mm_storeu_si128(words, _mm_shuffle_epi32(vt.v128, 0x1B));
++            return;
++        }
++    }
++#endif
+     auto start = e;
+     auto end = start + (16 - (address & 15));
+     for (u32 offset = start; offset < end; offset++) {

@@ -1,0 +1,50 @@
+diff --git a/src/common/rt64_tmem_hasher.h b/src/common/rt64_tmem_hasher.h
+--- a/src/common/rt64_tmem_hasher.h
++++ b/src/common/rt64_tmem_hasher.h
+@@ -4,4 +4,6 @@
+
+ #pragma once
++
++#include <array>
+
+ // Referenced from zstd.
+@@ -75,11 +77,22 @@
+                 if ((version >= 5) && usesTLUT) {
+                     if (loadTile.siz == G_IM_SIZ_4b) {
+-                        for (uint32_t i = 0; i < byteCount; i++) {
+-                            tlutBitset[0] |= (1ULL << (tmemBytes[i] & 0xFU));
+-                            tlutBitset[0] |= (1ULL << ((tmemBytes[i] >> 4U) & 0xFU));
++                        static constexpr auto masks = [] {
++                            std::array<uint16_t, 256> entries{};
++                            for (unsigned byte = 0; byte < entries.size(); ++byte)
++                                entries[byte] = uint16_t((1u << (byte & 15)) | (1u << (byte >> 4)));
++                            return entries;
++                        }();
++                        uint32_t mask = uint32_t(tlutBitset[0]), i = 0;
++                        while (i + 4 <= byteCount && mask != UINT16_MAX) {
++                            mask |= masks[tmemBytes[i]] | masks[tmemBytes[i + 1]] |
++                                    masks[tmemBytes[i + 2]] | masks[tmemBytes[i + 3]];
++                            i += 4;
+                         }
++                        for (; i < byteCount && mask != UINT16_MAX; ++i) mask |= masks[tmemBytes[i]];
++                        tlutBitset[0] = mask;
+                     }
+                     else {
+                         for (uint32_t i = 0; i < byteCount; i++) {
++                            if ((i & 63) == 0 && (tlutBitset[0] & tlutBitset[1] & tlutBitset[2] & tlutBitset[3]) == UINT64_MAX) break;
+                             tlutBitset[tmemBytes[i] >> 6U] |= (1ULL << (tmemBytes[i] & 0x3FU));
+                         }
+@@ -170,6 +183,11 @@
+                                     bitsetIndex = bitScanForward64(tlutBitset[i]);
+                                     paletteIndex = (i * 0x40) + bitsetIndex;
+-                                    XXH3_64bits_update(&xxh3, &TMEM[paletteAddress + paletteIndex * 8], 8);
+-                                    tlutBitset[i] &= ~(1ULL << bitsetIndex);
++                                    // A full 64-bit set took the existing fast path above.
++                                    // Here the shifted set has 1..63 trailing ones;
++                                    // grouping them preserves the exact byte stream.
++                                    const uint64_t shifted = tlutBitset[i] >> bitsetIndex;
++                                    const uint32_t runLength = bitScanForward64(~shifted);
++                                    XXH3_64bits_update(&xxh3, &TMEM[paletteAddress + paletteIndex * 8], runLength * 8);
++                                    tlutBitset[i] &= ~(((1ULL << runLength) - 1) << bitsetIndex);
+                                 }
+                             }

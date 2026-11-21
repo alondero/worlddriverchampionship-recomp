@@ -1,5 +1,6 @@
 #undef NDEBUG
 #include "game_framerate.h"
+#include "race_swap.h"
 #include "recomp.h"
 #include <array>
 #include <bit>
@@ -12,6 +13,7 @@
 namespace {
 bool pending = false, swapped = false, delay_landing = false;
 unsigned ticks = 0, sends = 0;
+unsigned swap_calls = 0, paced_calls = 0;
 uint32_t current_buffer = 0, next_buffer = 0;
 uint8_t* guest_rdram = nullptr;
 void start_worker(recomp_context&);
@@ -34,6 +36,7 @@ void start(bool native, bool race = true) {
 extern "C" {
 void wdc_framerate_start(uint8_t*, recomp_context*);
 uint32_t wdc_framerate_preswap();
+void wdc_render_swap_wait(uint8_t*, recomp_context*);
 void func_800013DC(uint8_t*, recomp_context*);
 void func_8000C0D0(uint8_t*, recomp_context*);
 void func_8000C164(uint8_t*, recomp_context*);
@@ -76,8 +79,9 @@ void osRecvMesg_recomp(uint8_t*, recomp_context* ctx) {
     pending = false;
     ctx->r2 = 0;
 }
-void osViSwapBuffer_recomp(uint8_t*, recomp_context* ctx) {
-    assert(!pending); // The injected message was consumed before this call.
+void osViSwapBuffer_recomp(uint8_t* image, recomp_context* ctx) {
+    ++swap_calls;
+    if (!wdc::render::RaceSwap::for_image(image)) assert(!pending);
     next_buffer = uint32_t(ctx->r4);
     swapped = true;
 }
@@ -139,6 +143,32 @@ int main(int argc, char** argv) {
         assert(sends == unsigned(native));
         assert(ticks == (native ? 1u : queued_vi ? 1u : 2u) + unsigned(delayed));
         assert(ctx.r29 == gpr(int32_t(0x807FF000)));
+        if (!native && !menu && !queued_vi && !delayed) {
+            // With the framebuffer already latched, a direct swap preserves
+            // both possible queue states across consecutive draws.
+            const auto original_ticks = ticks;
+            for (bool queued : {false, true}) {
+                pending = queued;
+                for (bool present : {false, true}) {
+                    MEM_W(0, int32_t(0x8007EDB8)) = 1;
+                    MEM_W(0, int32_t(0x8007D750)) = current_buffer;
+                    auto direct = context();
+                    const auto before = swap_calls, paced = paced_calls;
+                    wdc::render::RaceSwap scope(rdram, present ? +[] { ++paced_calls; } : nullptr);
+                    func_800013DC(rdram, &direct);
+                    assert(pending == queued && ticks == original_ticks);
+                    assert(swap_calls == before + unsigned(present));
+                    assert(paced_calls == paced + unsigned(present));
+                }
+            }
+            // The first ordinary wait after the scope consumes the queued VI.
+            auto normal = context();
+            normal.r4 = int32_t(0x800AAA28);
+            normal.r5 = 0;
+            normal.r6 = 1;
+            wdc_render_swap_wait(rdram, &normal);
+            assert(!pending && ticks == original_ticks && normal.r2 == 0);
+        }
         // The pending preference takes effect only at the next startup.
         auto next = context();
         next.r4 = menu ? 0 : int32_t(0x8000C0D0);

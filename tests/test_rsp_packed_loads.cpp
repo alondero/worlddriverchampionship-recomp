@@ -1,3 +1,4 @@
+#include <array>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -49,6 +50,30 @@ static void exercise(RSP& rsp, uint32_t address) {
 
 int main() {
     RSP rsp{};
+    RSP::r128 lanes{};
+    for (unsigned i = 0; i < 8; ++i) lanes.element(i) = 0x1234u + i * 0x101u;
+    for (unsigned selector = 0; selector < 16; ++selector) {
+        const unsigned group = selector < 2 ? 1 : selector < 4 ? 2 : selector < 8 ? 4 : 8;
+        RSP::r128 expected{};
+        for (unsigned lane = 0; lane < 8; ++lane)
+            expected.element(lane) = lanes.element((lane & ~(group - 1)) | (selector & (group - 1)));
+        check(lanes(selector), expected, "vector element selector");
+    }
+    for (unsigned address = 0xff0; address < 0x1010; ++address) {
+        for (unsigned i = 0; i < sizeof(dmem); ++i) dmem[i] = uint8_t(i * 29);
+        RSP::r128 loaded = lanes, expected = lanes;
+        const unsigned count = 16 - (address & 15);
+        for (unsigned i = 0; i < count; ++i) expected.byte(i) = dmem[((address + i) & 4095) ^ 3];
+        rsp.LQV<0>(loaded, address, 0);
+        check(loaded, expected, "LQV");
+        auto memory = std::to_array(dmem);
+        for (unsigned i = 0; i < count; ++i) memory[((address + i) & 4095) ^ 3] = lanes.byte(i);
+        rsp.SQV<0>(lanes, address, 0);
+        if (!std::equal(memory.begin(), memory.end(), dmem)) {
+            std::fprintf(stderr, "SQV mismatch at %x\n", address);
+            return 1;
+        }
+    }
     // The first case includes 0x80: LUV must yield 0x4000, never 0xc000.
     for (unsigned seed = 128; seed < 384; ++seed) {
         for (unsigned b = 0; b < 4096; ++b) dmem[b ^ 3u] = uint8_t(seed + b * 37u);

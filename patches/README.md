@@ -3,8 +3,8 @@
 This directory is the only place for local diffs against pinned public
 submodules. The first two entries are toolchain compatibility patches carried
 forward from both sibling ports because they are required to compile the
-pinned RT64 tree with MinGW on Windows. All game/runtime patches remain gated
-on WDC evidence.
+pinned RT64 tree with MinGW on Windows. The build applies the shared RT64 and RSP changes on both desktop platforms,
+including when the player selects original presentation.
 
 ## Rules
 
@@ -59,14 +59,50 @@ the WDC runtime demonstrates the same need.
 | `0018-runtime-rsp-dma-rounding.patch` | N64ModernRuntime | All | Round inclusive RSP DMA lengths to eight-byte words; prevents stale stereo frames at BOSS audio block boundaries. |
 | `0019-runtime-developer-thread-snapshots.patch` | N64ModernRuntime | All | Validate the live thread roster and remove/repair native context pointers for developer RAM checkpoints. |
 | `0021-runtime-protected-function-replacements.patch` | N64ModernRuntime | Desktop | Reject ordinary and forced replacements for host functions explicitly protected by the port. |
+| `0023-rt64-explicit-presentation.patch` | RT64 | All | Submit a requested screen update even when VI and framebuffer change detection finds no changes. |
+| `0027-rt64-interior-triangle-batch.patch` | RT64 | All | Submit wholly interior raw triangle batches directly from their decoded attributes. |
+| `0030-rt64-palette-membership.patch` | RT64 | All | Collect palette membership in batches and hash consecutive used palette entries together. |
+| `0031-runtime-receive-message-destination.patch` | N64ModernRuntime | All | Receive a live queue message into caller-owned storage while rendering a snapshot. |
+| `0022-runtime-swap-presentation.patch` | N64ModernRuntime | All | Queue a framebuffer swap for presentation on the graphics thread independently of VI retrace. |
+| `0024-runtime-render-queue-memory.patch` | N64ModernRuntime | All | Route message operations from a private rendering image through live scheduler queues. |
+| `0025-runtime-task-memory.patch` | N64ModernRuntime | All | Carry the submitting guest memory image with each graphics task. |
+| `0026-runtime-graphics-fence.patch` | N64ModernRuntime | All | Fence the submitting game thread's queued graphics actions before reusing a render image. |
+| `0028-runtime-aligned-rsp-dma.patch` | N64ModernRuntime | All | Bulk-copy whole words between aligned word-swapped RSP DMEM and guest RAM. |
+| `0029-runtime-rsp-vector-access.patch` | N64ModernRuntime | All | Precompute vector element shuffle masks and transfer aligned whole RSP vectors with a word reversal. |
 
 ## Application matrix
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0014, 0015, 0016, 0020, 0017 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0014, 0015, 0016, 0020, 0017 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0031, 0022, 0024, 0025, 0026, 0028, 0029, 0014, 0015, 0016, 0020, 0023, 0027, 0030, 0017 |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0031, 0022, 0024, 0025, 0026, 0028, 0029, 0014, 0015, 0016, 0020, 0023, 0027, 0030, 0017 |
 | Android | none yet |
+
+Both desktop builds compile patch 0023. Its force-present argument defaults
+to false and is set only on explicit screen actions. The original VI change
+detection still handles ordinary retrace. See the
+[swap and frozen-pixel controls](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7048598898).
+
+The following optimizations run on the default path as well as in interpolated
+races. The implementation links identify the affected paths. The
+[original Deck trials and differential checks](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7048978802)
+record the vector and palette controls. The [clipping and DMA trials](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7048557820) compare both changes with their immediate predecessors.
+
+- [0027, interior triangle batches](0027-rt64-interior-triangle-batch.patch)
+- [0028, aligned DMA](0028-runtime-aligned-rsp-dma.patch)
+- [0029, vector loads and swizzles](0029-runtime-rsp-vector-access.patch)
+- [0030, palette membership and hashing](0030-rt64-palette-membership.patch)
+
+The ROM-free palette test compares production patch 0030 directly with the
+pinned header. Patch 0023's enqueue result depends on RT64's live framebuffer
+change detection and present queue. Patch 0027's fast path consumes decoded
+attributes inside RT64's stateful RDP command processor. Host-only predicate
+tests would miss the actual queued swap or submitted vertices. Desktop CI
+applies both patches. Their GPU coverage is manual and outside CI. The
+[frozen geometry and GPU swap fixture](../tools/render_split_prototype/README.md)
+requires a Windows reference build and a USA ROM. It checks ordered swaps,
+triangle headers and framebuffer pixels for patches 0023 and 0027. See the
+[manual run evidence](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7052676512).
 
 The BOSS options default off; existing runtime renderers retain their original
 interrupt behavior. Patches are checked against the pinned dependency commits.

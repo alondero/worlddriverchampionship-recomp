@@ -28,6 +28,7 @@ std::atomic<unsigned> requests{};
 std::atomic<uint32_t> clock_bias{};
 std::filesystem::path slot, auto_save, auto_load;
 unsigned save_delay = 0, load_delay = 0, stable_frames = 0;
+uint64_t restored = 0;
 uint32_t last_callback{}, last_scene{};
 
 // Local debugging format: little-endian 64-bit hosts, native word-swapped RAM.
@@ -145,11 +146,14 @@ bool load(uint8_t* rdram, recomp_context* ctx, const std::filesystem::path& path
     // publication. Other guest threads remain parked by the cooperative runtime.
     std::memcpy(rdram, saved, ram_size);
     clock_bias.store(osGetCount() - h.clock);
+    ++restored;
     stable_frames = 0;
     std::fprintf(stderr, "[wdc:state] loaded %u bytes: %s (scene=%u)\n", ram_size, path.string().c_str(), h.scene);
     return true;
 }
 }
+
+uint64_t wdc::state::restore_generation() { return restored; }
 
 bool wdc::state::configure(const std::filesystem::path& default_slot) {
     slot = environment_path("WDC_STATE_FILE", default_slot);

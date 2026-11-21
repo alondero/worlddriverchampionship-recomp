@@ -55,6 +55,15 @@ The developer save-state tool also needs patch 0019 for native thread-context
 validation and repair; both build scripts apply it automatically.
 Both build scripts apply patch 0021 so the runtime can protect the native
 projection entry from mod replacement.
+Runtime patches 0031 and 0022 supply the owned message destination and
+independent swap presentation used by the fixed-rate rendering prototype.
+RT64 patch 0023 lets its renderer request a presentation for an unchanged VI.
+Runtime patches 0024 and 0025 keep message queues in live RAM and carry the
+submitting RAM pointer in each queued graphics task. Patch 0026 lets the game
+thread wait for its submitted graphics work before reusing a private image.
+RT64 patch 0027 submits interior triangle batches from their decoded arrays.
+RT64 patch 0030 batches palette-index collection and contiguous palette hash updates.
+Runtime patches 0028 and 0029 accelerate aligned RSP DMA, vector transfers, and vector element selection.
 Pinned dependency edits are exported under `patches/`; dirty
 submodules after applying those patches are expected.
 
@@ -68,6 +77,8 @@ python scripts/check_docs.py
 python -B scripts/check_repo.py
 git diff --check
 ```
+
+On Linux or Git Bash, `bash build.sh --patches-only` initializes the test dependencies and applies the complete platform patch series without a ROM.
 
 For the ROM-free C++ checks used by pull-request CI, see
 [host-test setup](docs/testing.md#rom-free-host-tests).

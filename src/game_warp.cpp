@@ -1,5 +1,5 @@
 #include "game_warp.h"
-#include "recomp.h"
+#include "guest_context.h"
 #include <atomic>
 #include <charconv>
 #include <cstdio>
@@ -136,7 +136,8 @@ extern "C" void wdc_warp_race(uint8_t* rdram, recomp_context* ctx) {
     if (loading || MEM_W(0, int32_t(0x8007DF44))) return;
     loading = take_request();
     if (!loading) return;
-    auto call = *ctx;
+    recomp_context call;
+    wdc::copy_guest_context(call, *ctx);
     call.r4 = int32_t(0x800369E0);
     func_8000A200(rdram, &call);
     func_8000A218(rdram, &call);
@@ -166,7 +167,8 @@ extern "C" void wdc_warp_load(uint8_t* rdram, recomp_context* ctx) {
     MEM_B(0x1075, career) = 0;
     for (int offset = 0; offset < 0xA0; offset += 4) MEM_W(offset, config) = 0;
     MEM_W(0x84, config) = int(r.mode);
-    auto call = *ctx;
+    recomp_context call;
+    wdc::copy_guest_context(call, *ctx);
     call.r4 = career;
     building_laps = r.laps;
     func_80068AA8(rdram, &call);

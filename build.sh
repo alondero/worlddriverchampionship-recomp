@@ -5,8 +5,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 CLEAN=0
+PATCHES_ONLY=0
 for arg in "$@"; do
     case "$arg" in
+        --patches-only) PATCHES_ONLY=1 ;;
         --clean) CLEAN=1 ;;
         -h|--help) sed -n '1,35p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $arg" >&2; exit 2 ;;
@@ -18,12 +20,17 @@ for tool in cmake ninja git python3; do
     command -v "$tool" >/dev/null || die "missing tool: $tool"
 done
 
-ROM="${ROM_FILENAME:-World Driver Championship (USA).z64}"
-[[ -f "$ROM" ]] || die "missing ROM: $ROM (supply your own USA dump)"
-if [[ "$CLEAN" == 1 && -f build/build.ninja ]]; then cmake --build build --target clean; fi
-
-echo "[submodules]"
-git submodule update --init --recursive
+if [[ "$PATCHES_ONLY" == 1 ]]; then
+    git submodule update --init --depth 1 lib/N64ModernRuntime lib/rt64 lib/RecompFrontend
+    git -C lib/N64ModernRuntime submodule update --init --depth 1 N64Recomp
+    git -C lib/rt64 submodule update --init --depth 1 src/contrib/plume src/contrib/xxHash
+else
+    ROM="${ROM_FILENAME:-World Driver Championship (USA).z64}"
+    [[ -f "$ROM" ]] || die "missing ROM: $ROM (supply your own USA dump)"
+    if [[ "$CLEAN" == 1 && -f build/build.ninja ]]; then cmake --build build --target clean; fi
+    echo "[submodules]"
+    git submodule update --init --recursive
+fi
 echo "[dependency patches]"
 # The helper restores the paths a series owns to the pinned submodule state
 # before applying it, so repeated builds stay idempotent even where a later
@@ -51,6 +58,9 @@ rt64_patches=(
     "$ROOT/patches/0015-rt64-raw-triangle-scissor.patch"
     "$ROOT/patches/0016-rt64-rdp-edge-trapezoids.patch"
     "$ROOT/patches/0020-rt64-opaque-subpixel-coverage.patch"
+    "$ROOT/patches/0023-rt64-explicit-presentation.patch"
+    "$ROOT/patches/0027-rt64-interior-triangle-batch.patch"
+    "$ROOT/patches/0030-rt64-palette-membership.patch"
 )
 runtime_patches=(
     "$ROOT/patches/0006-runtime-lle-interrupt-ownership.patch"
@@ -60,6 +70,13 @@ runtime_patches=(
     "$ROOT/patches/0018-runtime-rsp-dma-rounding.patch"
     "$ROOT/patches/0019-runtime-developer-thread-snapshots.patch"
     "$ROOT/patches/0021-runtime-protected-function-replacements.patch"
+    "$ROOT/patches/0031-runtime-receive-message-destination.patch"
+    "$ROOT/patches/0022-runtime-swap-presentation.patch"
+    "$ROOT/patches/0024-runtime-render-queue-memory.patch"
+    "$ROOT/patches/0025-runtime-task-memory.patch"
+    "$ROOT/patches/0026-runtime-graphics-fence.patch"
+    "$ROOT/patches/0028-runtime-aligned-rsp-dma.patch"
+    "$ROOT/patches/0029-runtime-rsp-vector-access.patch"
 )
 frontend_patches=(
     "$ROOT/patches/0010-frontend-enum-wrap.patch"
@@ -83,6 +100,7 @@ apply_patch_series lib/RecompFrontend "${frontend_patches[@]}"
 if [[ ${#windows_plume_patches[@]} -gt 0 ]]; then
     apply_patch_series lib/rt64/src/contrib/plume "${windows_plume_patches[@]}"
 fi
+if [[ "$PATCHES_ONLY" == 1 ]]; then exit 0; fi
 echo "[configure: first pass]"
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWDC_HEADLESS=OFF -DWDC_ENABLE_FRONTEND=ON
 echo "[host tools]"

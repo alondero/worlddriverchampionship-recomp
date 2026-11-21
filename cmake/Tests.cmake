@@ -1,4 +1,29 @@
 if(BUILD_TESTING)
+    set(palette_pin "${CMAKE_CURRENT_BINARY_DIR}/rt64-palette-pin.txt")
+    set(palette_header "${CMAKE_CURRENT_BINARY_DIR}/pinned_tmem_hasher.h")
+    set(palette_script "${CMAKE_CURRENT_LIST_DIR}/PinnedPaletteHeader.cmake")
+    add_custom_target(wdc_palette_pin
+        COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}" "-DSTAMP=${palette_pin}" -P "${palette_script}"
+        BYPRODUCTS "${palette_pin}" VERBATIM)
+    add_custom_command(OUTPUT "${palette_header}"
+        COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}" "-DSTAMP=${palette_pin}"
+            "-DHEADER=${palette_header}" -P "${palette_script}"
+        DEPENDS wdc_palette_pin "${palette_pin}" "${palette_script}" VERBATIM)
+    add_executable(wdc_palette_hash_tests tests/test_palette_hash.cpp "${palette_header}")
+    target_include_directories(wdc_palette_hash_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}"
+        lib/rt64/src lib/rt64/src/contrib)
+    add_test(NAME wdc_palette_hash COMMAND wdc_palette_hash_tests)
+
+    add_executable(wdc_race_pose_tests tests/test_race_poses.cpp src/race_poses.cpp src/render_bank.cpp)
+    target_include_directories(wdc_race_pose_tests PRIVATE src)
+    add_test(NAME wdc_race_poses COMMAND wdc_race_pose_tests)
+    add_executable(wdc_render_bank_tests tests/test_render_bank.cpp src/render_bank.cpp src/race_render_sample.cpp)
+    target_include_directories(wdc_render_bank_tests PRIVATE src "${N64MR}/N64Recomp/include")
+    target_link_libraries(wdc_render_bank_tests PRIVATE Threads::Threads)
+    add_test(NAME wdc_render_bank COMMAND wdc_render_bank_tests)
+    add_executable(wdc_render_cadence_tests tests/test_render_cadence.cpp src/race_frame_schedule.cpp)
+    target_include_directories(wdc_render_cadence_tests PRIVATE src)
+    add_test(NAME wdc_render_cadence COMMAND wdc_render_cadence_tests)
     add_executable(wdc_savestate_tests tests/test_savestate.cpp src/savestate.cpp)
     target_include_directories(wdc_savestate_tests PRIVATE src
         "${N64MR}/N64Recomp/include" "${N64MR}/ultramodern/include")
@@ -43,6 +68,8 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME wdc_rdp_triangle_edges COMMAND wdc_rdp_triangle_edge_tests)
     add_executable(wdc_rsp_packed_load_tests tests/test_rsp_packed_loads.cpp)
+    # Match the aliasing contract used to compile the generated BOSS vector helpers.
+    target_compile_options(wdc_rsp_packed_load_tests PRIVATE -fno-strict-aliasing)
     target_include_directories(wdc_rsp_packed_load_tests PRIVATE
         "${N64MR}/N64Recomp/include" "${N64MR}/librecomp/include" "${N64MR}/ultramodern/include")
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64")
@@ -134,12 +161,23 @@ if(BUILD_TESTING)
             target_include_directories(wdc_audio_voice_rom_tests PRIVATE "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_audio_voice_rom_tests PRIVATE -fno-strict-aliasing)
             add_test(NAME wdc_audio_voice_rom COMMAND wdc_audio_voice_rom_tests)
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_render_boundary_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c"
+                DEPENDS tests/extract_render_boundary_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_render_boundary_rom_tests tests/test_render_boundary_rom.cpp src/game_render.cpp src/extra_race_draw.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/render_boundary_test_funcs.c")
+            target_include_directories(wdc_render_boundary_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_render_boundary_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_render_boundary_rom COMMAND wdc_render_boundary_rom_tests)
+            set_tests_properties(wdc_render_boundary_rom PROPERTIES TIMEOUT 30)
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_framerate_test.py"
                     "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c"
                 DEPENDS tests/extract_framerate_test.py ${WDC_FUNC_C_SOURCES}
                 VERBATIM)
-            add_executable(wdc_framerate_rom_tests tests/test_framerate_rom.cpp src/game_framerate.cpp
+            add_executable(wdc_framerate_rom_tests tests/test_framerate_rom.cpp src/game_framerate.cpp src/race_swap.cpp
                 "${CMAKE_CURRENT_BINARY_DIR}/framerate_test_funcs.c")
             target_include_directories(wdc_framerate_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
             target_compile_options(wdc_framerate_rom_tests PRIVATE -fno-strict-aliasing)

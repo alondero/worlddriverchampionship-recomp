@@ -115,7 +115,9 @@ int main(int argc, char** argv) {
         memory[0x923C8] = 1;
         memory[0x923EC] = 2;
         const auto registers = ctx;
+        const auto generation = wdc::state::restore_generation();
         wdc::state::request_load(); tick(90);
+        require(wdc::state::restore_generation() == generation + 1, "load did not invalidate presentation history");
         require(memory[0x2000] == 73, "load did not restore world");
         require(memory[0x923C8] == 0 && memory[0x923EC] == 0, "live race fields blocked restoration");
         require(thread->context == second, "load restored stale native context");
@@ -129,10 +131,12 @@ int main(int argc, char** argv) {
         wdc::state::request_save(); wdc::state::request_load(); tick(90);
         require(memory[0x2000] == 73 && read(slot) == good, "save beat load");
         const auto reject = [&] {
+            const auto generation = wdc::state::restore_generation();
             const auto before = memory;
             auto old_clock = ctx; wdc_get_count(nullptr, &old_clock);
             wdc::state::request_load(); tick(90);
             require(memory == before, "rejected load changed RAM");
+            require(wdc::state::restore_generation() == generation, "rejected load invalidated presentation history");
             auto new_clock = ctx; wdc_get_count(nullptr, &new_clock);
             require(new_clock.r2 == old_clock.r2, "rejected load changed clock");
         };

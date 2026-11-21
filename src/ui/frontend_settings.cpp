@@ -1,5 +1,6 @@
 #include "frontend.h"
 #include "frontend_settings.h"
+#include "render_cadence.h"
 #include "game_cheats.h"
 #include "recompui/config.h"
 
@@ -27,7 +28,8 @@ void apply_graphics() {
     settings.aspect = integer("aspect");
     settings.hud = integer("hud");
     const int mode = integer("rate_mode");
-    settings.rate = mode == 0 ? 0 : mode == 1 ? -1 : int(std::get<double>(page.get_option_value("rate")));
+    settings.interpolate_races = mode == 3 || mode == 4;
+    settings.rate = mode == 0 ? 0 : (mode == 1 || mode == 3) ? -1 : std::get<double>(page.get_option_value("rate"));
     settings.samples = integer("samples");
     settings.filtering = integer("filtering");
     settings.precision = integer("precision");
@@ -55,7 +57,8 @@ void refresh_settings() {
     sync(page, "resolution", uint32_t(s.resolution));
     sync(page, "aspect", uint32_t(s.aspect));
     sync(page, "hud", uint32_t(s.hud));
-    sync(page, "rate_mode", uint32_t(s.rate == 0 ? 0 : s.rate == -1 ? 1 : 2));
+    const unsigned rate_mode = s.rate == 0 ? 0 : s.rate == -1 ? 1 : 2;
+    sync(page, "rate_mode", rate_mode + (s.interpolate_races ? 2u : 0u));
     sync(page, "rate", double(s.rate > 0 ? s.rate : 60));
     sync(page, "samples", uint32_t(s.samples));
     sync(page, "filtering", uint32_t(s.filtering));
@@ -116,10 +119,10 @@ void create_settings() {
         {{0, "Original", "Original 4:3"}, {1, "Window", "Match window"}}, 1u);
     page.add_enum_option("hud", "HUD placement", "Pin race instruments and timing to the edges. Clamp to 16:9 keeps them within easy reach on ultrawide displays. Original keeps the centered layout.",
         {{0, "Original"}, {1, "16:9", "Clamp to 16:9"}, {2, "Full", "Full width"}}, 1u);
-    page.add_enum_option("rate_mode", "Presentation rate", "Original is recommended. Display and Custom are experimental. They do not smooth motion or change game speed.",
-        {{0, "Original"}, {1, "Display"}, {2, "Custom"}}, 0u);
-    page.add_number_option("rate", "Custom presentation target (Hz)", "A presentation target from 30 to 360 Hz. This does not add motion interpolation.", 30, 360, 1, 0, false, 60);
-    page.add_option_hidden_dependency("rate", "rate_mode", 0u, 1u);
+    page.add_enum_option("rate_mode", "Presentation rate", "Interpolated modes draw extra single-player race frames with original 30 Hz gameplay. Start a new race when switching from Native 60 fps.",
+        {{0, "Original"}, {1, "Display"}, {2, "Custom"}, {3, "Interpolate to display (experimental)"}, {4, "Interpolate to custom (experimental)"}}, 0u);
+    page.add_number_option("rate", "Custom presentation target (Hz)", "Target race presentation rate. Higher rates need more rendering time.", 30, render::DisplayRate::max_hz, 0.001, 3, false, 60);
+    page.add_option_hidden_dependency("rate", "rate_mode", 0u, 1u, 3u);
     page.add_enum_option("samples", "Anti-aliasing", "Smooths edges. Unsupported MSAA falls back to Off; your requested choice is saved.",
         {{1, "Off"}, {2, "2x"}, {4, "4x"}, {8, "8x"}}, 1u);
     page.add_enum_option("filtering", "Output filter", "Filters the final image. This does not replace or enhance the game's texture assets.",

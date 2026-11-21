@@ -24,9 +24,8 @@ const char* help =
     "F11 / Alt+Enter: Fullscreen\n"
     "F9: Restore graphics defaults\n\n"
     "Changes are saved; color precision needs a restart.\n"
-    "Higher presentation rates are experimental and do not add\n"
-    "interpolated motion. Game speed remains unchanged.";
-template<size_t N> int cycle(int value, const int (&choices)[N]) {
+    "Race interpolation uses the stock 30 Hz simulation.";
+template<size_t N> int cycle(double value, const int (&choices)[N]) {
     auto it = std::find(std::begin(choices), std::end(choices), value);
     return it == std::end(choices) || ++it == std::end(choices) ? choices[0] : *it;
 }

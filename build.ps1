@@ -82,10 +82,20 @@ Invoke-Step "apply dependency patches (restoring patch-owned paths)" {
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0018-runtime-rsp-dma-rounding.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0019-runtime-developer-thread-snapshots.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0021-runtime-protected-function-replacements.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0031-runtime-receive-message-destination.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0022-runtime-swap-presentation.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0024-runtime-render-queue-memory.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0025-runtime-task-memory.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0026-runtime-graphics-fence.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0028-runtime-aligned-rsp-dma.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0029-runtime-rsp-vector-access.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0014-rt64-rdp-screen-clipping.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0015-rt64-raw-triangle-scissor.patch" },
             @{ Sub = "lib/rt64"; Patch = "patches/0016-rt64-rdp-edge-trapezoids.patch" },
-            @{ Sub = "lib/rt64"; Patch = "patches/0020-rt64-opaque-subpixel-coverage.patch" }
+            @{ Sub = "lib/rt64"; Patch = "patches/0020-rt64-opaque-subpixel-coverage.patch" },
+            @{ Sub = "lib/rt64"; Patch = "patches/0023-rt64-explicit-presentation.patch" },
+            @{ Sub = "lib/rt64"; Patch = "patches/0027-rt64-interior-triangle-batch.patch" },
+            @{ Sub = "lib/rt64"; Patch = "patches/0030-rt64-palette-membership.patch" }
         )
         # Group by submodule so each series is applied in one ordered run. The
         # helper restores the paths a series owns to the pinned submodule state

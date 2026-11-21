@@ -1,5 +1,6 @@
 #include "librecomp/rsp.hpp"
 #include "boss_dma.h"
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -55,6 +56,22 @@ int main() {
         for (unsigned i = 0; i < rounded; ++i)
             require(RSP_MEM_BU(i, 0) == uint8_t(i * 37 + 11), "short RSP DMA read");
         if (rounded < 4096) require(RSP_MEM_BU(rounded, 0) == 0xa5, "RSP DMA read exceeded rounded bounds");
+    }
+    // Compare aligned bulk copies and the unaligned fallback against the
+    // guest-byte mapping. Include the final aligned word in DMEM.
+    for (unsigned start : {4u, 5u, 6u, 7u, 4088u}) {
+        for (unsigned i = 0; i < 4096; ++i) dmem[i] = uint8_t(i * 17);
+        memory.fill(0xa5);
+        auto expected = memory;
+        for (unsigned i = 0; i < 8; ++i) expected[(0x100 + i) ^ 3] = dmem[(start + i) ^ 3];
+        dma_dmem_to_rdram(rdram, start, 0x105, 3);
+        require(memory == expected, "DMA write differs from guest byte order");
+        std::fill_n(dmem, 4096, 0x5a);
+        dma_rdram_to_dmem(rdram, start, 0x105, 3);
+        for (unsigned i = 0; i < 4096; ++i) {
+            const auto value = i >= start && i < start + 8 ? memory[(0x100 + i - start) ^ 3] : 0x5a;
+            require(RSP_MEM_BU(i, 0) == value, "DMA read differs from guest byte order");
+        }
     }
     // The WDC_BOSS_CAPTURE journal must cover exactly the bytes the runtime
     // helper writes, or a replay sees CPU data where BOSS output belongs.

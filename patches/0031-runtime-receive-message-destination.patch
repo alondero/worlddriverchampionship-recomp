@@ -1,0 +1,49 @@
+diff --git a/ultramodern/src/mesgqueue.cpp b/ultramodern/src/mesgqueue.cpp
+--- a/ultramodern/src/mesgqueue.cpp
++++ b/ultramodern/src/mesgqueue.cpp
+@@ -129,5 +129,5 @@
+ }
+ 
+-bool do_recv(RDRAM_ARG PTR(OSMesgQueue) mq_, PTR(OSMesg) msg_, bool block) {
++static bool do_recv(RDRAM_ARG PTR(OSMesgQueue) mq_, OSMesg* destination, bool block) {
+     OSMesgQueue* mq = TO_PTR(OSMesgQueue, mq_);
+     if (!block) {
+@@ -145,6 +145,6 @@
+     }
+ 
+-    if (msg_ != NULLPTR) {
+-        *TO_PTR(OSMesg, msg_) = TO_PTR(OSMesg, mq->msg)[mq->first];
++    if (destination != nullptr) {
++        *destination = TO_PTR(OSMesg, mq->msg)[mq->first];
+     }
+     
+@@ -206,5 +206,8 @@
+ 
+ extern "C" s32 osRecvMesg(RDRAM_ARG PTR(OSMesgQueue) mq_, PTR(OSMesg) msg_, s32 flags) {
+-    OSMesgQueue *mq = TO_PTR(OSMesgQueue, mq_);
++    return ultramodern_recv_mesg(PASS_RDRAM mq_, msg_ == NULLPTR ? nullptr : TO_PTR(OSMesg, msg_), flags);
++}
++
++extern "C" s32 ultramodern_recv_mesg(RDRAM_ARG PTR(OSMesgQueue) mq_, OSMesg* destination, s32 flags) {
+     
+     assert(ultramodern::is_game_thread() && "RecvMesg not allowed outside of game threads.");
+@@ -214,5 +217,5 @@
+ 
+     // Try to receive a message.
+-    bool received = do_recv(PASS_RDRAM mq_, msg_, flags == OS_MESG_BLOCK);
++    bool received = do_recv(PASS_RDRAM mq_, destination, flags == OS_MESG_BLOCK);
+     
+     // Check the queue to see if this thread should swap execution to another.
+diff --git a/ultramodern/include/ultramodern/ultra64.h b/ultramodern/include/ultramodern/ultra64.h
+--- a/ultramodern/include/ultramodern/ultra64.h
++++ b/ultramodern/include/ultramodern/ultra64.h
+@@ -278,4 +278,9 @@
+ s32 osSendMesg(RDRAM_ARG PTR(OSMesgQueue), OSMesg, s32);
+ s32 osJamMesg(RDRAM_ARG PTR(OSMesgQueue), OSMesg, s32);
++// Game thread. The caller owns destination through a blocking receive and any
++// scheduler yields. A successful dequeue stores one native message word before
++// rescheduling. nullptr discards the message. An empty nonblocking receive
++// leaves destination untouched. Queue and thread state always use RDRAM_ARG.
++s32 ultramodern_recv_mesg(RDRAM_ARG PTR(OSMesgQueue), OSMesg* destination, s32 flags);
+ s32 osRecvMesg(RDRAM_ARG PTR(OSMesgQueue), PTR(OSMesg), s32);
+ void osSetEventMesg(RDRAM_ARG OSEvent, PTR(OSMesgQueue), OSMesg);

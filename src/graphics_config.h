@@ -7,7 +7,7 @@ namespace wdc::graphics {
 struct Settings {
     int resolution = 0; // 0: automatic window integer scale; 1..8: native multiplier
     int aspect = 1; // 0: Original 4:3; 1: wider camera matching the window
-    int rate = 0; // 0: original; -1: display; 30..360: presentation target
+    double rate = 0; // 0: original; -1: display; 30..1000: presentation target
     int samples = 1; // 1, 2, 4, 8
     int filtering = 1; // nearest, linear, pixel scaling (presentation filter)
     int precision = 0; // automatic, standard, high
@@ -17,6 +17,7 @@ struct Settings {
     bool full_track_detail = false;
     int draw_distance = 1; // 1..4: far plane and bounded track-section range
     bool native_60fps = false; // Latches at the next input-worker startup.
+    bool interpolate_races = false;
     bool operator==(const Settings&) const = default;
 };
 Settings normalize(Settings settings);

@@ -1,0 +1,25 @@
+diff --git a/ultramodern/include/ultramodern/renderer_context.hpp b/ultramodern/include/ultramodern/renderer_context.hpp
+--- a/ultramodern/include/ultramodern/renderer_context.hpp
++++ b/ultramodern/include/ultramodern/renderer_context.hpp
+@@ -85,2 +85,4 @@
+                 virtual void enable_instant_present() = 0;
++                // The submitter retains task_memory through task and screen completion.
++                virtual void send_dl_from(uint8_t* task_memory, const OSTask* task) { send_dl(task); }
+                 virtual void send_dl(const OSTask* task) = 0;
+diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
+--- a/ultramodern/src/events.cpp
++++ b/ultramodern/src/events.cpp
+@@ -28,2 +28,3 @@
+ struct SpTaskAction {
++    uint8_t* task_memory;
+     OSTask task;
+@@ -399,3 +400,3 @@
+                 [[maybe_unused]] auto renderer_start = std::chrono::high_resolution_clock::now();
+-                renderer_context->send_dl(&task_action->task);
++                renderer_context->send_dl_from(task_action->task_memory, &task_action->task);
+                 [[maybe_unused]] auto renderer_end = std::chrono::high_resolution_clock::now();
+@@ -602,3 +603,3 @@
+     if (task->t.type == M_GFXTASK) {
+-        events_context.action_queue.enqueue(SpTaskAction{ *task });
++        events_context.action_queue.enqueue(SpTaskAction{ rdram, *task });
+     }

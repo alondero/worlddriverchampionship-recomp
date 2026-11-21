@@ -64,6 +64,11 @@ class BuildScriptSeriesTest(unittest.TestCase):
         # first run's changes, so every submodule gets a single series.
         self.assertEqual(len(bash_series(self.bash)), bash_call_count(self.bash))
 
+    def test_every_inventory_patch_is_applied(self) -> None:
+        files = sorted(p.name for p in (ROOT / "patches").glob("*.patch"))
+        self.assertEqual(len(files), len({name[:4] for name in files}))
+        self.assertEqual(set(files), set(PATCH_REFERENCE_RE.findall(self.powershell)))
+
     def test_every_referenced_patch_exists(self) -> None:
         referenced = set(PATCH_REFERENCE_RE.findall(self.powershell))
         referenced |= set(PATCH_REFERENCE_RE.findall(self.bash))

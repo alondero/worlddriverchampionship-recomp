@@ -110,8 +110,8 @@ the preference; it takes effect when the game next starts its input worker
 (starting a race or returning to the menus). It raises racing's sampling and
 rendering to 60 Hz together. Changing it during a race leaves that race's rate
 intact. The original intro and attract-mode demos keep their authored 30 fps
-timing, even with this option enabled. Presentation rate remains a separate
-setting and does not enable this option. See
+timing, even with this option enabled. The interpolated presentation modes
+use the original 30 Hz simulation at the next worker startup. See
 [rendering and frame rate](rendering.md#native-60-fps-option) for
 the audit, measurements and remaining validation.
 Replay/ghost streams do not store their sampling rate; recordings are not
@@ -155,15 +155,21 @@ cropping the scene. Cinematic layouts and fixed 2D artwork can still leave
 unused space. Narrow windows and Original use a fitted 4:3 view.
 Version 1 preferences, which forcibly disabled widescreen, migrate to Match
 window. An explicit Original choice in version 2 survives restarts.
-Non-original presentation targets are experimental.
-WDC currently supplies raw RDP triangles without camera matrices or persistent
-object transforms. Higher targets do not add interpolated motion and may add
-presentation work without smoother motion. Use original rate for normal play.
-Guest simulation and VI timing are unchanged. See the
-[capability review](graphics-capabilities.md) for the remaining game-specific work.
+Under **Graphics → Presentation rate**, choose **Interpolate to display
+(experimental)** to follow the detected monitor rate, or **Interpolate to
+custom (experimental)** to set a target. Press **Apply**. If Native 60 fps
+was active, start a new race so the input worker starts at 30 Hz. In supported
+single-player races the game draws the camera, cars, wheels and shadows between
+simulation samples. Split-screen and authored demos use their original draws.
+Rendering throughput depends on the scene and hardware.
+
+The older **Display** and **Custom** choices set RT64's presentation target.
+Existing settings keep their previous behavior. See the
+[rendering notes](rendering.md) for the measured differences.
 
 The overlay offers every resolution multiplier from 1x to 8x and a Custom
-presentation target from 30 to 360 Hz. Existing custom values are retained.
+presentation target from 30 to 1000 Hz. Interpolated custom rates accept up to
+three decimal places, including 59.94 and 119.88 Hz. Existing custom values are retained.
 You can also edit the file while the player is closed. Schema version 2:
 
 ```json
@@ -173,6 +179,7 @@ You can also edit the file while the player is closed. Schema version 2:
   "aspect": 1,
   "hud": 1,
   "rate": 0,
+  "interpolate_races": false,
   "samples": 1,
   "filtering": 1,
   "precision": 0,
@@ -186,7 +193,7 @@ You can also edit the file while the player is closed. Schema version 2:
 Resolution accepts 0 (auto) or 1-8; aspect accepts 0 (original) or 1 (window);
 HUD placement accepts 0 (original), 1 (clamp to 16:9), or 2 (full width).
 Older version 2 files without `hud` use the default clamp.
-rate accepts 0 (original), -1 (display), or 30-360 Hz; samples accepts
+rate accepts 0 (original), -1 (display), or 30-1000 Hz; samples accepts
 1, 2, 4, 8. Filtering accepts 0 (nearest), 1 (linear), 2 (pixel scaling);
 precision accepts 0 (auto), 1 (standard), 2 (high). Unknown enum values use
 defaults, numeric ranges are bounded, and wrong types reject the file.
