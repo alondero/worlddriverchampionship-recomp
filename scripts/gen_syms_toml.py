@@ -211,7 +211,7 @@ def main() -> int:
         f'rom_file_path = "{config["filename"]}"', "", "[patches]",
         f"stubs = {stubs_toml}", "ignored = []", "",
     ]
-    instructions = list(symbol_config.get("instructions", []))
+    instructions = symbol_config.get("instructions", [])
     # An instruction replacement may supply the translated operation at that
     # same address, including when the instruction occupies a delay slot.
     hooks = symbol_config.get("hooks", []) + [

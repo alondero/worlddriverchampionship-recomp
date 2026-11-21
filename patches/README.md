@@ -55,14 +55,14 @@ the WDC runtime demonstrates the same need.
 | `0015-rt64-raw-triangle-scissor.patch` | RT64 | All | Scale raw-triangle scissors in the same framebuffer space as their vertices. |
 | `0016-rt64-rdp-edge-trapezoids.patch` | RT64 | All | Rebuild raw RDP triangles from their H/M/L edges instead of three extrapolated corners. |
 | `0020-rt64-opaque-subpixel-coverage.patch` | RT64 | All | Bound opaque-surface coverage expansion to conceal subpixel background slivers when upscaling. |
-| `0023-rt64-explicit-presentation.patch` | RT64 | All | Submit a requested screen update even when VI and framebuffer change detection finds no changes. |
-| `0027-rt64-interior-triangle-batch.patch` | RT64 | All | Submit wholly interior raw triangle batches directly from their decoded attributes. |
-| `0030-rt64-palette-membership.patch` | RT64 | All | Collect palette membership in batches and hash consecutive used palette entries together. |
 | `0017-frontend-host-input.patch` | RecompFrontend | Desktop | Expose single-event/batch handling for the host SDL loop; handle failed or duplicate opens and disconnects, use the controller profile for binding cancellation and bound deadzone. |
 | `0018-runtime-rsp-dma-rounding.patch` | N64ModernRuntime | All | Round inclusive RSP DMA lengths to eight-byte words; prevents stale stereo frames at BOSS audio block boundaries. |
 | `0019-runtime-developer-thread-snapshots.patch` | N64ModernRuntime | All | Validate the live thread roster and remove/repair native context pointers for developer RAM checkpoints. |
 | `0021-runtime-protected-function-replacements.patch` | N64ModernRuntime | Desktop | Reject ordinary and forced replacements for host functions explicitly protected by the port. |
-| `0021-runtime-receive-message-destination.patch` | N64ModernRuntime | All | Receive a live queue message into caller-owned storage while rendering a snapshot. |
+| `0023-rt64-explicit-presentation.patch` | RT64 | All | Submit a requested screen update even when VI and framebuffer change detection finds no changes. |
+| `0027-rt64-interior-triangle-batch.patch` | RT64 | All | Submit wholly interior raw triangle batches directly from their decoded attributes. |
+| `0030-rt64-palette-membership.patch` | RT64 | All | Collect palette membership in batches and hash consecutive used palette entries together. |
+| `0031-runtime-receive-message-destination.patch` | N64ModernRuntime | All | Receive a live queue message into caller-owned storage while rendering a snapshot. |
 | `0022-runtime-swap-presentation.patch` | N64ModernRuntime | All | Queue a framebuffer swap for presentation on the graphics thread independently of VI retrace. |
 | `0024-runtime-render-queue-memory.patch` | N64ModernRuntime | All | Route message operations from a private rendering image through live scheduler queues. |
 | `0025-runtime-task-memory.patch` | N64ModernRuntime | All | Carry the submitting guest memory image with each graphics task. |
@@ -74,8 +74,8 @@ the WDC runtime demonstrates the same need.
 
 | Build path | Applied patches |
 | --- | --- |
-| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0014, 0015, 0016, 0020, 0017 (not runtime-tested) |
-| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0014, 0015, 0016, 0020, 0017 |
+| Linux | 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0031, 0022, 0024, 0025, 0026, 0028, 0029, 0014, 0015, 0016, 0020, 0023, 0027, 0030, 0017 |
+| Windows | 0005, 0004, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0018, 0019, 0021, 0031, 0022, 0024, 0025, 0026, 0028, 0029, 0014, 0015, 0016, 0020, 0023, 0027, 0030, 0017 |
 | Android | none yet |
 
 Both desktop builds compile patch 0023. Its force-present argument defaults

@@ -82,7 +82,7 @@ Invoke-Step "apply dependency patches (restoring patch-owned paths)" {
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0018-runtime-rsp-dma-rounding.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0019-runtime-developer-thread-snapshots.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0021-runtime-protected-function-replacements.patch" },
-            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0021-runtime-receive-message-destination.patch" },
+            @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0031-runtime-receive-message-destination.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0022-runtime-swap-presentation.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0024-runtime-render-queue-memory.patch" },
             @{ Sub = "lib/N64ModernRuntime"; Patch = "patches/0025-runtime-task-memory.patch" },
