@@ -1,4 +1,4 @@
-// Test-only MinGW player fixture. Record the authoritative player car after
+// Test-only MinGW player fixture. Record the authoritative race cars after
 // each 8000C6E8 physics call. Extra draws never reach that dispatcher site.
 #include "recomp.h"
 #include "savestate.h"
@@ -32,11 +32,20 @@ void compare_physics(uint8_t* rdram) {
     if (!wdc::state::restore_generation()) return;
     static FILE* out = std::fopen("physics.bin", "wb");
     static unsigned recorded = 0;
-    // USA single-car practice, game thread. The aligned u32 sample counter
-    // and sixteen raw words at car BA7F0 + 14 are copied before another tick.
+    // USA race roster, game thread. Aligned u32 words use host byte order
+    // in word-swapped RDRAM. Each car's sixteen transform words start at
+    // BA7F0 + 14, with stride 18A0. Validate the roster against 8 MiB RAM.
+    const uint32_t cars = MEM_W(0, int32_t(0x80080D90));
+    static const uint32_t roster = cars;
+    if (!out || !cars || cars > (0x800000u - 0xBA7F0u) / 0x18A0u ||
+        cars != roster) std::_Exit(7);
+    if (!recorded && std::fwrite(&cars, sizeof(cars), 1, out) != 1) std::_Exit(7);
     const uint32_t sample = MEM_W(0, int32_t(0x8007E530));
-    if (!out || std::fwrite(&sample, sizeof(sample), 1, out) != 1 ||
-        std::fwrite(rdram + 0xBA804, 64, 1, out) != 1) std::_Exit(7);
+    if (std::fwrite(&sample, sizeof(sample), 1, out) != 1) std::_Exit(7);
+    for (uint32_t car = 0; car < cars; ++car) {
+        if (std::fwrite(rdram + 0xBA804 + car * 0x18A0, 64, 1, out) != 1)
+            std::_Exit(7);
+    }
     if (++recorded == 180) {
         const int status = std::fclose(out);
         std::fflush(nullptr);

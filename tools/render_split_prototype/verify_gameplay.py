@@ -1,5 +1,6 @@
-"""Compare 180 moving player-car transforms from one checkpoint in the MinGW player."""
+"""Compare 180 samples of all race-car transforms from one checkpoint in the MinGW player."""
 import argparse
+from fractions import Fraction
 import hashlib
 import json
 import os
@@ -63,7 +64,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-build", type=Path, required=True)
     parser.add_argument("--rom", type=Path, required=True)
+    parser.add_argument("--warp", default="1:0", help="race warp used to create the shared checkpoint")
+    parser.add_argument("--rates", nargs="+", default=["90", "144"],
+                        help="saved custom rates to compare with stock, in Hz (up to three decimal places)")
     args = parser.parse_args()
+    try:
+        rates = [Fraction(value) for value in args.rates]
+    except (ValueError, ZeroDivisionError):
+        parser.error("rates must be finite decimal numbers or fractions")
+    if any(not 30 < rate <= 1000 or (rate * 1000).denominator != 1 for rate in rates):
+        parser.error("rates must be above 30 through 1000 Hz with millihertz precision")
     build, rom = args.reference_build.resolve(strict=True), args.rom.resolve(strict=True)
     if hashlib.sha256(rom.read_bytes()).hexdigest() != "e8e3734c5d2453c3a4bc940862545e2b84bdd65299e432548276fd71bccdfd97":
         raise SystemExit("Expected the USA ROM")
@@ -72,12 +82,15 @@ def main():
     exe = build_fixture(build, out)
     slot = out / "practice.wstate"
     reference = None
-    for name, rate in (("seed", 0), ("stock", 0), ("stock-repeat", 0), ("90hz", 90), ("144hz", 144)):
+    trials = [("seed", 0), ("stock", 0), ("stock-repeat", 0)]
+    trials.extend((f"rate-{index}-{rate.numerator}-{rate.denominator}", rate)
+                  for index, rate in enumerate(rates))
+    for name, rate in trials:
         run = out / name
         config = run / "build/user-data"
         config.mkdir(parents=True)
-        (config / "graphics.json").write_text(json.dumps(dict(version=2, rate=rate, interpolate_races=bool(rate))))
-        env = dict(os.environ, WDC_RENDER_STATS="1", WDC_WARP="1:0")
+        (config / "graphics.json").write_text(json.dumps(dict(version=2, rate=float(rate), interpolate_races=bool(rate))))
+        env = dict(os.environ, WDC_RENDER_STATS="1", WDC_WARP=args.warp)
         if name == "seed":
             env["WDC_DIAGNOSTIC"] = "1"
         else:
@@ -99,11 +112,19 @@ def main():
             continue
         if result.returncode or "loaded 8388608 bytes" not in trace:
             raise SystemExit(f"Checkpoint or simulation trace failed: {log}")
-        if rate and (f"display target {rate}/1 Hz" not in trace or not any(
+        if rate and (f"display target {rate.numerator}/{rate.denominator} Hz" not in trace or not any(
                 int(frames) > 60 for frames in re.findall(r"RT64 accepted (\d+) explicit and 0 retrace frames", trace))):
             raise SystemExit(f"No interpolated race draw in {log}")
         data = (run / "physics.bin").read_bytes()
-        rows = list(struct.iter_unpack("<17I", data))
+        if len(data) < 4:
+            raise SystemExit(f"Missing roster header: {log}")
+        cars, = struct.unpack_from("<I", data)
+        if not 0 < cars <= (0x800000 - 0xBA7F0) // 0x18A0:
+            raise SystemExit(f"Invalid roster size: {log}")
+        record = struct.Struct(f"<{1 + 16 * cars}I")
+        if len(data) != 4 + 180 * record.size:
+            raise SystemExit(f"Incomplete roster trace: {log}")
+        rows = list(record.iter_unpack(data[4:]))
         if len(rows) != 180 or any(b[0] != (a[0] + 1) % 2**32 for a, b in zip(rows, rows[1:])):
             raise SystemExit(f"Incomplete sample sequence: {log}")
         if len({row[13:16] for row in rows}) < 2:
@@ -113,7 +134,7 @@ def main():
         if rows != reference:
             first = next(i for i, row in enumerate(rows) if row != reference[i])
             raise SystemExit(f"{name} differs at simulation sample {rows[first][0]}: {log}")
-        print(f"{name}: samples {rows[0][0]}..{rows[-1][0]}, SHA-256 {hashlib.sha256(data).hexdigest()}", flush=True)
+        print(f"{name}: {cars} cars, samples {rows[0][0]}..{rows[-1][0]}, SHA-256 {hashlib.sha256(data).hexdigest()}", flush=True)
 
 
 if __name__ == "__main__":

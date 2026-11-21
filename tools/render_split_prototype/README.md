@@ -60,14 +60,22 @@ With a Windows MinGW/Ninja player build and its compile database, run:
 python -B tools/render_split_prototype/verify_gameplay.py --reference-build build --rom "World Driver Championship (USA).z64"
 ```
 
-The fixture creates a practice checkpoint and boots four trials with the same
+The fixture creates a practice checkpoint and boots comparison trials with the same
 pending-task layout. After restoring, each trial uses the configured player
 draw path. Port zero holds the accelerator with neutral steering. A private
 copy of the translated dispatcher records the simulation sample number and all
-16 words of the player-car transform immediately after each physics call at
-`8000C6E8`. The fixture requires movement, 180 consecutive samples, and exact
+16 words of every car transform immediately after each physics call at
+`8000C6E8`. The fixture requires player movement, a stable roster, 180 consecutive samples, and exact
 agreement between two stock trials and the 90 and 144 Hz trials. Each trial's
 log and binary trace remain in the printed temporary directory.
+Use `--rates 59.94 90 144` to compare additional saved custom targets.
+Each requested rate must have millihertz precision and uses the same checkpoint
+and stock controls. The trace comparison checks simulation trajectory.
+Presentation cadence requires the separate display measurements below.
+Use `--warp 2:0:arcade:3` to create an eight-car arcade checkpoint.
+The binary trace begins with a little-endian u32 car count, followed by
+180 records containing a u32 sample counter and sixteen raw u32 transform
+words per car in roster order.
 
 ## Display measurements
 
