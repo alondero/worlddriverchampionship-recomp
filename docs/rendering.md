@@ -185,9 +185,13 @@ holds racing at exactly 30.0 fps.
 
 `0x8007EDBC` is not a limiter. It is set to 3 by the frame submitter and
 decremented by `func_80025350`, and its only reader (`0x8000A3C4`) gates a
-call to `func_800245AC` with the framebuffer's width and height. The swap waits and input divider operate independently of this word.
+call to `func_800245AC` with the framebuffer's width and height. The swap waits
+and input divider operate independently of this word.
 
 ### Native 60 fps option
+
+Acceptance has not passed. One Windows run reached about 22.8 fps,
+with conditions recorded in the [archived measurements][render-measurements].
 
 Enhancements exposes `native_60fps`, saved in `graphics.json`, default false.
 The implementation is `src/game_framerate.cpp`; all instruction boundaries
@@ -307,20 +311,24 @@ reverse mismatch. A rate flag for just the most recent race would not cover
 loaded recordings or the separate ghost stream at `0x8007E028`. The setting
 remains experimental. The settings UI warns about player recordings and
 ghosts. Original intro/demo scenes use their authored 30 Hz rate.
-[Replay compatibility](https://github.com/alondero/worlddriverchampionship-recomp/issues/54)
+Replay compatibility is tracked in
+[issue #54](https://github.com/alondero/worlddriverchampionship-recomp/issues/54).
 
 To check game speed, multiply the change in consumed-sample counter
 `0x8007E530` by the active fixed step and divide by elapsed wall time.
-A ratio of 0.892 means the sample clock advanced 0.892 seconds per wall
-second. This calculation includes every sample drained between draws.
+For example, a hypothetical ratio of 0.9 would mean 0.9 seconds of sample
+time per wall second. This calculation includes every sample drained between
+draws.
 
 The integrator test compares all 16 state components under a controlled
 decaying force over one simulated second at each rate. Fixed-input lap and
-collision equivalence across tracks still require scenario tests.
-[Fixed-input comparisons](https://github.com/alondero/worlddriverchampionship-recomp/issues/53)
+collision equivalence across tracks still require scenario tests. AI, HUD,
+camera and demo paths also require checks for sample-count dependence.
+The remaining work is tracked under
+[fixed-input comparisons](https://github.com/alondero/worlddriverchampionship-recomp/issues/53)
 and [scenario infrastructure](https://github.com/alondero/worlddriverchampionship-recomp/issues/49).
 
-## Where the frame time goes
+## Measuring frame time
 
 Offline BOSS replay isolates the cost of translated RSP code. Use
 `wdc_boss_bench --profile` with `tools/boss/profile_report.py` on a captured
@@ -329,7 +337,7 @@ delays. Time the RDP sink separately from its enclosing task to avoid double
 counting. Compare thread CPU time with elapsed time to identify time spent
 off CPU. Game-thread waits can overlap graphics work.
 
-The [archived race-clock, wait and task measurements](https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7052973775)
+The [archived race-clock, wait and task measurements][render-measurements]
 include the conditions and limitations of the original comparisons.
 
 ## Why RT64 alone repeats raw triangles
@@ -346,6 +354,9 @@ own rate only repeats frames. The player-facing note is in
 ## Routes past 30 fps
 
 ### Native 60 fps
+
+Acceptance has not passed. One Windows run reached about 22.8 fps,
+with conditions recorded in the [archived measurements][render-measurements].
 
 Let the game itself produce a frame every VI. Simulation steps are tied to
 input samples, and the race loop drains them before drawing. Three things
@@ -427,10 +438,13 @@ records mode coverage, timing and known limits.
   complete split-screen draw?
 - How do task cost and SIG0 timing vary across menus, tracks and split-screen?
 
-[Native frame-rate verification](https://github.com/alondero/worlddriverchampionship-recomp/issues/42)
+Native frame-rate verification is tracked in
+[issue #42](https://github.com/alondero/worlddriverchampionship-recomp/issues/42).
 
 ## Keeping this page current
 
 Keep ROM addresses, reproducible commands and verified mechanisms here.
 Record individual runs, machine settings and research chronology in the
 issue or pull request, and link the evidence from the relevant section.
+
+[render-measurements]: https://github.com/alondero/worlddriverchampionship-recomp/pull/61#issuecomment-7052973775

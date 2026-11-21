@@ -83,7 +83,7 @@ event registration lives in `src/boss_events.cpp`, so the replay tool links
 the device without the guest OS.
 
 For offline task profiling, live timing methods and historical measurements,
-see [Rendering and frame rate](../rendering.md#where-the-frame-time-goes).
+see [Rendering and frame rate](../rendering.md#measuring-frame-time).
 
 ### Quick Race car preview reload
 
