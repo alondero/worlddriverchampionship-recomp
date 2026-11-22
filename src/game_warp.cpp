@@ -9,6 +9,7 @@ extern "C" {
 void func_80068AA8(uint8_t*, recomp_context*);
 void func_8000A200(uint8_t*, recomp_context*);
 void func_8000A218(uint8_t*, recomp_context*);
+void wdc_quick_race_laps(uint8_t*, recomp_context*);
 }
 
 namespace {
@@ -186,9 +187,13 @@ extern "C" void wdc_warp_load(uint8_t* rdram, recomp_context* ctx) {
     loading = 0;
     awaiting_race = true;
 }
-// Before 80068B88 stores the course's lap count. Override before the native
-// arcade AI profile selection, which itself depends on laps. Register only.
-extern "C" void wdc_warp_laps(uint8_t*, recomp_context* ctx) {
+// Before 80068B88 stores the course lap count. The saved Quick Race count
+// may replace v0 for Arcade and Time Attack. An explicit warp count then
+// replaces v0, so that launch uses the warp count. Register only; the
+// following store writes the winning count. The Arcade profile column is
+// chosen later, at 80068DA4.
+extern "C" void wdc_warp_laps(uint8_t* rdram, recomp_context* ctx) {
+    wdc_quick_race_laps(rdram, ctx);
     if (ctx && building_laps) ctx->r2 = building_laps;
 }
 

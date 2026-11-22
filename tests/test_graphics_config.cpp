@@ -39,6 +39,7 @@ int main() {
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
         s.hud = 2;
         s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 4;
+        s.quick_race_laps = 15;
         s.native_60fps = true;
         s.interpolate_races = true;
         require(apply(s), "save failed");
@@ -67,6 +68,7 @@ int main() {
                                    "{\"rate\":18446744073709551615}", "{\"samples\":2.5}",
                                    "{\"full_car_detail\":1}", "{\"full_track_detail\":\"true\"}",
                                    "{\"draw_distance\":2.5}", "{\"hud\":\"Full\"}",
+                                   "{\"quick_race_laps\":1.5}", "{\"quick_race_laps\":\"10\"}",
                                    "{\"native_60fps\":1}", "{\"native_60fps\":\"true\"}"}) {
             { std::ofstream out(path); out << invalid; }
             load(path);
@@ -87,6 +89,21 @@ int main() {
             load(path);
             require(snapshot().draw_distance == (distance < 1 ? 1 : distance > 4 ? 4 : distance),
                 "distance not bounded/persisted");
+        }
+        for (int laps : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20}) {
+            { std::ofstream out(path); out << "{\"version\":2,\"resolution\":3,\"quick_race_laps\":" << laps << "}"; }
+            load(path);
+            require(snapshot().quick_race_laps == laps && snapshot().resolution == 3,
+                "supported lap count not loaded");
+            require(apply(snapshot()), "supported lap count not saved");
+            load(path);
+            require(snapshot().quick_race_laps == laps, "supported lap count not persisted");
+        }
+        for (int laps : {-1, 11, 12, 13, 14, 16, 17, 18, 19, 21}) {
+            { std::ofstream out(path); out << "{\"version\":2,\"resolution\":3,\"quick_race_laps\":" << laps << "}"; }
+            load(path);
+            require(snapshot().quick_race_laps == 0 && snapshot().resolution == 3,
+                "unsupported lap count was kept");
         }
         require(apply(bounded), "restoring bounds fixture failed");
         // A failed save still publishes a whole snapshot and leaves old data intact.

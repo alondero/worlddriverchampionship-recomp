@@ -2,6 +2,7 @@
 #include "render_cadence.h"
 #include "game_visibility.h"
 #include "game_framerate.h"
+#include "game_laps.h"
 #include "json/json.hpp"
 #include <algorithm>
 #include <cmath>
@@ -35,6 +36,7 @@ Settings normalize(Settings s) {
     if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8) s.samples = 1;
     if (s.filtering < 0 || s.filtering > 2) s.filtering = 1;
     if (s.precision < 0 || s.precision > 2) s.precision = 0;
+    if (!laps::supported(s.quick_race_laps)) s.quick_race_laps = 0;
     return s;
 }
 Settings snapshot() {
@@ -74,6 +76,7 @@ void load(const std::filesystem::path& path) {
             s.native_60fps = j.value("native_60fps", false);
             s.interpolate_races = j.value("interpolate_races", false);
             integer("draw_distance", s.draw_distance);
+            integer("quick_race_laps", s.quick_race_laps);
             // Version 1 forcibly disabled widescreen, including saved 0 values.
             // Upgrade those preferences to the working camera-aware default.
             if (j.value("version", 1) == 1) s.aspect = 1;
@@ -89,12 +92,14 @@ void load(const std::filesystem::path& path) {
     current = s;
     visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
     framerate::configure(s.native_60fps && !s.interpolate_races);
+    laps::configure(s.quick_race_laps);
 }
 bool apply(Settings s) {
     s = normalize(s);
     { std::lock_guard lock(mutex); current = s; }
     visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
     framerate::configure(s.native_60fps && !s.interpolate_races);
+    laps::configure(s.quick_race_laps);
     try {
         if (file.empty()) throw std::runtime_error("settings path is not configured");
         nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
@@ -102,7 +107,8 @@ bool apply(Settings s) {
             {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen},
             {"hud", s.hud},
             {"full_car_detail", s.full_car_detail}, {"full_track_detail", s.full_track_detail},
-            {"draw_distance", s.draw_distance}, {"native_60fps", s.native_60fps},
+            {"draw_distance", s.draw_distance}, {"quick_race_laps", s.quick_race_laps},
+            {"native_60fps", s.native_60fps},
             {"interpolate_races", s.interpolate_races}};
         // Keep whole rates readable by older players with an integer-only setting.
         j["rate"] = s.rate == std::trunc(s.rate) ? nlohmann::json(int(s.rate)) : nlohmann::json(s.rate);

@@ -16,6 +16,8 @@ The cross-platform equivalent is environment variable
 vehicle IDs **0..34**. Omitted fields select model 0, `practice`, and the native
 lap count. Modes are `practice`, `time-attack`, and `arcade`; only Arcade accepts
 an explicit lap count, 2..5, or 0 for the course default. Practice is unlimited.
+An Arcade lap count in the warp text is the count for that launch, including
+when Quick Race laps is set to another count.
 Invalid values stop startup with a diagnostic instead of silently changing the
 requested test. Remove the variable to restore ordinary startup.
 
@@ -118,6 +120,16 @@ Replay/ghost streams do not store their sampling rate; recordings are not
 compatible across the two rates. Keep this option off for normal play until
 the experimental acceptance work is complete.
 
+**Quick Race laps** sets the length of the next Arcade Race or Time Attack.
+**Course default** keeps each track's own count and is the default. The choice
+is used when that race is set up. Practice stays unlimited. The course select
+screen can still show the track's original count. The lap counter during the
+race follows the chosen count. When the race is longer than five laps, the
+results list still shows five rows. A first-place Arcade finish awards that
+car's original prize for a chosen count of 2, 3, 4, or 5 laps. Any other count
+awards nothing. The prize follows the car and the chosen count. A Time Attack
+ghost recorded for a different number of laps has not been checked.
+
 The window title shows requested settings. Graphics options are reached through
 the RT64 frontend overlay, which is the port's only menu and opens in both
 windowed and fullscreen modes on Windows, Linux and Android. The shortcuts
@@ -186,7 +198,8 @@ You can also edit the file while the player is closed. Schema version 2:
   "fullscreen": false,
   "full_car_detail": false,
   "full_track_detail": false,
-  "draw_distance": 1
+  "draw_distance": 1,
+  "quick_race_laps": 0
 }
 ```
 
@@ -195,19 +208,24 @@ HUD placement accepts 0 (original), 1 (clamp to 16:9), or 2 (full width).
 Older version 2 files without `hud` use the default clamp.
 rate accepts 0 (original), -1 (display), or 30-1000 Hz; samples accepts
 1, 2, 4, 8. Filtering accepts 0 (nearest), 1 (linear), 2 (pixel scaling);
-precision accepts 0 (auto), 1 (standard), 2 (high). Unknown enum values use
+precision accepts 0 (auto), 1 (standard), 2 (high). `quick_race_laps` accepts
+0 (course default), 1 through 10, 15, or 20. Any other number becomes 0.
+A missing key uses 0. Unknown enum values use
 defaults, numeric ranges are bounded, and wrong types reject the file.
 
-The **Enhancements** tab offers **Full car detail**, **Full track detail**, and
-**Draw distance** (Original, 2x, 3x, 4x). These follow Apply/Discard and take
-effect live. Full car detail retains the nearest detail level and prevents the
+The **Enhancements** tab offers **Quick Race laps**, **Full car detail**, **Full track detail**, and
+**Draw distance** (Original, 2x, 3x, 4x). All four follow Apply/Discard.
+Quick Race laps is used when the next Arcade Race or Time Attack is set up.
+The detail and distance options take effect live. Full car detail retains the nearest detail level and prevents the
 lowest-detail row from hiding distant cars. Full track detail retains the
 nearest detail level for visible sections. Draw distance extends the far plane
 and the number of sections shown ahead/behind within the game's 64-section
 limit. Use Full car detail together with increased distance for distant cars.
 Some scenery transitions remain; fog is unchanged. Higher settings can reduce
 performance. The defaults preserve original detail and distance. F9 also resets
-these options. See [the ROM evidence](reference/visibility.md).
+these options, including Quick Race laps back to Course default. See [the ROM evidence](reference/visibility.md).
+Quick Race laps is described above. Its prize rows are the original car and
+lap-count table in [Quick Race rewards](research/original-track-unlocks.md).
 
 Development environment variables should be prefixed `WDC_`, documented here,
 and bounded or disabled by default. Temporary probes must state their removal
