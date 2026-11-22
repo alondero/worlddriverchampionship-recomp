@@ -168,7 +168,7 @@ text = "{ extern void wdc_render_race_draw(uint8_t*, recomp_context*); wdc_rende
 [[hooks]]
 func = "func_800369E0"
 before_vram = 0x800369E0
-text = "{ extern void wdc_warp_load(uint8_t*, recomp_context*); wdc_warp_load(rdram, ctx); }"
+text = "{ extern void wdc_warp_load(uint8_t*, recomp_context*); extern void wdc_apply_custom_grid(uint8_t*); wdc_warp_load(rdram, ctx); wdc_apply_custom_grid(rdram); }"
 
 [[hooks]]
 func = "func_80068AA8"
