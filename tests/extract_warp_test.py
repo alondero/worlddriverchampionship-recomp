@@ -31,6 +31,9 @@ for name, hook in {"func_8004E950": "wdc_warp_menu", "func_8000C560": "wdc_warp_
                    "func_800369E0": "wdc_warp_load"}.items():
     if hook not in functions.get(name, ""):
         raise SystemExit(f"Missing {hook} in {name}")
+loader = functions["func_800369E0"]
+if not re.search(r"wdc_warp_load\(rdram, ctx\);\s*wdc_apply_custom_grid\(rdram\);", loader):
+    raise SystemExit("The loader must apply the custom grid after the warp setup")
 boot = functions["func_8003BC50"]
 if boot.count("wdc_warp_boot_pending()") != 3:
     raise SystemExit("Missing boot warp hooks")

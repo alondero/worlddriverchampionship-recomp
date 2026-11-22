@@ -37,6 +37,22 @@ current native count and the saved guest count, modulo 2^32. This preserves
 RAM clock-anchor ages without rebasing the host timer thread or guessing a
 list of game clock fields. It does not restore native register-held samples.
 
+## Custom starting grid
+
+The entry to `func_800369E0` applies the settings after the warp hook and
+before loading vehicles. The USA config at `80092360` holds u32 participant
+counts at offsets `00` and `04`, model IDs at `08..27`, palette IDs at
+`28..47`, zero-based starting positions at `48..67`, and mode at `84`.
+The loader passes the model and palette words to `func_80031640` at
+`80037034..40`. Mode 3 (Arcade Race) assigns positions in reverse slot order
+at `80068D24..38`. Mode 2 (Championship) fills them from entrant order at
+`80067FE4..80067FF0`.
+
+The dispatcher writes the selected model and palette words for active CPU
+slots. Native setup or retry restores the starting grid before each load, so
+the loader can apply the latest choices to the live config. The hook leaves
+the cached setup at `80099B54` available for retries.
+
 ## Input-worker startup ordering
 
 The USA initializer `func_8002CB0C` creates thread 9 (entry `0x8002C500`,

@@ -2,7 +2,12 @@
 #include "frontend_settings.h"
 #include "render_cadence.h"
 #include "game_cheats.h"
+#include "game_grid.h"
 #include "recompui/config.h"
+#include "elements/ui_container.h"
+#include "elements/ui_label.h"
+#include "elements/ui_scroll_container.h"
+#include "elements/ui_select.h"
 
 namespace wdc::ui {
 namespace {
@@ -11,6 +16,105 @@ constexpr const char* graphics_id = "graphics";
 constexpr const char* enhancements_id = "enhancements";
 constexpr const char* driving_id = "driving-controls";
 constexpr const char* cheats_id = "cheats";
+constexpr const char* grid_id = "custom-grid";
+constexpr int grid_tab_index = 6;
+constexpr const char* original_key = "original";
+recomp::config::Config grid_config("Custom Grid", grid_id);
+std::array<recompui::Select*, wdc::grid::opponent_count * 2> grid_selects{};
+
+std::string grid_option_id(size_t opponent, const char* field) {
+    return "opponent_" + std::to_string(opponent + 1) + "_" + field;
+}
+
+void publish_grid() {
+    wdc::grid::Grid grid;
+    for (size_t i = 0; i < grid.size(); ++i) {
+        grid[i].car = std::get<uint32_t>(grid_config.get_option_value(grid_option_id(i, "car")));
+        grid[i].color = std::get<uint32_t>(grid_config.get_option_value(grid_option_id(i, "color")));
+    }
+    wdc::grid::set(grid);
+}
+
+recompui::Select* create_grid_select(recompui::ContextId context, recompui::Element* row,
+                                    const std::string& id, float width) {
+    using namespace recompui;
+    const auto& choices = std::get<recomp::config::ConfigOptionEnum>(grid_config.get_option(id).variant);
+    const auto selected = std::get<uint32_t>(grid_config.get_option_value(id));
+    std::vector<SelectOption> options;
+    for (const auto& choice : choices.options) options.emplace_back(choice.name, choice.key);
+    auto* cell = context.create_element<Container>(row, FlexDirection::Column, JustifyContent::FlexStart);
+    cell->set_width(width);
+    auto* select = context.create_element<Select>(cell, options, choices.find_option_from_value(selected)->key);
+    select->add_change_callback([id](SelectOption& option, int) {
+        const auto& choices = std::get<recomp::config::ConfigOptionEnum>(grid_config.get_option(id).variant);
+        const auto selection = choices.find_option_from_string(option.value)->value;
+        if (std::get<uint32_t>(grid_config.get_option_value(id)) != selection) {
+            grid_config.set_option_value(id, selection);
+            grid_config.save_config();
+        }
+    });
+    return select;
+}
+
+void create_grid_page(recompui::ContextId context, recompui::Element* parent) {
+    using namespace recompui;
+    auto* scroll = context.create_element<ScrollContainer>(parent, ScrollDirection::Vertical);
+    scroll->set_padding(20);
+    auto* content = context.create_element<Container>(scroll, FlexDirection::Column, JustifyContent::FlexStart);
+    content->set_gap(12);
+    content->set_as_navigation_container(NavigationType::Vertical);
+    context.create_element<Label>(content,
+        "Set cars and colors from the front of the grid, skipping the player. "
+        "Start or restart an Arcade Race or Championship race to load your choices.",
+        LabelStyle::Normal);
+
+    for (size_t i = 0; i < wdc::grid::opponent_count; ++i) {
+        auto* row = context.create_element<Container>(content, FlexDirection::Row, JustifyContent::FlexStart);
+        row->set_gap(16);
+        row->set_align_items(AlignItems::Center);
+        row->set_as_navigation_container(NavigationType::Horizontal);
+        auto* label = context.create_element<Label>(row, "Opponent " + std::to_string(i + 1), LabelStyle::Normal);
+        label->set_width(105);
+        grid_selects[i * 2] = create_grid_select(context, row, grid_option_id(i, "car"), 260);
+        grid_selects[i * 2 + 1] = create_grid_select(context, row, grid_option_id(i, "color"), 185);
+    }
+}
+
+void create_grid_settings() {
+    // USA ROM model order (tools/rom/warp_catalog.py), with shorter menu labels.
+    constexpr std::array<const char*, wdc::grid::car_count> names{
+        "Rage 512 Evo C", "Rage 512 Evo B", "Rage 512 Evo A",
+        "Reeds R12 Manta C", "Reeds R12 Manta B", "Reeds R12 Manta A",
+        "Stallion SR C", "Stallion SR B", "Stallion SR A",
+        "Elan Swift TT C", "Elan Swift TT B", "Elan Swift TT A",
+        "Furio LS B", "Furio LS A", "Ram Venom GTR B", "Ram Venom GTR A", "EXR Challenger A",
+        "Hayai N70 C", "Hayai N70 B", "Hayai N70 A",
+        "Lance Scorcher GT C", "Lance Scorcher GT B", "Lance Scorcher GT A",
+        "Elan Scorpion C", "Elan Scorpion B", "Elan Scorpion A",
+        "McCloud F-Type B", "McCloud F-Type A", "Panzer Batraye GT B", "Panzer Batraye GT A",
+        "Rage 996 GTR B", "Rage 996 GTR A", "M-K Phantom R A", "EXR Mystic A", "Falcon Interceptor A",
+    };
+    std::vector<recomp::config::ConfigOptionEnumOption> cars{{wdc::grid::original, original_key, "Game-selected car"}};
+    for (uint32_t i = 0; i < names.size(); ++i) cars.emplace_back(i, std::to_string(i), names[i]);
+    const std::vector<recomp::config::ConfigOptionEnumOption> colors{
+        {wdc::grid::original, original_key, "Game-selected color"},
+        {0u, "0", "Default color"}, {1u, "1", "Color 2"}, {2u, "2", "Color 3"},
+    };
+    for (size_t i = 0; i < wdc::grid::opponent_count; ++i) {
+        grid_config.add_enum_option(grid_option_id(i, "car"), "Car", "", cars, wdc::grid::original);
+        grid_config.add_enum_option(grid_option_id(i, "color"), "Color", "", colors, wdc::grid::original);
+    }
+    grid_config.set_load_callback(publish_grid);
+    grid_config.set_save_callback(publish_grid);
+    grid_config.load_config([](nlohmann::json& json) {
+        if (!json.is_object()) json = nlohmann::json::object();
+        return true;
+    });
+    recompui::config::create_tab("Custom Grid", grid_id, create_grid_page,
+        [](recompui::TabCloseContext) { return true; },
+        [](recompui::TabCloseContext) { grid_selects.fill(nullptr); });
+}
+
 void sync(recomp::config::Config& page, const char* id, ConfigValueVariant value) {
     const auto index = page.get_config_schema().options_by_id.at(id);
     // A host shortcut can update a clean field while another field is staged.
@@ -74,6 +178,15 @@ void refresh_settings() {
     seed_cheats();
 }
 void stage_defaults(int tab_index) {
+    if (tab_index == grid_tab_index) {
+        const auto& options = grid_config.get_config_schema().options;
+        for (size_t i = 0; i < options.size(); ++i) {
+            grid_config.set_option_value(options[i].id, wdc::grid::original);
+            if (grid_selects[i]) grid_selects[i]->set_selection(original_key);
+        }
+        grid_config.save_config();
+        return;
+    }
     // Graphics, Enhancements, Driving, General, Controls, Cheats. Controls keeps
     // its own reset. The pinned frontend exposes the index, not the config ID.
     if (tab_index < 0 || tab_index == 4 || tab_index > 5) return;
@@ -166,5 +279,6 @@ void create_settings() {
                     wdc::cheats::set_enabled(cheat, std::get<bool>(value));
             });
     }
+    create_grid_settings();
 }
 }

@@ -1,5 +1,18 @@
 # Configuration
 
+## Custom Grid
+
+Open the settings overlay with **Esc** or **F1** and select **Custom Grid**.
+Choose a car and color for each CPU opponent in single-player Quick Race
+(Arcade Race) and Championship. Opponent 1 is the CPU car nearest the front
+of the starting grid. The list skips your car and uses only as many opponents
+as the race has.
+
+**Game-selected car** and **Game-selected color** independently keep the
+original choices. **Default color** selects the first palette for that model.
+Choices are saved as you make them. Start or restart a race to load them.
+**Restore defaults** returns every opponent to the game's selection.
+
 ## Developer race warps
 
 Launch directly into any of the 58 course layouts with any of the 35 vehicles,

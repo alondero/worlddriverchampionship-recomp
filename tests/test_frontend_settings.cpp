@@ -1,9 +1,11 @@
 #include "game_cheats.h"
+#include "game_grid.h"
 #include "graphics_config.h"
 #include "ui/frontend_settings.h"
 #include "ui/overlay_state.h"
 #include "recompui/config.h"
 #include "librecomp/game.hpp"
+#include "recomp.h"
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -40,8 +42,36 @@ int main() {
         { std::ofstream file(dir / "cheats.json");
           file << R"({"unlock_tracks":true,"unlock_gt1_cars":true,"unlock_gt2_cars":true})"; }
         const auto stale_cheats = read(dir / "cheats.json");
+        { std::ofstream file(dir / "custom-grid.json");
+          file << R"({"opponent_1_car":"34","opponent_1_color":"2","opponent_2_car":"35","opponent_2_color":3})"; }
         wdc::ui::create_settings();
         recompui::config::finalize();
+        {
+            std::vector<uint8_t> memory(8 * 1024 * 1024);
+            auto* rdram = memory.data();
+            constexpr int32_t config = int32_t(0x80092360);
+            MEM_W(0, config) = 1;
+            MEM_W(4, config) = 3;
+            MEM_W(0x84, config) = 3;
+            MEM_W(0x48, config) = 2;
+            MEM_W(0x4C, config) = 1;
+            MEM_W(0x50, config) = 0;
+            MEM_W(0x0C, config) = 11;
+            MEM_W(0x2C, config) = 1;
+            wdc_apply_custom_grid(rdram);
+            require(MEM_W(0x10, config) == 34 && MEM_W(0x30, config) == 2,
+                "saved custom grid was not published");
+            require(MEM_W(0x0C, config) == 11 && MEM_W(0x2C, config) == 1,
+                "invalid custom grid choices did not fall back to game selection");
+            wdc::ui::stage_defaults(6);
+            MEM_W(0x10, config) = 12;
+            MEM_W(0x30, config) = 1;
+            wdc_apply_custom_grid(rdram);
+            require(MEM_W(0x10, config) == 12 && MEM_W(0x30, config) == 1,
+                "restoring defaults did not clear the custom grid");
+            require(read(dir / "custom-grid.json").find("\"original\"") != std::string::npos,
+                "restoring defaults did not save the custom grid");
+        }
         auto& cheats = recompui::config::get_config("cheats");
         require(cheats.external_storage && !cheats.requires_confirmation,
             "cheats must be immediate and session-only");
