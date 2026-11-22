@@ -103,7 +103,7 @@ if(WDC_FUNC_C_SOURCES OR WDC_FUNC_CXX_SOURCES)
         "${N64MR}/N64Recomp/include")
 endif()
 
-set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_projection.cpp src/game_hud.cpp src/game_visibility.cpp src/game_framerate.cpp src/game_audio.cpp src/game_driving.cpp src/game_cheats.cpp src/game_cheat_camera.cpp src/game_warp.cpp
+set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_projection.cpp src/game_hud.cpp src/game_visibility.cpp src/game_framerate.cpp src/game_audio.cpp src/game_driving.cpp src/game_cheats.cpp src/game_cheat_camera.cpp src/game_warp.cpp src/game_laps.cpp
     src/game_render.cpp src/display_rate_draw.cpp src/render_statistics.cpp src/extra_race_draw.cpp src/race_swap.cpp src/race_frame_schedule.cpp src/race_poses.cpp src/race_render_sample.cpp src/render_bank.cpp src/boss_rsp.cpp src/boss_events.cpp src/boss_capture.cpp
     src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp src/rumble.cpp src/savestate.cpp)
 # The recovered instructions round each operation before the next one uses it.

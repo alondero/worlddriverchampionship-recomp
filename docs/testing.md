@@ -144,7 +144,11 @@ one-shot application and queued repeats. Only guest debug printing is stubbed;
 scene cleanup and rendering are outside this fixture. The extractor requires
 all production hooks. A separate execution of the translated boot control flow
 stubs presentation/input/SDK boundaries and asserts that pending warps retain
-the Pak scan and skip interactive dialogs. These are setup checks, not completed races.
+the Pak scan and skip interactive dialogs. These are setup checks, not completed races. `wdc_quick_race_laps` checks the
+saved count: course default leaves the looked-up count, Arcade and Time Attack
+replace it for 1 through 10, 15, and 20, Practice is left unchanged, an explicit
+warp count wins, and the Arcade profile register uses the game's 2, 3, 4, or 5
+lap column.
 
 With the frontend enabled, `wdc_input` exercises SDL virtual-gamepad hotplug,
 native profile evaluation/remapping/persistence, analog axes and overlay input

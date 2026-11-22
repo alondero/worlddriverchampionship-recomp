@@ -175,6 +175,12 @@ func = "func_80068AA8"
 before_vram = 0x80068B88
 text = "{ extern void wdc_warp_laps(uint8_t*, recomp_context*); wdc_warp_laps(rdram, ctx); }"
 
+# Arcade profile switch. Register only: the stored lap count stays the race length.
+[[hooks]]
+func = "func_80068AA8"
+before_vram = 0x80068DA4
+text = "{ extern void wdc_quick_race_profile(uint8_t*, recomp_context*); wdc_quick_race_profile(rdram, ctx); }"
+
 # These USA function entries own sound-list publication/consumption, voice
 # parameters and BOSS audio build/retirement. Only the game thread drawing a
 # private snapshot skips them. The audio builder returns its incoming cursor.

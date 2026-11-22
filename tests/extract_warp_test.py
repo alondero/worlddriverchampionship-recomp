@@ -9,19 +9,22 @@ functions = {m[1]: m[0] for path in sorted(source.glob("*.c"))
                                   path.read_text(encoding="utf-8"), re.S)}
 pending = ["func_80068AA8", "func_8000A200", "func_8000A218"]
 natives = {"wdc_warp_laps", "func_8006F63C"}  # Only guest debug printing is stubbed.
+# Older generated trees omit the profile hook. A tree that calls it links the port.
+optional_natives = {"wdc_quick_race_profile"}
 seen = set()
 while pending:
     name = pending.pop()
     if name in seen:
         continue
     seen.add(name)
-    if name in natives:
+    if name in natives or name in optional_natives:
         continue
     if name not in functions or "LOOKUP_FUNC" in functions[name]:
         raise SystemExit(f"Warp test requires a direct translated body for {name}")
     pending.extend(re.findall(r"\b(\w+)\(rdram, ctx\);", functions[name]))
 if not natives <= seen:
     raise SystemExit(f"Warp test requires generated hooks: {natives - seen}")
+natives |= optional_natives & seen
 # Check the live transition hooks too: the fixture calls these boundaries
 # directly, so missing production wiring must fail extraction.
 for name, hook in {"func_8004E950": "wdc_warp_menu", "func_8000C560": "wdc_warp_race",

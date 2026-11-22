@@ -42,6 +42,7 @@ void apply_enhancements() {
     settings.full_car_detail = std::get<bool>(page.get_option_value("full_car_detail"));
     settings.full_track_detail = std::get<bool>(page.get_option_value("full_track_detail"));
     settings.draw_distance = int(std::get<uint32_t>(page.get_option_value("draw_distance")));
+    settings.quick_race_laps = int(std::get<uint32_t>(page.get_option_value("quick_race_laps")));
     settings.native_60fps = std::get<bool>(page.get_option_value("native_60fps"));
     request_settings(settings);
 }
@@ -68,6 +69,7 @@ void refresh_settings() {
     sync(enhancements, "full_car_detail", s.full_car_detail);
     sync(enhancements, "full_track_detail", s.full_track_detail);
     sync(enhancements, "draw_distance", uint32_t(s.draw_distance));
+    sync(enhancements, "quick_race_laps", uint32_t(s.quick_race_laps));
     sync(enhancements, "native_60fps", s.native_60fps);
     seed_cheats();
 }
@@ -139,6 +141,11 @@ void create_settings() {
         "Keeps the nearest car detail level at all visible distances. Draw distance still limits visibility. May reduce performance.", false);
     enhancements.add_bool_option("full_track_detail", "Full track detail",
         "Keeps the nearest track detail level for submitted sections. Does not load extra sections; use Draw distance to show more scenery. May reduce performance.", false);
+    enhancements.add_enum_option("quick_race_laps", "Quick Race laps",
+        "Sets the length of the next Arcade Race or Time Attack. Course default keeps each track's own count. The choice is used when that race is set up. Practice stays unlimited. The course select screen can still show the track's original count. The lap counter during the race follows the chosen count. A first-place Arcade finish awards that car's original prize for 2, 3, 4, or 5 laps, and any other count awards nothing. A Time Attack ghost recorded for a different length has not been checked. Results lists show five rows when the race is longer than five laps.",
+        {{0, "Course default"}, {1, "1 lap"}, {2, "2 laps"}, {3, "3 laps"}, {4, "4 laps"},
+         {5, "5 laps"}, {6, "6 laps"}, {7, "7 laps"}, {8, "8 laps"}, {9, "9 laps"},
+         {10, "10 laps"}, {15, "15 laps"}, {20, "20 laps"}}, 0u);
     enhancements.add_enum_option("draw_distance", "Draw distance",
         "Extends the far plane and the number of track sections shown ahead and behind, up to the game's safe section limit. Combine with Full car detail to retain distant cars. Some scenery transitions may remain. Higher values cost performance.",
         {{1, "Original"}, {2, "2x"}, {3, "3x"}, {4, "4x"}}, 1u);

@@ -39,6 +39,18 @@ This is a statement about the inspected handler and its setup/caller, not a
 claim that every menu exposes every possible lap count on every course.
 The separate Championship event rewards follow their own progression rules.
 
+The port can store another count at `0x800923E0` before the next Arcade Race
+or Time Attack is built. The reward handler is unchanged. A stored count of
+2, 3, 4, or 5 selects that car's column for the chosen count. Any other stored
+count leaves the award at zero. Opponent profiles for 1, 6, 7, 8, 9, 10, 15,
+and 20 laps use the same columns as the game's own lap menu (`func_80068398`):
+1 shares the 2-lap profile, and those longer counts share the 5-lap profile.
+The stored count stays the race length. Counts 11 through 14 and 16 through 19
+are absent from that menu and use the empty profile. This is static instruction
+evidence, not a completed race. A Time Attack ghost recorded at a different
+length has not been checked. The bridge is
+[`src/game_laps.cpp`](../../src/game_laps.cpp).
+
 ## Tracks left after Championship
 
 The 20 Championship event definitions at `0x80095C90` cover 50 distinct
@@ -189,7 +201,7 @@ python -B tools/rom/inspect_code.py 0x80068D90 --size 0x110 --rom "World Driver 
 | `0x80066368..0x800663E0` | Model id from config+8 (`0x80092368`) indexes 18-byte records; lap counts 2/3/4/5 select reward halfwords at `0x800962C0`, `0x800962C4`, `0x800962C8`, `0x800962CC`, plus model*18. |
 | `0x800663EC..0x80066428` | A negative reward calls `func_800673D0` with its negation, sets car byte 1 through `func_800565F8`, and calls `func_80066B70`; a positive reward calls `func_800673FC` and sets track byte 5 through `func_8005700C`. Zero does neither. |
 | `0x800673FC..0x8006740C` | Track record is career+`0xE08`+track-id*8. |
-| `0x80068B70..0x80068B88` | Quick Race setup calls `func_80057024` for the selected course and places its default lap count in config+`0x80`. |
+| `0x80068B70..0x80068B88` | Quick Race setup calls `func_80057024` for the selected course and places its default lap count in config+`0x80`. The port may replace that count for Arcade and Time Attack before the store. |
 | `0x80057024..0x80057044` | Course default lap count is the word at `0x8009653C`+track-id*80. |
 | `0x80068DD8..0x80068E8C` | The preceding halfwords (`0x800962BE`, `0x800962C2`, `0x800962C6`, `0x800962CA`, plus model*18) populate config+`0x94`/`0x98` with an event/profile selector split by quotient and remainder 6. These are not a condition comparing the selected race course. |
 | `0x8000506C..0x800050C8` | Config+`0x94`/`0x98` selects a 0x120-byte race/AI setup record in ROM; it does not replace the selected course in config+`0x70`/`0x74`. |
