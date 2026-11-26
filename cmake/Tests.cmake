@@ -33,10 +33,10 @@ if(BUILD_TESTING)
     add_test(NAME wdc_savestate_automatic COMMAND wdc_savestate_tests automatic)
     add_test(NAME wdc_savestate_automatic_load COMMAND wdc_savestate_tests load)
     add_test(NAME wdc_savestate_invalid_config COMMAND wdc_savestate_tests invalid)
-    add_executable(wdc_warp_tests tests/test_warp.cpp src/game_warp.cpp src/game_laps.cpp)
+    add_executable(wdc_warp_tests tests/test_warp.cpp tests/test_warp_selection_stubs.cpp src/game_warp.cpp src/game_laps.cpp)
     target_include_directories(wdc_warp_tests PRIVATE src "${N64MR}/N64Recomp/include")
     add_test(NAME wdc_warp COMMAND wdc_warp_tests)
-    add_executable(wdc_quick_race_laps_tests tests/test_game_laps.cpp src/game_laps.cpp src/game_warp.cpp)
+    add_executable(wdc_quick_race_laps_tests tests/test_game_laps.cpp tests/test_warp_selection_stubs.cpp src/game_laps.cpp src/game_warp.cpp)
     target_include_directories(wdc_quick_race_laps_tests PRIVATE src "${N64MR}/N64Recomp/include")
     add_test(NAME wdc_quick_race_laps COMMAND wdc_quick_race_laps_tests)
     add_executable(wdc_grid_tests tests/test_grid.cpp src/game_grid.cpp)
@@ -157,6 +157,18 @@ if(BUILD_TESTING)
             add_test(NAME wdc_warp_rom COMMAND wdc_warp_rom_tests
                 "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
             set_tests_properties(wdc_warp_rom PROPERTIES TIMEOUT 30)
+            add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/warp_exit_test_funcs.c"
+                COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_warp_exit_test.py"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/RecompiledFuncs" "${CMAKE_CURRENT_BINARY_DIR}/warp_exit_test_funcs.c"
+                DEPENDS tests/extract_warp_exit_test.py ${WDC_FUNC_C_SOURCES}
+                VERBATIM)
+            add_executable(wdc_warp_exit_rom_tests tests/test_warp_exit_rom.cpp src/game_warp.cpp src/game_laps.cpp
+                "${CMAKE_CURRENT_BINARY_DIR}/warp_exit_test_funcs.c")
+            target_include_directories(wdc_warp_exit_rom_tests PRIVATE src "${N64MR}/N64Recomp/include")
+            target_compile_options(wdc_warp_exit_rom_tests PRIVATE -fno-strict-aliasing)
+            add_test(NAME wdc_warp_exit_rom COMMAND wdc_warp_exit_rom_tests
+                "${CMAKE_CURRENT_SOURCE_DIR}/World Driver Championship (USA).z64")
+            set_tests_properties(wdc_warp_exit_rom PROPERTIES TIMEOUT 30)
 
             add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/audio_voice_test_funcs.c"
                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/extract_audio_voice_test.py"

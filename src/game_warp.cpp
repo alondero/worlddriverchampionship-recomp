@@ -9,6 +9,9 @@ extern "C" {
 void func_80068AA8(uint8_t*, recomp_context*);
 void func_8000A200(uint8_t*, recomp_context*);
 void func_8000A218(uint8_t*, recomp_context*);
+void func_800691B0(uint8_t*, recomp_context*);
+void func_800563FC(uint8_t*, recomp_context*);
+void func_80066C7C(uint8_t*, recomp_context*);
 void wdc_quick_race_laps(uint8_t*, recomp_context*);
 }
 
@@ -27,6 +30,8 @@ int building_laps = 0;
 bool awaiting_race = false;
 constexpr int32_t config = int32_t(0x80092360);
 constexpr int32_t career = int32_t(0x80097D00);
+constexpr int32_t quick_race_list = int32_t(0x800DF92C);
+constexpr int32_t quick_race_record = int32_t(0x800DF930);
 bool valid(wdc::warp::Request r) {
     using wdc::warp::Mode;
     return r.track >= 1 && r.track <= 58 && r.car >= 0 && r.car <= 34 &&
@@ -155,6 +160,30 @@ extern "C" void wdc_warp_race(uint8_t* rdram, recomp_context* ctx) {
 // Loading is owned until this hook completes; requests arriving meanwhile
 // remain pending. Native constructor uses a copy of the live guest context,
 // preserving every register and the valid guest stack. No memory is retained.
+// The Quick Race menu owns the volatile selected-car pair at 800DF92C/930.
+// Native setup publishes the career-backed list and selected record as a
+// pair (notably 8005A4D0..8005A508); renderers assume both are already valid.
+// Reproduce that lifecycle while the warp still borrows the requested
+// career model, without changing the persistent career record. Both words are
+// aligned u32 KSEG0 values in the same game-thread store. The native helpers
+// are leaf accessors and run on a copied context, so hook registers are
+// unchanged. A malformed career/list remains a native data error rather than
+// being hidden here.
+void publish_quick_race_selection(uint8_t* rdram, const recomp_context& ctx) {
+    recomp_context call;
+    wdc::copy_guest_context(call, ctx);
+    call.r4 = career;
+    func_800691B0(rdram, &call);
+    const gpr record = call.r2;
+    MEM_W(0, quick_race_record) = int32_t(record);
+    call.r4 = int32_t(record);
+    func_800563FC(rdram, &call);
+    call.r4 = career;
+    call.r5 = call.r2;
+    func_80066C7C(rdram, &call);
+    MEM_W(0, quick_race_list) = int32_t(call.r2);
+}
+
 extern "C" void wdc_warp_load(uint8_t* rdram, recomp_context* ctx) {
     if (!rdram || !ctx || !loading) return;
     const auto r = unpack(loading);
@@ -174,6 +203,7 @@ extern "C" void wdc_warp_load(uint8_t* rdram, recomp_context* ctx) {
     building_laps = r.laps;
     func_80068AA8(rdram, &call);
     building_laps = 0;
+    publish_quick_race_selection(rdram, *ctx);
     for (int i = 0; i < 3; ++i) MEM_W(offsets[i], career) = saved[i];
     MEM_B(0x10FC, career) = mirror;
     MEM_B(0x1075, career) = ghost;

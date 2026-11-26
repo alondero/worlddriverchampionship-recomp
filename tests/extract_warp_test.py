@@ -7,7 +7,8 @@ source, destination = map(Path, sys.argv[1:3])
 functions = {m[1]: m[0] for path in sorted(source.glob("*.c"))
              for m in re.finditer(r"RECOMP_FUNC void (\w+)\(.*?(?=RECOMP_FUNC void |\Z)",
                                   path.read_text(encoding="utf-8"), re.S)}
-pending = ["func_80068AA8", "func_8000A200", "func_8000A218"]
+pending = ["func_80068AA8", "func_8000A200", "func_8000A218",
+             "func_800691B0", "func_800563FC", "func_80066C7C"]
 natives = {"wdc_warp_laps", "func_8006F63C"}  # Only guest debug printing is stubbed.
 # Older generated trees omit the profile hook. A tree that calls it links the port.
 optional_natives = {"wdc_quick_race_profile"}
