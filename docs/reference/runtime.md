@@ -88,6 +88,16 @@ the 3D intro. The focused startup regression, 17 existing CTest entries, nine
 Python tests, documentation, repository-hygiene and whitespace checks passed.
 This was an incremental player rebuild, not a clean build or full-race test.
 
+## Extended-memory visibility reservation
+
+The enhanced track-section list occupies `0x80FF2880..0x80FF387F` in extended
+emulated memory. This is outside the original 8 MiB game memory and below
+`0x81000000`, where mod memory and the librecomp heap start. Runtime patch
+data is copied from `0x80801000` upward; patch data large enough to reach the
+reservation is unsupported. The generated ROM instruction patches in
+`rom-symbols.toml` are the only supported writers/readers of that list. See
+[distance and detail](visibility.md).
+
 ## BOSS graphics task cost
 
 `src/boss_rsp.cpp` runs each BOSS graphics task synchronously on the graphics

@@ -11,7 +11,6 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
-
 namespace {
 std::jmp_buf packet_boundary;
 constexpr gpr car = int32_t(0x80400000), scene = int32_t(0x80402000);
@@ -71,7 +70,7 @@ int main(int argc, char** argv) {
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
     assert(argc == 2);
-    std::vector<uint8_t> memory(8 * 1024 * 1024);
+    std::vector<uint8_t> memory(32 * 1024 * 1024);
     auto* rdram = memory.data();
     std::ifstream rom(argv[1], std::ios::binary);
     assert(rom);
@@ -158,6 +157,16 @@ int main(int argc, char** argv) {
     assert(draw(201) == 0);
     assert(draw(800) == 0);
     assert(draw(801) == -1);
+    // A distance of 8 must remain distance, not overlap either detail bit.
+    wdc::visibility::configure(false, false, 8);
+    assert(draw(100) == 7);
+    wdc::visibility::configure(true, false, 8);
+    assert(draw(1600) == 0);
+    assert(draw(1601) == -1);
+    wdc::visibility::configure(true, false, 16);
+    assert(draw(12800) == 0);
+    assert(draw(12801) == -1);
+    wdc::visibility::configure(true, false, 4);
     assert(draw(-2) == -1);
     assert(draw(10, 16) == -1);
     assert(draw(10, -16) == -1);
@@ -173,14 +182,19 @@ int main(int argc, char** argv) {
     assert(draw(40) == -1);
     assert(draw(10) == 0);
     MEM_W(0, int32_t(0x8007E920)) = 1;
-    MEM_W(0, int32_t(0x800B2880)) = int32_t(sections);
+    MEM_W(0, int32_t(0x80FF2880)) = int32_t(sections);
+    assert(draw(40) == 0);
+    // The car consumer follows the expanded host list beyond the original
+    // 64-entry guest storage.
+    MEM_W(0, int32_t(0x8007E920)) = 65;
+    MEM_W(0, int32_t(0x80FF2880)) = 0;
+    MEM_W(64 * 4, int32_t(0x80FF2880)) = int32_t(sections);
     assert(draw(40) == 0);
     MEM_W(0x3C4, car) = 0;
     wdc::visibility::configure(false, false, 1);
     assert(draw(40) == 6);
     assert(draw(201) == -1);
     std::cout << "Enhanced: full car detail, extended distance, retained near/side rejection, live restoration\n";
-
     // Actual track depth->detail bucket and mode-remapping routines.
     boundary_kind = 1;
     put(camera, 0, 1);
@@ -210,8 +224,7 @@ int main(int argc, char** argv) {
     MEM_W(0, int32_t(0x8007E580)) = 0;
     MEM_W(0x7C, scene) = 0;
     assert(track_detail(288) == 0x4000);
-
-    // Real linked-list producer: 64 slots followed immediately by matrix data.
+    // Real linked-list producer, relocated to host-reserved extended memory.
     boundary_kind = 2;
     MEM_W(0, int32_t(0x8007DF70)) = 1;
     MEM_W(0, int32_t(0x8007E574)) = 0;
@@ -237,20 +250,35 @@ int main(int argc, char** argv) {
         if (setjmp(packet_boundary) == 0) { func_8002343C(rdram, &ctx); std::abort(); }
         assert(MEM_W(0, int32_t(0x800B2980)) == 0x12345678);
         const int count = MEM_W(0, int32_t(0x8007E920));
-        assert(count > 0 && count <= 64);
+        assert(count > 0 && count <= 1024);
         for (int i = 0; i < count; ++i) for (int j = i + 1; j < count; ++j)
-            assert(MEM_W(i * 4, int32_t(0x800B2880)) != MEM_W(j * 4, int32_t(0x800B2880)));
+            assert(MEM_W(i * 4, int32_t(0x80FF2880)) != MEM_W(j * 4, int32_t(0x80FF2880)));
         return count;
     };
-    ring(128, 8, 8);
+    ring(256, 8, 8);
     assert(track_list(1) == 17);
     assert(track_list(2) == 33);
-    assert(track_list(4) == 64);
+    assert(track_list(4) == 65);
+    assert(track_list(8) == 129);
+    assert(track_list(16) == 256);
+    ring(1100, 8, 8);
+    assert(track_list(16) == 1024); // bounded safety cap, no write past the reservation
+    ring(256, 8, 8);
     assert(track_list(1) == 17);
+    ring(32, 0, 8);
+    assert(track_list(1) == 9); // byte-sized authored counts keep independent directions
+    ring(32, 8, 0);
+    assert(track_list(1) == 9);
     ring(20, 8, 8);
-    assert(track_list(4) == 20); // wrap without repeated sections
-    ring(128, 8, 8);
+    assert(track_list(16) == 20); // wrap without repeated sections
+    ring(20, 0, 0);
+    assert(track_list(16) == 20); // Unlimited follows valid links even when authored counts are zero
+    ring(256, 8, 8);
     MEM_W(0, sections + 8 * 0x40) = 0; // invalid extension, original list valid
     assert(track_list(2) == 25);
-    std::cout << "Track: original/detail override, mode remaps, bounded list expansion, wrap and invalid extension\n";
+    // Distance 8 alone must not enable the full track detail bit.
+    boundary_kind = 1;
+    wdc::visibility::configure(false, false, 8);
+    assert(track_detail(288) == 0x4000);
+    std::cout << "Track: original/detail override, mode remaps, expanded list relocation, wrap and invalid extension\n";
 }

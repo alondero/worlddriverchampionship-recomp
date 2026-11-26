@@ -15,7 +15,7 @@ struct Settings {
     int hud = 1; // 0: original; 1: clamp edge travel to 16:9; 2: full width
     bool full_car_detail = false;
     bool full_track_detail = false;
-    int draw_distance = 1; // 1..4: far plane and bounded track-section range
+    int draw_distance = 1; // 1..8: far plane/section scale; 16: bounded Unlimited mode
     int quick_race_laps = 0; // 0: course default; else 1..10, 15, or 20. Next Arcade or Time Attack.
     bool native_60fps = false; // Latches at the next input-worker startup.
     bool interpolate_races = false;

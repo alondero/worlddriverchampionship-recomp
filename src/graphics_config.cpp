@@ -23,7 +23,8 @@ Settings current;
 std::filesystem::path file;
 }
 Settings normalize(Settings s) {
-    s.draw_distance = std::clamp(s.draw_distance, 1, 4);
+    if (s.draw_distance != visibility::unlimited_draw_distance)
+        s.draw_distance = std::clamp(s.draw_distance, 1, 8);
     s.resolution = std::clamp(s.resolution, 0, 8);
     if (s.aspect < 0 || s.aspect > 1) s.aspect = 1;
     if (s.hud < 0 || s.hud > 2) s.hud = 1;

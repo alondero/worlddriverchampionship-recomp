@@ -146,7 +146,7 @@ publishes aspect and distance atomically. The game samples each once at
 aspect selection and far-plane construction respectively.
 Enhanced aspect falls back to ROM aspect times output scale for logical
 dimensions outside 1..4096. Invalid host window dimensions reset the width
-scale to 1, and host distance settings clamp to 1..4.
+scale to 1, and host distance settings clamp to 1..8, with 16 selecting bounded Unlimited.
 
 | ROM call order | Inputs and effects |
 | --- | --- |

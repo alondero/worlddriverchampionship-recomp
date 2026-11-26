@@ -54,6 +54,73 @@ def load_force_stubs() -> list[str]:
     ]
 
 
+
+def visibility_list_patches(
+    rom: bytes, functions: list[tuple[str, int, int]], entry: int, section_rom: int,
+    original_address: int, replacement_address: int, original_size: int = 0x100,
+) -> list[dict]:
+    """Measure simple LUI/%LO references to the visible-section list.
+
+    The replacement deliberately keeps the original low 16 bits. That makes
+    each reviewed relocation a one-instruction LUI high-half patch; the low
+    half may participate in either full-pointer arithmetic or a memory base.
+    Unsupported shapes fail generation instead of silently leaving a mixed
+    original/expanded list implementation.
+    """
+    if (original_address & 0xffff) != (replacement_address & 0xffff):
+        raise ValueError("visibility list relocation must preserve the low 16 bits")
+    original_hi = ((original_address + 0x8000) >> 16) & 0xffff
+    replacement_hi = ((replacement_address + 0x8000) >> 16) & 0xffff
+    lo = original_address & 0xffff
+    lo_end = lo + original_size
+    if lo_end > 0x10000:
+        raise ValueError("original visibility list range must not cross a 64 KiB boundary")
+    immediate_ops = {0x08, 0x09, 0x0c, 0x0d, 0x0e}  # addi/addiu/andi/ori/xori
+    memory_ops = {0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,
+                  0x28, 0x29, 0x2a, 0x2b, 0x2e, 0x31, 0x35, 0x39, 0x3d}
+
+    def uses_base(word: int, reg: int) -> bool:
+        op = word >> 26
+        rs = (word >> 21) & 31
+        return rs == reg and (op in immediate_ops or op in memory_ops)
+
+    patches: list[dict] = []
+    required = {"func_8002343C", "func_800218F0"}
+    for name, vram, size in functions:
+        if name not in required:
+            continue
+        required.remove(name)
+        start = section_rom + vram - entry
+        end = start + size
+        if start < 0 or end > len(rom) or start % 4 or size % 4:
+            raise ValueError(f"visibility list function range is invalid for {name}")
+        found = 0
+        for offset in range(start, end - 4, 4):
+            word = struct.unpack_from(">I", rom, offset)[0]
+            if word >> 26 != 0x0f or (word & 0xffff) != original_hi:
+                continue
+            reg = (word >> 16) & 31
+            next_word = struct.unpack_from(">I", rom, offset + 4)[0]
+            if not lo <= (next_word & 0xffff) < lo_end:
+                continue
+            if not uses_base(next_word, reg):
+                site = vram + offset - start
+                raise ValueError(f"unsupported visibility list reference shape at {site:#x}")
+            site = vram + offset - start
+            patches.append({
+                "func": name,
+                "vram": site,
+                "expected": word,
+                "value": (word & 0xffff0000) | replacement_hi,
+            })
+            found += 1
+        if not found:
+            raise ValueError(f"no measured visibility list reference in {name}")
+    if required:
+        raise ValueError(f"missing visibility list function: {sorted(required)[0]}")
+    return patches
+
+
 def link_register_hooks(
     rom: bytes, targets: list[int], functions: list[tuple[str, int, int]],
     code_start: int, code_end: int, mapping_delta: int,
@@ -211,7 +278,13 @@ def main() -> int:
         f'rom_file_path = "{config["filename"]}"', "", "[patches]",
         f"stubs = {stubs_toml}", "ignored = []", "",
     ]
-    instructions = symbol_config.get("instructions", [])
+    instructions = list(symbol_config.get("instructions", []))
+    visibility = symbol_config.get("visibility", {})
+    if visibility:
+        instructions.extend(visibility_list_patches(
+            rom, functions, entry, section_rom,
+            visibility["list_address"], visibility["expanded_list_address"],
+            visibility.get("original_list_bytes", 0x100)))
     # An instruction replacement may supply the translated operation at that
     # same address, including when the instruction occupies a delay slot.
     hooks = symbol_config.get("hooks", []) + [

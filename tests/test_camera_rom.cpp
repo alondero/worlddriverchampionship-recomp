@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
     wdc::visibility::configure(false, false, 1);
     for (const auto [distance, expected] : {std::pair{100.0f, 40}, std::pair{400.0f, 10},
                                           std::pair{1200.0f, 3}}) {
-        for (int scale : {1, 2, 3, 4, 1}) {
+        for (int scale : {1, 2, 3, 4, 8, 16, 1}) {
             wdc::visibility::configure(false, false, scale);
             run_camera(320, 240, distance);
             assert(MEM_HU(0, int32_t(0x8007ED64)) == expected);
