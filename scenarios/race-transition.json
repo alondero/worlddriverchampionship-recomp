@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "name": "race-transition",
+  "warp": "1:0:practice",
+  "warp_at": "540:2:0:arcade:3",
+  "start": "race",
+  "max_vis": 1800,
+  "input": [
+    {"polls": 440}
+  ],
+  "settings": {
+    "graphics.json": {"version": 2, "rate": 90, "interpolate_races": true}
+  },
+  "expect": {
+    "min_graphics_tasks": 100,
+    "min_presentations": 100,
+    "races": [
+      {"course": 1, "layout": 0, "car": 0, "mode": 8, "min_samples": 60},
+      {"course": 1, "layout": 1, "car": 0, "mode": 3, "laps": 3, "min_samples": 60}
+    ],
+    "log_contains": [
+      "[wdc:warp] loading track=1 car=0 mode=8",
+      "[wdc:warp] loading track=2 car=0 mode=3 laps=3",
+      "display target 90/1 Hz"
+    ]
+  }
+}

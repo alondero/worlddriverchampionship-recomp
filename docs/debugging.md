@@ -18,6 +18,10 @@ Record stable findings in `docs/reference/rom.md` with a short method and a
 quick re-verification command. Keep unresolved theories in the issue or pull
 request instead of turning them into permanent comments.
 
+Use the [runtime scenario runner](runtime-verification.md) to reproduce a
+driving or scene transition issue in a fresh profile and retain the input,
+player log and measured result together.
+
 ## Development save states
 
 F7 saves a RAM checkpoint; F8 restores it. The default slot is

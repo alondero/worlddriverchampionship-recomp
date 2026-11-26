@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "name": "practice-drive",
+  "warp": "1:0:practice",
+  "start": "race",
+  "max_vis": 1400,
+  "input": [
+    {"polls": 150},
+    {"polls": 100, "buttons": ["A"]},
+    {"polls": 20}
+  ],
+  "expect": {
+    "min_graphics_tasks": 60,
+    "min_presentations": 60,
+    "races": [{"course": 1, "layout": 0, "car": 0, "mode": 8, "min_samples": 100, "min_displacement": 10}],
+    "log_contains": ["[wdc:warp] loading track=1 car=0 mode=8"]
+  }
+}
