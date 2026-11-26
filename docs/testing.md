@@ -81,7 +81,10 @@ null argument from `8006A64C`; the caller loaded the selected record from
 list/record pair that native menu setup owns. A bounded Windows/D3D12 run at
 Original rate warped into a three-lap Hawaii Arcade race, paused, chose Exit
 Arcade Race, confirmed Yes, returned to the Arcade menu, selected Start Race,
-and reached the restarted race without crashing.
+and reached the restarted race without crashing. The same bounded exit and
+restart sequence also passed with interpolation enabled at a 90 Hz custom
+presentation target; the window title reported `Interpolated 90 Hz`, the Arcade
+menu remained usable after confirmation, and the restarted race reached lap one.
 
 In settled live race windows, SDL accepted roughly 44,000 PCM frames every
 two seconds at 22 kHz. One 90 Hz restart rebuffered during the loader and
