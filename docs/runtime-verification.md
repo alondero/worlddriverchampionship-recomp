@@ -15,10 +15,13 @@ profile, drives controller 1, and checks the game's reported outcome.
    python -B tools/run_game_scenario.py scenarios/practice-drive.json
    python -B tools/run_game_scenario.py scenarios/menu-to-practice.json
    python -B tools/run_game_scenario.py scenarios/race-transition.json
+   python -B tools/run_game_scenario.py scenarios/track10-draw-unlimited.json
    ```
 
    Practice Drive waits at the start, holds A, releases it, and asserts that
-   the Hawaii practice race simulates and the player moves. Menu to Practice
+   the Hawaii practice race simulates and the player moves. Track 10 Draw
+   Unlimited exercises the bounded Unlimited draw-distance regression route.
+   Menu to Practice
    drives a normal boot, car selection, and the Quick Race menus into Hawaii
    Practice Laps. Race Transition enters a second layout in Arcade mode and
    observes the 90 Hz presentation target. Use `--rom PATH` for a local dump
@@ -64,6 +67,14 @@ that would fail if the intended behavior were missing.
 - `min_samples` asserts simulation advancement during a race visit.
   `min_displacement` asserts peak displacement from its first
   observed position, in guest world units, for a single human player.
+  `min_peak_visibility_list_count` asserts the largest visible-section list
+  count observed during the visit. `min_peak_visibility_filled_slots` asserts
+  the largest number of entries still nonzero after the ROM's frustum culling.
+  `min_frame_arena_gap` asserts the smallest observed byte gap between the
+  race frame arena's ascending command cursor and descending matrix/packet
+  cursor. `min_secondary_frame_arena_gap` does the same for the secondary
+  packet arena. These observations are one frame behind the renderer and are
+  intended for draw-distance regression scenarios.
   `min_menu_ticks`, `min_graphics_tasks` and `min_presentations` cover the
   whole run. Presentations count admissions to RT64. Use the presentation
   audit for timing and inspect captures for pixel correctness.

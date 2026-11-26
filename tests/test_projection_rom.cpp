@@ -240,7 +240,26 @@ void compare(const Bank& initial, Bank& reference, Bank& candidate, const recomp
     for (unsigned callee = 0; callee < expected.size(); ++callee) assert(expected[callee].callee == callee);
     if (const auto diff = std::mismatch(expected.begin(), expected.end(), actual.begin(), actual.end());
         diff.first != expected.end() || diff.second != actual.end()) {
-        std::cerr << "Call trace differs at call " << diff.first - expected.begin() << '\n';
+        const auto index = diff.first - expected.begin();
+        std::cerr << "Call trace differs at call " << index << std::endl;
+        if (diff.first != expected.end() && diff.second != actual.end()) {
+            const auto& want = *diff.first;
+            const auto& got_call = *diff.second;
+            std::cerr << "args want";
+            for (const auto arg : want.arguments) std::cerr << ' ' << std::hex << arg;
+            std::cerr << " got";
+            for (const auto arg : got_call.arguments) std::cerr << ' ' << std::hex << arg;
+            std::cerr << std::endl;
+            auto dump = [](const char* label, const std::vector<uint8_t>& bytes) {
+                std::cerr << label;
+                for (const auto byte : bytes) std::cerr << std::hex << unsigned(byte) << ' ';
+            std::cerr << std::endl;
+            };
+            dump("want input ", want.input);
+            dump("got input ", got_call.input);
+            dump("want output ", want.output);
+            dump("got output ", got_call.output);
+        }
         std::abort();
     }
     check_context(ref, got);
@@ -386,9 +405,11 @@ int main(int argc, char** argv) {
         for (int mode = 0; mode < 9; ++mode) {
             const gpr descriptor = descriptor_table + mode * 0x74;
             MEM_W(0, active_display) = int32_t(descriptor);
-            for (int distance_setting : {1, 2, 3, 4, 1, 0, 5}) {
+            for (int distance_setting : {1, 2, 3, 4, 8, 16, 1, 0, 5}) {
                 wdc::visibility::configure(false, false, distance_setting);
-                reference_distance_scale = float(std::clamp(distance_setting, 1, 4));
+                reference_distance_scale = distance_setting == 16
+                    ? wdc::visibility::unlimited_draw_distance_scale
+                    : float(std::clamp(distance_setting, 1, 8));
                 compare_viewport(float(MEM_W(0, descriptor)), float(MEM_W(4, descriptor)), 400, enhanced);
             }
         }
@@ -399,6 +420,7 @@ int main(int argc, char** argv) {
     wdc::camera::set_output_size(2560, 1080);
     reference_width_scale = float(2560) / float(1080) / (4.0f / 3.0f);
     wdc::visibility::configure(false, false, 4);
+    reference_distance_scale = 4;
     for (int layout = 0; layout < 8; ++layout)
         for (int variant = 0; variant < 4; ++variant)
             for (int players = 0; players < 3; ++players) {

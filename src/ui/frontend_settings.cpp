@@ -260,8 +260,9 @@ void create_settings() {
          {5, "5 laps"}, {6, "6 laps"}, {7, "7 laps"}, {8, "8 laps"}, {9, "9 laps"},
          {10, "10 laps"}, {15, "15 laps"}, {20, "20 laps"}}, 0u);
     enhancements.add_enum_option("draw_distance", "Draw distance",
-        "Extends the far plane and the number of track sections shown ahead and behind, up to the game's safe section limit. Combine with Full car detail to retain distant cars. Some scenery transitions may remain. Higher values cost performance.",
-        {{1, "Original"}, {2, "2x"}, {3, "3x"}, {4, "4x"}}, 1u);
+        "Extends the far plane and the number of track sections shown ahead and behind. Unlimited submits every reachable track section up to a bounded safety cap and uses a very large finite far plane; expect a high performance cost and possible depth artifacts. Combine with Full car detail to retain distant cars. Fog and authored scenery transitions may remain.",
+        {{1, "Original"}, {2, "2x"}, {3, "3x"}, {4, "4x"}, {5, "5x"}, {6, "6x"},
+         {7, "7x"}, {8, "8x"}, {16, "Unlimited"}}, 1u);
     enhancements.set_load_callback(refresh_settings);
     enhancements.set_save_callback(apply_enhancements);
     create_driving_settings();

@@ -12,10 +12,15 @@ bool node_valid(uint32_t address) {
     return address >= 0x80000400u && address <= 0x80800000u - 0x24 && !(address & 3);
 }
 }
-float wdc::visibility::distance_scale() { return float(settings() & 7); }
+float wdc::visibility::distance_scale() {
+    const unsigned distance = settings() & 0xffu;
+    return distance == wdc::visibility::unlimited_draw_distance
+        ? wdc::visibility::unlimited_draw_distance_scale : float(distance);
+}
 void wdc::visibility::configure(bool full_cars, bool full_track, int distance) {
-    policy.store(unsigned(std::clamp(distance, 1, 4)) |
-        (full_cars ? 8u : 0u) | (full_track ? 16u : 0u), std::memory_order_relaxed);
+    if (distance != wdc::visibility::unlimited_draw_distance) distance = std::clamp(distance, 1, 8);
+    policy.store(unsigned(distance) |
+        (full_cars ? 0x100u : 0u) | (full_track ? 0x200u : 0u), std::memory_order_relaxed);
 }
 
 // USA func_800108B4, before 800108D0: t7 is the car-list loop bound.
@@ -40,6 +45,23 @@ extern "C" void wdc_menu_car_visibility(uint8_t* rdram, recomp_context* ctx) {
     if (page == 0 || page == 44) ctx->r15 = 0;
 }
 
+// USA func_80025378 entry, before its frame-arena allocations. a0 is the
+// primary ascending/descending race arena byte size; 0x40000 is the normal
+// race allocation and 0x60000 the larger alternate race allocation.
+// The menu's 0x38000 allocation is unchanged. The hook runs on the game
+// thread during scene setup, before the simple descending heap allocator
+// reserves the block.
+// It only rewrites the register size for enhanced draw distances; ownership,
+// alignment, lifetime, and the original heap remain with the ROM. Doubling
+// this bounded first-8-MiB block keeps BOSS-visible commands in memory its
+// 24-bit DMA path can address. If the setting changes after loading, the
+// existing allocation is intentionally retained until the next scene setup.
+extern "C" void wdc_frame_arena_size(uint8_t*, recomp_context* ctx) {
+    if ((settings() & 0xffu) == 1) return;
+    const uint32_t size = uint32_t(ctx->r4);
+    if (size == 0x40000u || size == 0x60000u) ctx->r4 = size * 2;
+}
+
 extern "C" void wdc_car_distance(uint8_t*, recomp_context* ctx) {
     // 800219F0: f8 is far threshold, f0 remains actual camera depth.
     ctx->f8.fl *= wdc::visibility::distance_scale();
@@ -47,36 +69,38 @@ extern "C" void wdc_car_distance(uint8_t*, recomp_context* ctx) {
 extern "C" void wdc_car_detail(uint8_t*, recomp_context* ctx) {
     // 80021BE8: compare the next detail threshold against projected size.
     // Only the comparison operand changes; car+9B0 (size/fade) is preserved.
-    if (settings() & 8) ctx->f6.fl = std::numeric_limits<float>::infinity();
+    if (settings() & 0x100u) ctx->f6.fl = std::numeric_limits<float>::infinity();
 }
 extern "C" void wdc_track_detail(uint8_t*, recomp_context* ctx) {
     // 80023244: v0 is the detail index AFTER multiplayer/mode remapping.
-    if (settings() & 16) ctx->r2 = 0;
+    if (settings() & 0x200u) ctx->r2 = 0;
 }
 
 // USA 80023674, before the ROM builds its visibility list. s1 is the current
 // track section; a3/t0 are forward/backward section counts (current excluded).
 // Nodes are game-owned for this render call, with big-endian u32 next/previous
 // links at +0/+4 accessed through word-swapped RDRAM helpers. Read only on the
-// guest thread; never retain a pointer. 800B2880..800B297F holds 64 pointers;
-// the matrix scratch area starts at 800B2980. Validate the original walk before
-// extending it, avoid duplicate/invalid links, and never exceed that capacity.
+// guest thread; never retain a pointer. Generated list accesses are relocated
+// from 800B2880 to host-reserved extended memory at 80FF2880, where 1024
+// pointers fit before mod memory. Validate the original walk before extending
+// it, avoid duplicate/invalid links, and never exceed that bounded capacity.
 // Invalid original input leaves registers untouched; a bad extension stops at
 // the last valid node. Replace this bridge with a named guest visibility API
 // when the track loader/renderer is decompiled.
 extern "C" void wdc_track_visibility(uint8_t* rdram, recomp_context* ctx) {
-    const int scale = int(settings() & 7);
+    const int scale = int(settings() & 0xffu);
     if (scale == 1) return;
+    constexpr int capacity = wdc::visibility::max_track_sections;
     const int ahead = int32_t(ctx->r7), behind = int32_t(ctx->r8);
-    if (ahead < 0 || behind < 0 || ahead > 63 || behind > 63 || ahead + behind >= 64) return;
+    if (ahead < 0 || behind < 0 || ahead >= capacity || behind >= capacity || ahead + behind >= capacity) return;
     const uint32_t start = uint32_t(ctx->r17);
     if (!node_valid(start)) return;
-    std::array<uint32_t, 64> seen{};
+    std::array<uint32_t, capacity> seen{};
     int count = 1;
     seen[0] = start;
     auto step = [&](uint32_t& node, int offset) {
         const uint32_t next = uint32_t(MEM_W(offset, int32_t(node)));
-        if (!node_valid(next) || count == 64 ||
+        if (!node_valid(next) || count == capacity ||
             std::find(seen.begin(), seen.begin() + count, next) != seen.begin() + count) return false;
         seen[count++] = next;
         node = next;
@@ -85,13 +109,16 @@ extern "C" void wdc_track_visibility(uint8_t* rdram, recomp_context* ctx) {
     uint32_t front = start, back = start;
     for (int i = 0; i < ahead; ++i) if (!step(front, 0)) return;
     for (int i = 0; i < behind; ++i) if (!step(back, 4)) return;
+    const bool unlimited = scale == wdc::visibility::unlimited_draw_distance;
+    const int forward_target = unlimited ? capacity - 1 : ahead * scale;
+    const int backward_target = unlimited ? capacity - 1 : behind * scale;
     int forward = ahead, backward = behind;
     bool more_front = true, more_back = true;
     // Alternate extensions so a long forward range cannot consume all slots.
-    while (count < 64 && (more_front || more_back)) {
-        more_front = more_front && forward < ahead * scale && step(front, 0);
+    while (count < capacity && (more_front || more_back)) {
+        more_front = more_front && forward < forward_target && step(front, 0);
         if (more_front) ++forward;
-        more_back = more_back && backward < behind * scale && step(back, 4);
+        more_back = more_back && backward < backward_target && step(back, 4);
         if (more_back) ++backward;
     }
     ctx->r7 = forward;

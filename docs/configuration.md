@@ -223,20 +223,26 @@ rate accepts 0 (original), -1 (display), or 30-1000 Hz; samples accepts
 1, 2, 4, 8. Filtering accepts 0 (nearest), 1 (linear), 2 (pixel scaling);
 precision accepts 0 (auto), 1 (standard), 2 (high). `quick_race_laps` accepts
 0 (course default), 1 through 10, 15, or 20. Any other number becomes 0.
-A missing key uses 0. Unknown enum values use
+`draw_distance` accepts 1 through 8, or 16 for bounded Unlimited. Other values
+are clamped to 1 through 8. A missing key uses 0. Unknown enum values use
 defaults, numeric ranges are bounded, and wrong types reject the file.
 
 The **Enhancements** tab offers **Quick Race laps**, **Full car detail**, **Full track detail**, and
-**Draw distance** (Original, 2x, 3x, 4x). All four follow Apply/Discard.
+**Draw distance** (Original, 2x through 8x, or Unlimited). All four follow Apply/Discard.
 Quick Race laps is used when the next Arcade Race or Time Attack is set up.
 The detail and distance options take effect live. Full car detail retains the nearest detail level and prevents the
 lowest-detail row from hiding distant cars. Full track detail retains the
 nearest detail level for visible sections. Draw distance extends the far plane
-and the number of sections shown ahead/behind within the game's 64-section
-limit. Use Full car detail together with increased distance for distant cars.
-Some scenery transitions remain; fog is unchanged. Higher settings can reduce
-performance. The defaults preserve original detail and distance. F9 also resets
-these options, including Quick Race laps back to Course default. See [the ROM evidence](reference/visibility.md).
+and the number of sections shown ahead/behind. Values 2x through 8x scale the
+authored forward/backward section counts. Unlimited follows the section links
+until every unique reachable section is submitted or a bounded 1024-entry
+safety cap is reached. It is not a mathematically infinite projection plane:
+the port uses a very large finite range so camera depth calculations remain
+valid. Use Full car detail together with increased distance for distant cars.
+Fog, authored scenery behavior, and bounding-box culling remain. Unlimited can
+be very expensive because it submits most or all of a course every frame.
+The defaults preserve original detail and distance. F9 also resets these
+options, including Quick Race laps back to Course default. See [the ROM evidence](reference/visibility.md).
 Quick Race laps is described above. Its prize rows are the original car and
 lap-count table in [Quick Race rewards](research/original-track-unlocks.md).
 

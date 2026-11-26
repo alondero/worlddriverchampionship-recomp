@@ -1,4 +1,5 @@
 #include "game_scenario.h"
+#include "game_visibility.h"
 #include "race_globals.h"
 #include <algorithm>
 #include <atomic>
@@ -8,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <locale>
 #include <optional>
 #include <string>
@@ -29,6 +31,10 @@ struct Race {
     uint32_t last_sample = 0;
     unsigned samples = 0;
     double max_displacement = 0;
+    unsigned peak_visibility_list_count = 0;
+    unsigned peak_visibility_filled_slots = 0;
+    uint32_t min_frame_arena_gap = std::numeric_limits<uint32_t>::max();
+    uint32_t min_secondary_frame_arena_gap = std::numeric_limits<uint32_t>::max();
     std::optional<Position> origin;
 };
 
@@ -63,7 +69,11 @@ void finish(unsigned consumed) {
     for (const auto& entry : races) {
         result << separator << "{\"course\":" << entry.course << ",\"layout\":" << entry.layout
                << ",\"car\":" << entry.car << ",\"mode\":" << entry.mode << ",\"laps\":" << entry.laps
-               << ",\"samples\":" << entry.samples << ",\"displacement\":" << entry.max_displacement << '}';
+               << ",\"samples\":" << entry.samples << ",\"displacement\":" << entry.max_displacement
+               << ",\"peak_visibility_list_count\":" << entry.peak_visibility_list_count
+               << ",\"peak_visibility_filled_slots\":" << entry.peak_visibility_filled_slots
+               << ",\"frame_arena_gap\":" << entry.min_frame_arena_gap
+               << ",\"secondary_frame_arena_gap\":" << entry.min_secondary_frame_arena_gap << '}';
         separator = ",";
     }
     result << "]}\n";
@@ -84,7 +94,8 @@ void finish(unsigned consumed) {
 // With one human, roster slot zero owns the body matrix at 800BA804. Its
 // aligned f32 translation (+30/+34/+38) is measured in world units. Sample
 // only after the race loader, on finite positions, with a live roster.
-// All reads are fixed inside 8 MiB; no guest pointers survive the tick.
+// Ordinary race reads stay inside 8 MiB. The visibility entries use the
+// host-reserved extended list documented below; no guest pointers survive the tick.
 void observe_race(const uint8_t* rdram) {
     constexpr uint32_t config = 0x80092360, body = 0x800BA804;
     const auto sample = race::word(rdram, race::sample);
@@ -100,6 +111,39 @@ void observe_race(const uint8_t* rdram) {
     auto& entry = races.back();
     if (sample >= entry.last_sample) entry.samples += sample - entry.last_sample;
     entry.last_sample = sample;
+
+    // The visibility list count is game-owned at 8007E920. Its entries were
+    // relocated to host-reserved extended memory at 80FF2880; at this dispatcher
+    // boundary they describe the most recently culled frame. Read both peaks
+    // without retaining guest pointers. Out-of-range counts are loader noise.
+    constexpr uint32_t visibility_count = 0x8007E920, visibility_list = 0x80FF2880;
+    constexpr uint32_t visibility_capacity = wdc::visibility::max_track_sections;
+    const auto count = race::word(rdram, visibility_count);
+    if (count <= visibility_capacity) {
+        entry.peak_visibility_list_count = std::max<unsigned>(entry.peak_visibility_list_count, count);
+        unsigned filled = 0;
+        for (uint32_t index = 0; index < count; ++index)
+            filled += race::word(rdram, visibility_list + index * 4) != 0;
+        entry.peak_visibility_filled_slots = std::max(entry.peak_visibility_filled_slots, filled);
+    }
+
+    // 8007ED40 is the ascending command cursor and 8007FE70 the descending
+    // matrix/packet cursor for the ROM's race frame arena. They move toward
+    // each other within one game-owned allocation; positive space between them
+    // is headroom, while zero here means a collision happened or was observed
+    // after the cursors crossed. Sampled at the dispatcher boundary only.
+    const uint32_t ascending = race::word(rdram, 0x8007ED40);
+    const uint32_t descending = race::word(rdram, 0x8007FE70);
+    const uint32_t gap = descending >= ascending ? descending - ascending : 0;
+    entry.min_frame_arena_gap = std::min(entry.min_frame_arena_gap, gap);
+
+    // 8007ED84/8007FE74 are the same cursor directions for the secondary
+    // packet arena used by HUD and other small raw-list packets.
+    const uint32_t secondary_ascending = race::word(rdram, 0x8007ED84);
+    const uint32_t secondary_descending = race::word(rdram, 0x8007FE74);
+    const uint32_t secondary_gap = secondary_descending >= secondary_ascending
+        ? secondary_descending - secondary_ascending : 0;
+    entry.min_secondary_frame_arena_gap = std::min(entry.min_secondary_frame_arena_gap, secondary_gap);
     if (race::word(rdram, config) != 1) return;
     const double x = std::bit_cast<float>(race::word(rdram, body + 0x30));
     const double y = std::bit_cast<float>(race::word(rdram, body + 0x34));

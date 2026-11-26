@@ -208,7 +208,7 @@ int main() {
         enhancements.update_option_value("native_60fps", true);
         enhancements.update_option_value("full_car_detail", true);
         enhancements.update_option_value("full_track_detail", true);
-        enhancements.update_option_value("draw_distance", uint32_t(4));
+        enhancements.update_option_value("draw_distance", uint32_t(16));
         enhancements.update_option_value("quick_race_laps", uint32_t(20));
         wdc::ui::refresh_settings();
         require(!requested && !wdc::graphics::snapshot().full_car_detail && !wdc::graphics::snapshot().native_60fps &&
@@ -220,14 +220,14 @@ int main() {
             "Discard published enhancements");
         enhancements.update_option_value("full_car_detail", true);
         enhancements.update_option_value("full_track_detail", true);
-        enhancements.update_option_value("draw_distance", uint32_t(4));
+        enhancements.update_option_value("draw_distance", uint32_t(8));
         enhancements.update_option_value("quick_race_laps", uint32_t(15));
         enhancements.update_option_value("native_60fps", true);
         require(enhancements.save_config() && requested, "enhancement Apply failed");
         auto enhanced = wdc::graphics::snapshot();
         enhanced.full_car_detail = true;
         enhanced.full_track_detail = true;
-        enhanced.draw_distance = 4;
+        enhanced.draw_distance = 8;
         enhanced.quick_race_laps = 15;
         enhanced.native_60fps = true;
         require(*requested == enhanced, "enhancement Apply overwrote graphics");
@@ -238,7 +238,7 @@ int main() {
         page.load_config();
         page.update_option_value("resolution", uint32_t(6));
         require(page.save_config() && requested && requested->full_car_detail &&
-            requested->full_track_detail && requested->draw_distance == 4 && requested->quick_race_laps == 15 &&
+            requested->full_track_detail && requested->draw_distance == 8 && requested->quick_race_laps == 15 &&
             requested->native_60fps,
             "graphics Apply reset enhancements");
         requested.reset();

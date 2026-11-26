@@ -53,9 +53,12 @@ the car entirely. Thus a car can disappear even inside the far plane.
 keeping row zero. The real projected size remains available to fading and
 packet generation. It preserves cockpit, near/side and section rejection.
 **Draw distance** multiplies the far comparison operand at `0x800219F0` and
-the corresponding far distance in `func_80011D54`. The projection converts
-the extended distance to BOSS units by multiplying by 32. The near plane
-and simulation continue to use their original values.
+the corresponding far distance in `func_80011D54`. Values 2x through 8x use
+that multiplier directly. **Unlimited** is a bounded practical mode rather
+than a mathematically infinite projection plane: it uses a 64x finite range
+because perspective projection and depth ordering require finite numbers.
+The projection converts the extended distance to BOSS units by multiplying
+by 32. The near plane and simulation continue to use their original values.
 The same function recomputes BOSS normalization from the original distance
 after building the extended perspective matrix. BOSS also uses this value
 to clamp projected coordinates. Allowing the extended far plane to reduce
@@ -74,17 +77,59 @@ then remaps for mode/secondary views. The index selects the packet detail mask
 `func_8002343C` starts at the camera/car section, reads forward/backward counts
 from section bytes `+0x1C/+0x1D`, and follows u32 links at `+0/+4`.
 Some modes reduce these counts. At `0x80023674`, **Draw distance** scales the
-resulting counts by 1..4, retaining the ROM's order and subsequent bounding-box
-culling. This addresses section-boundary pop-in separately from polygon LOD.
+resulting counts by 1x through 8x, retaining the ROM's order and subsequent
+bounding-box culling. **Unlimited** follows valid links until the unique
+reachable ring is exhausted or a bounded 1024-entry safety cap is reached,
+including when an authored forward/backward count is zero. This addresses
+section-boundary pop-in separately from polygon LOD.
 
-The guest list starts at `0x800B2880`; matrix scratch starts at `0x800B2980`.
-There are only 64 pointer slots. The hook validates the original linked walk,
-then alternates forward/backward extensions within that capacity, stopping
-before invalid links or repeated sections. It only changes count registers;
-the ROM still writes and culls the list. Malformed original walks are left
-unchanged. Guest memory is word-swapped, game-owned, and read only on the
-calling guest render thread; no pointers survive a call. See the source for
-the full bridge contract and removal path.
+The original guest list starts at `0x800B2880`; matrix scratch starts at
+`0x800B2980`, so the stock storage has only 64 pointer slots. Generation
+relocates measured list references in the producer `func_8002343C` and car
+consumer `func_800218F0` to host-reserved extended memory at `0x80FF2880`.
+That address is above normal 8 MiB game memory and below `0x81000000`, where
+runtime mod memory and the librecomp heap begin. The replacement keeps the
+original low 16 bits, so only measured LUI high halves are patched; the
+scanner fails generation if either function or an unsupported reference
+shape is absent. References anywhere in the original 64-entry range are
+covered, including measured `list+4` forms; matrix scratch at `0x800B2980` is
+not relocated. Runtime patch data starts at `0x80801000`; the reservation
+leaves the top of that gap for this list, so extremely large third-party
+patch data is outside the supported configuration. The 1024-entry list ends
+before `0x80FF3880`.
+
+The hook validates the original linked walk, then alternates forward/backward
+extensions within that capacity, stopping before invalid links or repeated
+sections. It only changes count registers; the patched ROM still writes,
+culls, and reads the list. Malformed original walks are left unchanged.
+Guest memory is word-swapped, game-owned, and read only on the calling guest
+render thread; no pointers survive a call. See the source for the full bridge
+contract and removal path.
+
+The race frame arena is a single first-8-MiB allocation shared by an ascending
+BOSS command cursor (`0x8007ED40`) and a descending matrix/packet cursor
+(`0x8007FE70`). A collision corrupts the command stream; BOSS then interprets
+ordinary guest pointers as opcodes and can leave its jump table through an
+unhandled target. The normal race allocation is `0x40000` bytes and the
+larger alternate race allocation is `0x60000`. With enhanced draw distance
+active, the `func_80025378` entry hook doubles either race allocation before
+the ROM heap reserves it. The menu's `0x38000` allocation is unchanged. This remains in
+memory addressable by BOSS's 24-bit DMA path. Original mode retains the ROM
+sizes. Because allocation happens during scene setup, changing the setting
+applies the new arena size from the next scene load.
+
+Track 10 practice provided the regression evidence. Before expansion, 8x
+finished a neutral-input route with only about 9 KiB of sampled arena headroom;
+Unlimited collided shortly after passing 108 filled section slots and BOSS
+stopped with an unhandled jump target. Doubling the arena left 538 KiB of heap
+unallocated after loading and the checked-in Unlimited scenario completed with
+152 listed sections, 124 filled slots, 248,192 bytes as the smallest sampled
+primary arena gap and 184,176 bytes in the secondary packet arena.
+Representative short Unlimited measurements on tracks 1, 10, 20, 30, 40, 50
+and 58 passed with 69 to 152 listed sections, 25 to 91 filled slots and
+290,928 to 420,848 bytes of sampled headroom. That gap is sampled at dispatcher
+boundaries, so it is evidence of headroom rather than a proof about every
+instruction within a frame.
 
 ## Evidence and limits
 
@@ -98,9 +143,12 @@ The original car routine selected rows 0/3/6/7 at depths 2/10/40/100 with a
 100-unit size input, disappeared beyond 125 through its last detail row,
 and rejected depth 201 with a 200-unit far plane. The full-detail assertion
 failed against the original translation. With hooks it retains row zero,
-respects 1x/4x far limits, retains near/side/section rejection and restores
-stock behavior when disabled. Track checks cover mode remapping, 17 -> 33 ->
-64 section expansion, short-ring deduplication and invalid extension links.
+respects 1x/4x/8x/Unlimited far limits, retains near/side/section rejection
+(including membership beyond the original 64th slot) and restores stock
+behavior when disabled. Track checks cover mode remapping, 17 -> 33 -> 129
+section expansion at 4x/8x in a 256-section ring, full-ring Unlimited
+submission, zero-authored-count Unlimited expansion, short-ring deduplication
+and invalid extension links.
 `wdc_camera_rom` checks projection changes; configuration/frontend tests cover
 persistence and independent Apply/Discard behavior.
 
@@ -108,6 +156,8 @@ A Windows/MinGW D3D12 smoke check exercised the Enhancements tab in a Hawaii
 arcade race, applied both detail options and 4x distance, confirmed the saved
 settings, and drove for 15 seconds. The player continued rendering without a
 crash or logged runtime error. This was not a full-lap or performance test.
+The checked-in `track10-draw-unlimited` scenario now covers the former BOSS
+crash route automatically through `tools/run_game_scenario.py`.
 
 Reproduce with the accepted local ROM:
 
@@ -119,8 +169,10 @@ ctest --test-dir build --output-on-failure
 ```
 
 These options do not promise removal of every scenery transition: the list
-remains bounded, authored geometry and bounding-box culling still apply, and
-fog is unchanged. Higher detail/range increases CPU, BOSS and GPU work.
+remains bounded at 1024 entries, authored geometry and bounding-box culling
+still apply, and fog is unchanged. Unlimited can submit most or all of a
+course every frame, so CPU, BOSS and GPU cost can be substantial and the very
+large finite far plane can expose depth artifacts.
 All options default to stock behavior. Visual/performance acceptance across
 all tracks, split-screen and full laps remains separate from the ROM tests.
 

@@ -38,7 +38,7 @@ int main() {
         s.resolution = 4; s.rate = 539.975; s.samples = 4;
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
         s.hud = 2;
-        s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 4;
+        s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 8;
         s.quick_race_laps = 15;
         s.native_60fps = true;
         s.interpolate_races = true;
@@ -82,13 +82,13 @@ int main() {
         const auto bounded = snapshot();
         require(bounded.resolution == 8 && bounded.aspect == 1 && bounded.rate == 0 &&
             bounded.samples == 1 && bounded.filtering == 1 && bounded.precision == 0, "values not bounded");
-        for (int distance : {-10, 0, 1, 2, 3, 4, 100}) {
+        for (int distance : {-10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 100}) {
             auto requested = s;
             requested.draw_distance = distance;
             require(apply(requested), "distance save failed");
             load(path);
-            require(snapshot().draw_distance == (distance < 1 ? 1 : distance > 4 ? 4 : distance),
-                "distance not bounded/persisted");
+            const int expected = distance == 16 ? 16 : distance < 1 ? 1 : distance > 8 ? 8 : distance;
+            require(snapshot().draw_distance == expected, "distance not bounded/persisted");
         }
         for (int laps : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20}) {
             { std::ofstream out(path); out << "{\"version\":2,\"resolution\":3,\"quick_race_laps\":" << laps << "}"; }
