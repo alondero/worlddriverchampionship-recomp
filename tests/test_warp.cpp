@@ -56,8 +56,15 @@ int main() {
     assert(!configure_from_environment());
     environment("WDC_WARP", "");
     std::vector<uint8_t> memory(8 * 1024 * 1024, 0xA5);
-    auto before = memory;
     auto* rdram = memory.data();
+    // Give the volatile selection publisher one valid model/class path; the
+    // poisoned rest of memory still detects unintended writes.
+    MEM_W(0x106C, int32_t(0x80097D00)) = 0;
+    for (int i = 0; i < 35; ++i) {
+        MEM_W(0xB4C + i * 20 + 8, int32_t(0x80097D00)) = i;
+        MEM_W(0x10A8 + i * 0x80, int32_t(0x80080000)) = 0;
+    }
+    auto before = memory;
     recomp_context ctx{};
     assert(request({58, 34}));
     wdc_warp_menu(nullptr, &ctx); wdc_warp_race(rdram, nullptr); wdc_warp_load(nullptr, nullptr);

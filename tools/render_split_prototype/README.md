@@ -74,9 +74,9 @@ and fidelity separately.
 For the native menu cycle, clear `WDC_WARP` before boot. Choose Quick Race,
 Practice Laps and Hawaii, accept automatic gears, then use Exit Practice in
 the pause menu. To script re-entry, set `WDC_WARP_AT=2400:2:0:arcade:3` before
-launching and return to the menu before VI 2400. The developer shortcut that
-boots directly into Arcade can leave a Quick Race car record uninitialized
-and crash after Exit Arcade Race, including at Original rate.
+launching and return to the menu before VI 2400. The warp boundary publishes the
+volatile Quick Race selection pair, so the Arcade exit path is also usable at
+Original rate.
 
 The [testing notes](../../docs/testing.md#high-refresh-transitions) record
 the Windows runs and host-test coverage for this sequence.

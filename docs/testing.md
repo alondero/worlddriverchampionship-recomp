@@ -74,12 +74,14 @@ Practice Laps through Quick Race and choosing Exit Practice returned to
 the menu. A timed warp from that menu loaded Arcade at sample zero with
 swap presentation and PCM playback.
 
-Direct Arcade warp exposed a separate menu crash after retrace had taken over.
-It reproduced with interpolation disabled. GDB stopped in the translated
-car-record reader `800565E0` with a null argument from `8006A64C`. The caller
-loaded the selected record from `800DF930`, which the native setup uses
-before the race. This limits the developer warp as a fixture for exiting
-Arcade to the normal menu.
+Direct Arcade warp previously exposed a separate menu crash after retrace had
+taken over. GDB stopped in the translated car-record reader `800565E0` with a
+null argument from `8006A64C`; the caller loaded the selected record from
+`800DF930`. The warp boundary now publishes the same volatile Quick Race
+list/record pair that native menu setup owns. A bounded Windows/D3D12 run at
+Original rate warped into a three-lap Hawaii Arcade race, paused, chose Exit
+Arcade Race, confirmed Yes, returned to the Arcade menu, selected Start Race,
+and reached the restarted race without crashing.
 
 In settled live race windows, SDL accepted roughly 44,000 PCM frames every
 two seconds at 22 kHz. One 90 Hz restart rebuffered during the loader and
@@ -141,7 +143,12 @@ of 58 layouts, 35 models and three Quick Race modes against the translated
 native constructor. It also checks native fade requests, lap-dependent arcade
 AI profiles, byte-exact career restoration, register preservation, retry cache,
 one-shot application and queued repeats. Only guest debug printing is stubbed;
-scene cleanup and rendering are outside this fixture. The extractor requires
+scene cleanup and rendering are outside this fixture. `wdc_warp_exit_rom`
+extracts the reported menu chain `8004E950` through `800565E0`, the real warp
+constructor closure, and the native selection setup. It proves that a warped
+Arcade exit and the native control complete while the same state-36 chain with
+a null selected record still crashes in a child process. The extractor rejects
+missing chain edges and unresolved computed control flow. The extractor requires
 all production hooks. A separate execution of the translated boot control flow
 stubs presentation/input/SDK boundaries and asserts that pending warps retain
 the Pak scan and skip interactive dialogs. These are setup checks, not completed races. `wdc_quick_race_laps` checks the
