@@ -1,4 +1,5 @@
 param([string]$Output = 'build/window.png', [int]$ProcessId = 0)
+$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
 using System;
@@ -12,15 +13,23 @@ public class WdcWindowCapture {
 $game = if ($ProcessId) { Get-Process -Id $ProcessId } else {
     Get-Process worlddriverchampionship_modern | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
 }
-if (!$game) { throw 'Game window not found' }
+if (!$game -or $game.MainWindowHandle -eq 0) { throw 'Game window not found' }
 $rect = New-Object WdcWindowCapture+Rect
-[void][WdcWindowCapture]::GetWindowRect($game.MainWindowHandle, [ref]$rect)
+if (![WdcWindowCapture]::GetWindowRect($game.MainWindowHandle, [ref]$rect)) {
+    throw 'Could not read the game window bounds'
+}
 $bitmap = New-Object System.Drawing.Bitmap(($rect.Right-$rect.Left), ($rect.Bottom-$rect.Top))
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 $dc = $graphics.GetHdc()
-try { [void][WdcWindowCapture]::PrintWindow($game.MainWindowHandle, $dc, 2) }
-finally { $graphics.ReleaseHdc($dc) }
-$bitmap.Save((Join-Path $PWD $Output))
-$graphics.Dispose()
-$bitmap.Dispose()
+try {
+    try {
+        if (![WdcWindowCapture]::PrintWindow($game.MainWindowHandle, $dc, 2)) {
+            throw 'Could not capture the game window'
+        }
+    } finally { $graphics.ReleaseHdc($dc) }
+    $bitmap.Save($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Output))
+} finally {
+    $graphics.Dispose()
+    $bitmap.Dispose()
+}
 Write-Output $Output

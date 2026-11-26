@@ -1,5 +1,6 @@
 #include "display_rate_draw.h"
 #include "extra_race_draw.h"
+#include "game_scenario.h"
 #include "guest_context.h"
 #include "graphics_config.h"
 #include "race_frame_schedule.h"
@@ -110,6 +111,7 @@ void fence(uint8_t* live) {
 // disabled between active draws, including fractional groups without a native
 // endpoint. Release it before handing the display back to another scene.
 extern "C" void wdc_render_dispatcher_tick(uint8_t* rdram) {
+    wdc::scenario::dispatcher_tick(rdram);
     const bool restored = drawer.history.restored_while_presenting(drawer.presenting, state::restore_generation());
     if (restored) drawer.end_race_presentation("checkpoint restore");
     else if (drawer.presenting && (!rdram || !race::active(rdram)))

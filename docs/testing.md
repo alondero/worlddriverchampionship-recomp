@@ -11,6 +11,10 @@ evidence available.
 | Bounded end-to-end run | Startup, renderer, audio, input, or device path |
 | Manual capture | Visual acceptance only, with exact repro details |
 
+For a repeatable run through the ordinary game executable, use the
+[runtime scenario runner](runtime-verification.md). It drives the guest
+controller and checks race identity, simulation progress and renderer activity.
+
 Run the source-only checks from the repository root:
 
 ```bash

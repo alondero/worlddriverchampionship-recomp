@@ -14,6 +14,7 @@
 #include "boss_rsp.h"
 #include "controller_pak.h"
 #include "game_warp.h"
+#include "game_scenario.h"
 #include "savestate.h"
 #ifdef WDC_PLAYER
 #include <SDL.h>
@@ -61,6 +62,7 @@ public:
     void enable_instant_present() override {}
     void send_dl(const OSTask* task) override {
         ++graphics;
+        wdc::scenario::graphics_task();
         std::fprintf(stderr, "[wdc] graphics task: ucode=%08x data=%08x size=%x\n",
                      task->t.ucode, task->t.data_ptr, task->t.data_size);
         wdc::rsp::run(rdram, task, [](void*, uint8_t*, uint32_t start, uint32_t end) {
@@ -77,7 +79,7 @@ public:
 };
 
 int main(int argc, char** argv) {
-    if (!wdc::warp::configure_from_environment()) return 1;
+    if (!wdc::warp::configure_from_environment() || !wdc::scenario::configure()) return 1;
 #ifdef WDC_PLAYER
     SDL_SetMainReady();
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS4_RUMBLE, "1");
@@ -231,7 +233,7 @@ int main(int argc, char** argv) {
 #endif
         }
 #ifdef WDC_ENABLE_FRONTEND
-        wdc::input::sample(captured);
+        if (!wdc::scenario::enabled()) wdc::input::sample(captured);
 #else
         auto* keys = SDL_GetKeyboardState(nullptr);
         uint16_t next_buttons = (keys[SDL_SCANCODE_RETURN] && !(SDL_GetModState() & KMOD_ALT) ? 0x1000 : 0) | (keys[SDL_SCANCODE_X] ? 0x8000 : 0) |
@@ -253,7 +255,11 @@ int main(int argc, char** argv) {
 #endif
     };
 #endif
-    cfg.events_callbacks.vi_callback = [] { wdc::warp::vi_tick(++vis); };
+    cfg.events_callbacks.vi_callback = [] {
+        const auto vi = ++vis;
+        wdc::warp::vi_tick(vi);
+        wdc::scenario::vi_tick(vi);
+    };
     cfg.error_handling_callbacks.message_box = [](const char* message) { std::fprintf(stderr, "[wdc] %s\n", message); };
     cfg.input_callbacks.poll_input = [] {};
     cfg.input_callbacks.get_input = [](int port, uint16_t* buttons, float* x, float* y) {
@@ -271,6 +277,7 @@ int main(int argc, char** argv) {
     };
 #endif
 #endif
+    if (wdc::scenario::enabled()) cfg.input_callbacks.get_input = wdc::scenario::read_input;
     cfg.input_callbacks.get_connected_device_info = wdc::pak::device_info;
     cfg.audio_callbacks.queue_samples = [](int16_t*, size_t) {};
     cfg.audio_callbacks.get_frames_remaining = []() -> size_t { return 0; };
@@ -284,11 +291,11 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         recomp::start_game(u8"worlddriverchampionship.us", "");
     }).detach();
-    if (std::getenv("WDC_DIAGNOSTIC")
+    if (!wdc::scenario::enabled() && (std::getenv("WDC_DIAGNOSTIC")
 #ifndef WDC_PLAYER
         || true
 #endif
-    ) std::thread([] {
+    )) std::thread([] {
         std::this_thread::sleep_for(std::chrono::seconds(15));
         std::fprintf(stderr, "[wdc] diagnostic timeout: boot=%u threads=%u vis=%u graphics=%u\n",
                      (unsigned)booted.load(), threads.load(), vis.load(), graphics.load());

@@ -41,6 +41,10 @@ before changing the project.
 
 ## Verification
 
+For changes visible in-game, reproduce the affected route on a player built
+from this worktree. Use the [runtime scenario workflow](docs/runtime-verification.md)
+to drive input, assert the outcome, and keep the run evidence.
+
 Run the smallest relevant check and report what was skipped:
 
 ```text

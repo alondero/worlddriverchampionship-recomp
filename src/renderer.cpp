@@ -9,6 +9,7 @@
 #include "graphics_rt64.h"
 #include "game_camera.h"
 #include "game_hud.h"
+#include "game_scenario.h"
 #include "rdp_capture.h"
 #include "render_memory.h"
 #include <algorithm>
@@ -189,6 +190,7 @@ public:
         RT64::ApplicationConfiguration config;
         config.appId = "WorldDriverChampionshipRecomp";
         config.useConfigurationFile = false;
+        if (wdc::scenario::enabled()) config.detectDataPath = false;
         app = std::make_unique<RT64::Application>(core, config);
         // WDC switches between 320x240 racing and 320x480 menu buffers. Both
         // represent the same 4:3 TV output, not square-pixel framebuffers.
@@ -220,6 +222,7 @@ public:
         send_dl_from(rdram, task);
     }
     void send_dl_from(uint8_t* task_memory, const OSTask* task) override {
+        wdc::scenario::graphics_task();
         auto lock = lock_frame_memory();
         // The next queued screen update can still read this task's image.
         app->core.RDRAM = task_memory;
@@ -256,6 +259,7 @@ public:
         }
         const auto previous_id = app->state->presentId;
         app->updateScreen(frame_callbacks && frame_callbacks->force_present && frame_callbacks->force_present());
+        if (app->state->presentId != previous_id) wdc::scenario::presentation();
         if (frame_callbacks && frame_callbacks->screen_updated) {
             frame_callbacks->screen_updated(previous_id, app->state->presentId);
         }

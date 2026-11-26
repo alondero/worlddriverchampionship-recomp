@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "name": "menu-to-practice",
+  "start": "boot",
+  "max_vis": 2400,
+  "input": [
+    {"polls": 100},
+    {"polls": 10, "buttons": ["START", "A"]},
+    {"polls": 80},
+    {"polls": 10, "buttons": ["START"]},
+    {"polls": 80},
+    {"polls": 10, "buttons": ["START"]},
+    {"polls": 50},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 30},
+    {"polls": 4, "stick": [0, -1]},
+    {"polls": 20},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 35},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 35},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 55},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 60},
+    {"polls": 4, "stick": [0, -1]},
+    {"polls": 20},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 50},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 50},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 240}
+  ],
+  "expect": {
+    "min_menu_ticks": 60,
+    "min_presentations": 120,
+    "races": [{"course": 1, "layout": 0, "car": 6, "mode": 8, "min_samples": 80}]
+  }
+}
