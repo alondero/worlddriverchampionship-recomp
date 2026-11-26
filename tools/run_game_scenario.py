@@ -104,10 +104,14 @@ def validate(scenario):
         if not isinstance(expect["races"], list):
             raise ValueError("races must be an ordered list")
         for entry in expect["races"]:
-            fields(entry, (*RACE_IDENTITY, "min_samples", "min_displacement"), "race expectation")
+            fields(entry, (*RACE_IDENTITY, "min_samples", "min_displacement",
+                        "min_peak_visibility_list_count", "min_peak_visibility_filled_slots",
+                        "min_frame_arena_gap", "min_secondary_frame_arena_gap"), "race expectation")
             if not entry:
                 raise ValueError("each expected race must have at least one assertion")
-            for key in (*RACE_IDENTITY, "min_samples"):
+            for key in (*RACE_IDENTITY, "min_samples",
+                            "min_peak_visibility_list_count", "min_peak_visibility_filled_slots",
+                            "min_frame_arena_gap", "min_secondary_frame_arena_gap"):
                 if key in entry:
                     integer(entry[key], 0, 2**32 - 1, key)
             if "min_displacement" in entry:

@@ -106,6 +106,31 @@ Guest memory is word-swapped, game-owned, and read only on the calling guest
 render thread; no pointers survive a call. See the source for the full bridge
 contract and removal path.
 
+The race frame arena is a single first-8-MiB allocation shared by an ascending
+BOSS command cursor (`0x8007ED40`) and a descending matrix/packet cursor
+(`0x8007FE70`). A collision corrupts the command stream; BOSS then interprets
+ordinary guest pointers as opcodes and can leave its jump table through an
+unhandled target. The normal race allocation is `0x40000` bytes and the
+larger alternate race allocation is `0x60000`. With enhanced draw distance
+active, the `func_80025378` entry hook doubles either race allocation before
+the ROM heap reserves it. The menu's `0x38000` allocation is unchanged. This remains in
+memory addressable by BOSS's 24-bit DMA path. Original mode retains the ROM
+sizes. Because allocation happens during scene setup, changing the setting
+applies the new arena size from the next scene load.
+
+Track 10 practice provided the regression evidence. Before expansion, 8x
+finished a neutral-input route with only about 9 KiB of sampled arena headroom;
+Unlimited collided shortly after passing 108 filled section slots and BOSS
+stopped with an unhandled jump target. Doubling the arena left 538 KiB of heap
+unallocated after loading and the checked-in Unlimited scenario completed with
+152 listed sections, 124 filled slots, 248,192 bytes as the smallest sampled
+primary arena gap and 184,176 bytes in the secondary packet arena.
+Representative short Unlimited measurements on tracks 1, 10, 20, 30, 40, 50
+and 58 passed with 69 to 152 listed sections, 25 to 91 filled slots and
+290,928 to 420,848 bytes of sampled headroom. That gap is sampled at dispatcher
+boundaries, so it is evidence of headroom rather than a proof about every
+instruction within a frame.
+
 ## Evidence and limits
 
 `wdc_visibility_rom` runs extracted, unmodified translated car and track
@@ -131,6 +156,8 @@ A Windows/MinGW D3D12 smoke check exercised the Enhancements tab in a Hawaii
 arcade race, applied both detail options and 4x distance, confirmed the saved
 settings, and drove for 15 seconds. The player continued rendering without a
 crash or logged runtime error. This was not a full-lap or performance test.
+The checked-in `track10-draw-unlimited` scenario now covers the former BOSS
+crash route automatically through `tools/run_game_scenario.py`.
 
 Reproduce with the accepted local ROM:
 

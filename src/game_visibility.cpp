@@ -45,6 +45,23 @@ extern "C" void wdc_menu_car_visibility(uint8_t* rdram, recomp_context* ctx) {
     if (page == 0 || page == 44) ctx->r15 = 0;
 }
 
+// USA func_80025378 entry, before its frame-arena allocations. a0 is the
+// primary ascending/descending race arena byte size; 0x40000 is the normal
+// race allocation and 0x60000 the larger alternate race allocation.
+// The menu's 0x38000 allocation is unchanged. The hook runs on the game
+// thread during scene setup, before the simple descending heap allocator
+// reserves the block.
+// It only rewrites the register size for enhanced draw distances; ownership,
+// alignment, lifetime, and the original heap remain with the ROM. Doubling
+// this bounded first-8-MiB block keeps BOSS-visible commands in memory its
+// 24-bit DMA path can address. If the setting changes after loading, the
+// existing allocation is intentionally retained until the next scene setup.
+extern "C" void wdc_frame_arena_size(uint8_t*, recomp_context* ctx) {
+    if ((settings() & 0xffu) == 1) return;
+    const uint32_t size = uint32_t(ctx->r4);
+    if (size == 0x40000u || size == 0x60000u) ctx->r4 = size * 2;
+}
+
 extern "C" void wdc_car_distance(uint8_t*, recomp_context* ctx) {
     // 800219F0: f8 is far threshold, f0 remains actual camera depth.
     ctx->f8.fl *= wdc::visibility::distance_scale();

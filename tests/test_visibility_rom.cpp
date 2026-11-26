@@ -25,6 +25,7 @@ void func_800218F0(uint8_t*, recomp_context*);
 void func_800108B4(uint8_t*, recomp_context*);
 void func_800230D4(uint8_t*, recomp_context*);
 void func_8002343C(uint8_t*, recomp_context*);
+void wdc_frame_arena_size(uint8_t*, recomp_context*);
 // Inputs are already transformed into camera space. These two update helpers
 // are outside the visibility decision under test.
 void func_8001F7F8(uint8_t*, recomp_context*) {}
@@ -280,5 +281,18 @@ int main(int argc, char** argv) {
     boundary_kind = 1;
     wdc::visibility::configure(false, false, 8);
     assert(track_detail(288) == 0x4000);
+
+    auto arena_size = [&](int scale, uint32_t size) {
+        wdc::visibility::configure(false, false, scale);
+        recomp_context ctx{};
+        ctx.r4 = gpr(size);
+        wdc_frame_arena_size(rdram, &ctx);
+        return uint32_t(ctx.r4);
+    };
+    assert(arena_size(1, 0x40000) == 0x40000);
+    assert(arena_size(2, 0x40000) == 0x80000);
+    assert(arena_size(8, 0x60000) == 0xC0000);
+    assert(arena_size(16, 0x40000) == 0x80000);
+    assert(arena_size(16, 0x38000) == 0x38000); // menu allocation remains unchanged
     std::cout << "Track: original/detail override, mode remaps, expanded list relocation, wrap and invalid extension\n";
 }

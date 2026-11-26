@@ -43,6 +43,40 @@ class GameScenarioTest(unittest.TestCase):
         self.assertIn("displacement", runner.evaluate(expect, stationary, self.polls, self.log)[0])
         self.assertTrue(runner.evaluate(expect, self.native, self.polls, ""))
 
+    def test_visibility_peak_expectations_use_native_peak_fields(self):
+        scenario = copy.deepcopy(self.scenario)
+        scenario["expect"]["races"][0]["min_peak_visibility_list_count"] = 65
+        scenario["expect"]["races"][0]["min_peak_visibility_filled_slots"] = 40
+        runner.validate(scenario)
+        expected = {"races": [{"min_peak_visibility_list_count": 65, "min_peak_visibility_filled_slots": 40}]}
+        observed = dict(self.native, races=[{
+            "peak_visibility_list_count": 64,
+            "peak_visibility_filled_slots": 40,
+        }])
+        self.assertIn("peak_visibility_list_count", runner.evaluate(expected, observed, self.polls, "")[0])
+        observed["races"][0]["peak_visibility_list_count"] = 65
+        self.assertEqual(runner.evaluate(expected, observed, self.polls, ""), [])
+        observed["races"][0]["peak_visibility_filled_slots"] = 39
+        self.assertIn("peak_visibility_filled_slots", runner.evaluate(expected, observed, self.polls, "")[0])
+
+    def test_frame_arena_gap_expectation_uses_native_minimum(self):
+        scenario = copy.deepcopy(self.scenario)
+        scenario["expect"]["races"][0]["min_frame_arena_gap"] = 65536
+        runner.validate(scenario)
+        expected = {"races": [{"min_frame_arena_gap": 65536}]}
+        observed = dict(self.native, races=[{"frame_arena_gap": 65535}])
+        self.assertIn("frame_arena_gap", runner.evaluate(expected, observed, self.polls, "")[0])
+        observed["races"][0]["frame_arena_gap"] = 65536
+        self.assertEqual(runner.evaluate(expected, observed, self.polls, ""), [])
+
+        scenario["expect"]["races"][0]["min_secondary_frame_arena_gap"] = 32768
+        runner.validate(scenario)
+        expected = {"races": [{"min_secondary_frame_arena_gap": 32768}]}
+        observed = dict(self.native, races=[{"secondary_frame_arena_gap": 32767}])
+        self.assertIn("secondary_frame_arena_gap", runner.evaluate(expected, observed, self.polls, "")[0])
+        observed["races"][0]["secondary_frame_arena_gap"] = 32768
+        self.assertEqual(runner.evaluate(expected, observed, self.polls, ""), [])
+
     def test_race_visits_are_ordered_and_exact(self):
         practice, arcade = {"mode": 8}, {"mode": 3}
         expected = {"races": [practice, arcade]}

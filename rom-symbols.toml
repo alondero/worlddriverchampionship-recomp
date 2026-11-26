@@ -160,6 +160,13 @@ func = "func_8000C560"
 before_vram = 0x8000C560
 text = "{ extern void wdc_warp_race(uint8_t*, recomp_context*); wdc_warp_race(rdram, ctx); }"
 
+# Enhanced draw distance needs more of the ROM heap reserved for the race
+# frame arena. The hook is register-only and leaves menu allocations unchanged.
+[[hooks]]
+func = "func_80025378"
+before_vram = 0x80025378
+text = "{ extern void wdc_frame_arena_size(uint8_t*, recomp_context*); wdc_frame_arena_size(rdram, ctx); }"
+
 # Race dispatcher after simulation and before post-draw housekeeping. Route its
 # one draw call through the port, preserving the original NOP delay slot.
 [[instructions]]
