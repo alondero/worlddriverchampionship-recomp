@@ -34,7 +34,7 @@ int main() {
         recomp::register_config_path(dir);
         wdc::graphics::load(path);
         wdc::graphics::Settings initial;
-        initial.resolution = 5; initial.rate = 165; initial.samples = 4;
+        initial.resolution = 5; initial.frame_rate = wdc::graphics::FrameRateMode::LegacyCustom; initial.custom_rate = 165; initial.samples = 4;
         initial.filtering = 2; initial.precision = 2;
         require(wdc::graphics::apply(initial), "cannot seed settings");
         const auto original_file = read(path);
@@ -169,7 +169,15 @@ int main() {
         page.update_option_value("hud", uint32_t(2));
         page.update_option_value("fullscreen", uint32_t(1));
         require(page.save_config() && requested.has_value(), "Apply did not hand settings to SDL");
-        wdc::graphics::Settings expected{3, 0, 144, 8, 0, 1, true};
+        wdc::graphics::Settings expected{};
+        expected.resolution = 3;
+        expected.aspect = 0;
+        expected.frame_rate = wdc::graphics::FrameRateMode::LegacyCustom;
+        expected.custom_rate = 144;
+        expected.samples = 8;
+        expected.filtering = 0;
+        expected.precision = 1;
+        expected.fullscreen = true;
         expected.hud = 2;
         require(*requested == expected && read(path) == original_file, "Apply mapped settings incorrectly or wrote from UI thread");
         require(wdc::graphics::apply(*requested), "SDL-side publish failed");
@@ -186,32 +194,67 @@ int main() {
         require(std::get<uint32_t>(page.get_option_value("fullscreen")) == 0 &&
                 std::get<uint32_t>(page.get_temp_option_value("samples")) == 2, "host refresh lost staged edits");
         page.revert_temp_config();
-        for (uint32_t mode : {0u, 1u, 3u, 4u}) {
-            page.update_option_value("rate_mode", mode);
+        const struct {
+            uint32_t choice;
+            wdc::graphics::FrameRateMode mode;
+            double custom_rate;
+        } frame_rates[] = {
+            {0, wdc::graphics::FrameRateMode::Original, 60},
+            {1, wdc::graphics::FrameRateMode::Native60, 60},
+            {2, wdc::graphics::FrameRateMode::InterpolateDisplay, 60},
+            {3, wdc::graphics::FrameRateMode::InterpolateCustom, 144},
+            {4, wdc::graphics::FrameRateMode::LegacyDisplay, 60},
+            {5, wdc::graphics::FrameRateMode::LegacyCustom, 144},
+        };
+        for (const auto& frame_rate : frame_rates) {
+            auto baseline = wdc::graphics::Settings{};
+            require(wdc::graphics::apply(baseline), "frame-rate baseline publish failed");
+            wdc::ui::refresh_settings();
+            page.load_config();
+            requested.reset();
+            page.update_option_value("rate_mode", frame_rate.choice);
+            if (frame_rate.choice == 3 || frame_rate.choice == 5)
+                page.update_option_value("rate", 144.0);
             page.save_config();
-            require(requested && requested->rate == (mode == 0 ? 0 : mode == 4 ? 144 : -1) &&
-                    requested->interpolate_races == (mode >= 3), "presentation mode mapping failed");
+            require(requested && requested->frame_rate == frame_rate.mode &&
+                    requested->custom_rate == frame_rate.custom_rate, "race frame-rate mode mapping failed");
         }
+        page.update_option_value("rate_mode", 3u);
         page.update_option_value("rate", 59.94);
         page.save_config();
-        require(requested && requested->interpolate_races && requested->rate == 59.94,
-            "fractional interpolated rate lost at Apply");
+        require(requested && requested->frame_rate == wdc::graphics::FrameRateMode::InterpolateCustom &&
+            requested->custom_rate == 59.94, "fractional interpolated rate lost at Apply");
+        require(wdc::graphics::apply(*requested), "interpolated rate publish failed");
+        wdc::ui::refresh_settings();
+        page.load_config();
+        requested.reset();
+        page.update_option_value("rate_mode", 0u);
+        page.save_config();
+        require(requested && requested->frame_rate == wdc::graphics::FrameRateMode::Original &&
+            requested->custom_rate == 59.94, "leaving a custom mode erased its target");
+        require(wdc::graphics::apply(*requested), "original frame-rate publish failed");
+        wdc::ui::refresh_settings();
+        page.load_config();
+        requested.reset();
+        wdc::ui::stage_defaults(0);
+        require(page.save_config() && requested &&
+            requested->frame_rate == wdc::graphics::FrameRateMode::Original && requested->custom_rate == 60,
+            "graphics defaults did not reset the custom frame-rate target");
         // Enhancement edits are staged separately and preserve graphics choices.
         requested.reset();
         auto& enhancements = recompui::config::get_config("enhancements");
         enhancements.load_config();
         require(enhancements.external_storage && enhancements.requires_confirmation,
             "enhancements must use host storage and Apply/Discard");
-        require(!std::get<bool>(enhancements.get_option_value("native_60fps")), "native 60 fps must default off");
+        require(!enhancements.has_option("native_60fps"), "native 60 fps must be part of race frame rate");
         require(std::get<uint32_t>(enhancements.get_option_value("quick_race_laps")) == 0,
             "quick race laps must default to the course count");
-        enhancements.update_option_value("native_60fps", true);
         enhancements.update_option_value("full_car_detail", true);
         enhancements.update_option_value("full_track_detail", true);
         enhancements.update_option_value("draw_distance", uint32_t(16));
         enhancements.update_option_value("quick_race_laps", uint32_t(20));
         wdc::ui::refresh_settings();
-        require(!requested && !wdc::graphics::snapshot().full_car_detail && !wdc::graphics::snapshot().native_60fps &&
+        require(!requested && !wdc::graphics::snapshot().full_car_detail &&
             wdc::graphics::snapshot().quick_race_laps == 0,
             "staged enhancement reached game");
         enhancements.revert_temp_config();
@@ -222,14 +265,12 @@ int main() {
         enhancements.update_option_value("full_track_detail", true);
         enhancements.update_option_value("draw_distance", uint32_t(8));
         enhancements.update_option_value("quick_race_laps", uint32_t(15));
-        enhancements.update_option_value("native_60fps", true);
         require(enhancements.save_config() && requested, "enhancement Apply failed");
         auto enhanced = wdc::graphics::snapshot();
         enhanced.full_car_detail = true;
         enhanced.full_track_detail = true;
         enhanced.draw_distance = 8;
         enhanced.quick_race_laps = 15;
-        enhanced.native_60fps = true;
         require(*requested == enhanced, "enhancement Apply overwrote graphics");
         require(wdc::graphics::apply(*requested), "enhancement publish failed");
         requested.reset();
@@ -239,7 +280,7 @@ int main() {
         page.update_option_value("resolution", uint32_t(6));
         require(page.save_config() && requested && requested->full_car_detail &&
             requested->full_track_detail && requested->draw_distance == 8 && requested->quick_race_laps == 15 &&
-            requested->native_60fps,
+            requested->frame_rate == enhanced.frame_rate,
             "graphics Apply reset enhancements");
         requested.reset();
         enhancements.load_config();
@@ -249,13 +290,12 @@ int main() {
         require(std::get<uint32_t>(enhancements.get_temp_option_value("draw_distance")) == 1 &&
             std::get<uint32_t>(enhancements.get_temp_option_value("quick_race_laps")) == 0 &&
             !std::get<bool>(enhancements.get_temp_option_value("full_car_detail")) &&
-            !std::get<bool>(enhancements.get_temp_option_value("full_track_detail")) &&
-            !std::get<bool>(enhancements.get_temp_option_value("native_60fps")), "wrong enhancement defaults");
+            !std::get<bool>(enhancements.get_temp_option_value("full_track_detail")), "wrong enhancement defaults");
         enhancements.revert_temp_config();
         require(!enhancements.is_dirty() && wdc::graphics::snapshot() == enhanced, "discard defaults changed game");
         wdc::ui::stage_defaults(1);
         require(enhancements.save_config() && requested && !requested->full_car_detail &&
-            !requested->full_track_detail && !requested->native_60fps && requested->draw_distance == 1 &&
+            !requested->full_track_detail && requested->frame_rate == enhanced.frame_rate && requested->draw_distance == 1 &&
             requested->quick_race_laps == 0 && requested->resolution == enhanced.resolution,
             "defaults Apply lost graphics or retained enhancements");
         // An invalid host file must not be replaced just by loading the UI.

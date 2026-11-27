@@ -120,18 +120,24 @@ opening settings: the game continues running while the overlay is open, but
 menu input is blocked from the game. Held gameplay buttons, stick and enabled pedals must be released before
 input resumes. Color precision requires a restart; most other changes apply live.
 
-**Native 60 fps (experimental)** in Enhancements is off by default. Apply saves
-the preference; it takes effect when the game next starts its input worker
-(starting a race or returning to the menus). It raises racing's sampling and
-rendering to 60 Hz together. Changing it during a race leaves that race's rate
-intact. The original intro and attract-mode demos keep their authored 30 fps
-timing, even with this option enabled. The interpolated presentation modes
-use the original 30 Hz simulation at the next worker startup. See
-[rendering and frame rate](rendering.md#native-60-fps-option) for
-the audit, measurements and remaining validation.
-Replay/ghost streams do not store their sampling rate; recordings are not
-compatible across the two rates. Keep this option off for normal play until
-the experimental acceptance work is complete.
+**Graphics → Race frame rate** is the single frame-rate selector. **Original**
+is the default. **Native 60 fps (experimental)** raises racing's input sampling
+and rendering to 60 Hz together. Apply saves the preference; it takes effect
+when the game next starts its input worker (starting a race or returning to the
+menus). Changing it during a race leaves that race's rate intact. The original
+intro and attract-mode demos keep their authored 30 fps timing, even with this
+option enabled. Replay/ghost streams do not store their sampling rate;
+recordings are not compatible across the two rates. Keep this option off for
+normal play until the experimental acceptance work is complete. See
+[rendering and frame rate](rendering.md#native-60-fps-option) for the audit,
+measurements and remaining validation.
+
+The interpolated choices keep the original 30 Hz simulation and draw extra
+single-player race frames. The legacy Display and Custom choices only change
+renderer presentation; they cannot create new intermediate World Driver
+Championship motion. Existing settings keep that previous behavior under the
+legacy labels rather than silently moving to the more expensive interpolation
+implementation.
 
 **Quick Race laps** sets the length of the next Arcade Race or Time Attack.
 **Course default** keeps each track's own count and is the default. The choice
@@ -153,7 +159,7 @@ controls while it is open. F11 / Alt+Enter works in either mode.
 | --- | --- | --- |
 | F2 | Internal resolution | Auto (default), 1x, 2x, 3x, 4x, 6x, 8x |
 | F3 | Aspect | Match window (default, wider camera), original 4:3 |
-| F4 | Presentation target | Original (default), display, 60, 120, 144, 240 Hz |
+| F4 | Race frame rate | Cycles Original, Native 60, interpolated display/custom, then legacy display/custom |
 | F5 | Anti-aliasing | Off (default), MSAA 2x, 4x, 8x |
 | F6 | Output filter | Nearest, linear (default), pixel scaling |
 | F7 | Color precision (restart) | Auto (default), standard, high |
@@ -180,7 +186,7 @@ cropping the scene. Cinematic layouts and fixed 2D artwork can still leave
 unused space. Narrow windows and Original use a fitted 4:3 view.
 Version 1 preferences, which forcibly disabled widescreen, migrate to Match
 window. An explicit Original choice in version 2 survives restarts.
-Under **Graphics → Presentation rate**, choose **Interpolate to display
+Under **Graphics → Race frame rate**, choose **Interpolate to display
 (experimental)** to follow the detected monitor rate, or **Interpolate to
 custom (experimental)** to set a target. Press **Apply**. If Native 60 fps
 was active, start a new race so the input worker starts at 30 Hz. In supported
@@ -188,8 +194,9 @@ single-player races the game draws the camera, cars, wheels and shadows between
 simulation samples. Split-screen and authored demos use their original draws.
 Rendering throughput depends on the scene and hardware.
 
-The older **Display** and **Custom** choices set RT64's presentation target.
-Existing settings keep their previous behavior. See the
+The legacy **Display** and **Custom** choices set RT64's presentation target.
+Because World Driver Championship submits projected raw triangles, those modes
+can repeat frames but cannot create real intermediate motion. See the
 [rendering notes](rendering.md) for the measured differences.
 
 The overlay offers every resolution multiplier from 1x to 8x and a Custom
@@ -205,6 +212,8 @@ You can also edit the file while the player is closed. Schema version 2:
   "hud": 1,
   "rate": 0,
   "interpolate_races": false,
+  "native_60fps": false,
+  "custom_rate": 60,
   "samples": 1,
   "filtering": 1,
   "precision": 0,
@@ -219,7 +228,17 @@ You can also edit the file while the player is closed. Schema version 2:
 Resolution accepts 0 (auto) or 1-8; aspect accepts 0 (original) or 1 (window);
 HUD placement accepts 0 (original), 1 (clamp to 16:9), or 2 (full width).
 Older version 2 files without `hud` use the default clamp.
-rate accepts 0 (original), -1 (display), or 30-1000 Hz; samples accepts
+The file keeps the version 2 storage keys for compatibility. `rate` accepts
+0 (original), -1 (display), or 30-1000 Hz. `interpolate_races`,
+`native_60fps`, and `rate` are folded into the single menu mode when loading:
+an interpolated rate wins first, then Native 60 fps, then a legacy display or
+custom target. `custom_rate` remembers the custom target while a non-custom
+mode is selected; the active custom mode also writes its target to `rate` so
+older players can read the file. When an old combined Native 60 fps and custom-rate
+file migrates, that positive `rate` becomes the inactive custom target.
+The remembered custom target keeps up to three decimal places in every mode.
+Legacy Custom passes only the nearest whole-number rate to RT64; older players
+also round a fractional legacy `rate` when loading it. Samples accepts
 1, 2, 4, 8. Filtering accepts 0 (nearest), 1 (linear), 2 (pixel scaling);
 precision accepts 0 (auto), 1 (standard), 2 (high). `quick_race_laps` accepts
 0 (course default), 1 through 10, 15, or 20. Any other number becomes 0.

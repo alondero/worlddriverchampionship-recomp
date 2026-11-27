@@ -49,13 +49,13 @@ DisplayRate requested_rate() {
     }();
     if (rate.numerator) return rate;
     const auto settings = graphics::snapshot();
-    if (!settings.interpolate_races) return {0, 1};
-    if (settings.rate == -1) {
+    if (settings.frame_rate == graphics::FrameRateMode::InterpolateDisplay) {
         const unsigned hz = ultramodern::get_display_refresh_rate();
         DisplayRate display{hz, 1};
         return display.supported() ? display : DisplayRate{0, 1};
     }
-    const auto custom = DisplayRate::from_millihertz(unsigned(std::lround(settings.rate * 1000)));
+    if (settings.frame_rate != graphics::FrameRateMode::InterpolateCustom) return {0, 1};
+    const auto custom = DisplayRate::from_millihertz(unsigned(std::lround(settings.custom_rate * 1000)));
     return custom.supported() ? custom : DisplayRate{0, 1};
 }
 

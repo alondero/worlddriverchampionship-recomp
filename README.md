@@ -39,8 +39,9 @@ settings overlay, with Apply/Discard, Restore Defaults, editable controls,
 and session cheats for tracks and GT1 or GT2 cars.
 Race presentation widens the camera to match the window, preserves car/HUD
 proportions and removes the outer TV borders. Original 4:3 remains available.
-Experimental presentation-rate controls are available; interpolated motion
-remains future work. See [Graphics settings](docs/configuration.md) and the
+A unified experimental race frame-rate selector offers Native 60 fps,
+motion interpolation, and legacy renderer-target compatibility modes. See
+[Graphics settings](docs/configuration.md) and the
 [peer capability review](docs/graphics-capabilities.md).
 
 See [Building](BUILDING.md), [First-playable evidence](docs/first-playable.md),

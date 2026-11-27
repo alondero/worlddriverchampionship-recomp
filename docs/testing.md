@@ -64,7 +64,9 @@ second and 87.4â€“90.2 or 57.3â€“60.2 RT64 admissions per second, resp
 with zero retrace admissions inside those windows.
 
 The live race tests used Windows 11 x64, Direct3D 12 on an RTX 3080 and SDL
-WASAPI at 1x internal resolution. Windows reported one 3840Ã—2160 desktop at
+WASAPI at 1x internal resolution. These archived runs predate the unified race
+frame-rate selector; F4 then chose numeric presentation targets directly.
+Windows reported one 3840Ã—2160 desktop at
 119 Hz. The 90 and 59.94 Hz values were custom targets. Pause returned
 presentation to retrace, and resume began a fresh pose history. Native Restart
 Race passed through the loader and re-entered at sample zero. Live F8 restore
