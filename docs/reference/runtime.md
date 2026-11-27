@@ -88,15 +88,13 @@ the 3D intro. The focused startup regression, 17 existing CTest entries, nine
 Python tests, documentation, repository-hygiene and whitespace checks passed.
 This was an incremental player rebuild, not a clean build or full-race test.
 
-## Extended-memory visibility reservation
+## Expansion Pak renderer reservations
 
-The enhanced track-section list occupies `0x80FF2880..0x80FF387F` in extended
-emulated memory. This is outside the original 8 MiB game memory and below
-`0x81000000`, where mod memory and the librecomp heap start. Runtime patch
-data is copied from `0x80801000` upward; patch data large enough to reach the
-reservation is unsupported. The generated ROM instruction patches in
-`rom-symbols.toml` are the only supported writers/readers of that list. See
-[distance and detail](visibility.md).
+The port reserves `0x80700000..0x807BFFFF` for the enlarged primary race draw
+arena and `0x807F2880..0x807F387F` for the track-section list. Both ranges sit
+above the ROM's 4 MiB heap and inside the 8 MiB RDRAM copied for interpolated
+draws and development checkpoints. Runtime patch data starts at
+`0x80801000`. See [distance and detail](visibility.md).
 
 ## BOSS graphics task cost
 

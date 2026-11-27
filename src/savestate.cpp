@@ -139,6 +139,11 @@ bool load(uint8_t* rdram, recomp_context* ctx, const std::filesystem::path& path
     if (h.callback == race_callback && (std::memcmp(saved + 0x7FE1C, rdram + 0x7FE1C, 4) ||
             std::memcmp(saved + 0x7FDF0, rdram + 0x7FDF0, 8)))
         return fail("load", "start the race with the saved frame-rate mode first; RAM unchanged");
+    // The scene loader publishes the primary frame arena base (KSEG0 u32)
+    // and capacity (u32 in 8-byte commands) at 8007ED50/54. Keep the live
+    // arena layout, including when a checkpoint predates the port reservation.
+    if (h.callback == race_callback && std::memcmp(saved + 0x7ED50, rdram + 0x7ED50, 8))
+        return fail("load", "saved race draw arena differs; recreate the checkpoint in this setup; RAM unchanged");
     if (!ultramodern_prepare_thread_snapshot(rdram, saved, ram_size,
             h.threads.data(), &h.count, true))
         return fail("load", "live thread/queue layout differs; retry at a settled frame; RAM unchanged");

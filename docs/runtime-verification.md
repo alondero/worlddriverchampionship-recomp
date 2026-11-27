@@ -16,11 +16,14 @@ profile, drives controller 1, and checks the game's reported outcome.
    python -B tools/run_game_scenario.py scenarios/menu-to-practice.json
    python -B tools/run_game_scenario.py scenarios/race-transition.json
    python -B tools/run_game_scenario.py scenarios/track10-draw-unlimited.json
+   python -B tools/run_game_scenario.py scenarios/new-zealand-arcade-unlimited.json
    ```
 
    Practice Drive waits at the start, holds A, releases it, and asserts that
    the Hawaii practice race simulates and the player moves. Track 10 Draw
    Unlimited exercises the bounded Unlimited draw-distance regression route.
+   New Zealand Arcade Unlimited checks race loading and simulation with a
+   full grid and the enlarged primary draw arena.
    Menu to Practice
    drives a normal boot, car selection, and the Quick Race menus into Hawaii
    Practice Laps. Race Transition enters a second layout in Arcade mode and

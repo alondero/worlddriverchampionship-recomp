@@ -16,6 +16,7 @@ std::jmp_buf packet_boundary;
 constexpr gpr car = int32_t(0x80400000), scene = int32_t(0x80402000);
 constexpr gpr camera = int32_t(0x80403000), track = int32_t(0x80404000);
 constexpr gpr sections = int32_t(0x80405000), packet = int32_t(0x80410000);
+constexpr gpr visibility_list = int32_t(wdc::visibility::track_section_list);
 int boundary_kind = 0; // car allocation, track detail, track visibility list
 int completed_car_lists = 0;
 }
@@ -25,7 +26,7 @@ void func_800218F0(uint8_t*, recomp_context*);
 void func_800108B4(uint8_t*, recomp_context*);
 void func_800230D4(uint8_t*, recomp_context*);
 void func_8002343C(uint8_t*, recomp_context*);
-void wdc_frame_arena_size(uint8_t*, recomp_context*);
+void func_80025378(uint8_t*, recomp_context*);
 // Inputs are already transformed into camera space. These two update helpers
 // are outside the visibility decision under test.
 void func_8001F7F8(uint8_t*, recomp_context*) {}
@@ -71,7 +72,7 @@ int main(int argc, char** argv) {
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
     assert(argc == 2);
-    std::vector<uint8_t> memory(32 * 1024 * 1024);
+    std::vector<uint8_t> memory(8 * 1024 * 1024);
     auto* rdram = memory.data();
     std::ifstream rom(argv[1], std::ios::binary);
     assert(rom);
@@ -183,13 +184,13 @@ int main(int argc, char** argv) {
     assert(draw(40) == -1);
     assert(draw(10) == 0);
     MEM_W(0, int32_t(0x8007E920)) = 1;
-    MEM_W(0, int32_t(0x80FF2880)) = int32_t(sections);
+    MEM_W(0, visibility_list) = int32_t(sections);
     assert(draw(40) == 0);
     // The car consumer follows the expanded host list beyond the original
     // 64-entry guest storage.
     MEM_W(0, int32_t(0x8007E920)) = 65;
-    MEM_W(0, int32_t(0x80FF2880)) = 0;
-    MEM_W(64 * 4, int32_t(0x80FF2880)) = int32_t(sections);
+    MEM_W(0, visibility_list) = 0;
+    MEM_W(64 * 4, visibility_list) = int32_t(sections);
     assert(draw(40) == 0);
     MEM_W(0x3C4, car) = 0;
     wdc::visibility::configure(false, false, 1);
@@ -253,7 +254,7 @@ int main(int argc, char** argv) {
         const int count = MEM_W(0, int32_t(0x8007E920));
         assert(count > 0 && count <= 1024);
         for (int i = 0; i < count; ++i) for (int j = i + 1; j < count; ++j)
-            assert(MEM_W(i * 4, int32_t(0x80FF2880)) != MEM_W(j * 4, int32_t(0x80FF2880)));
+            assert(MEM_W(i * 4, visibility_list) != MEM_W(j * 4, visibility_list));
         return count;
     };
     ring(256, 8, 8);
@@ -282,17 +283,34 @@ int main(int argc, char** argv) {
     wdc::visibility::configure(false, false, 8);
     assert(track_detail(288) == 0x4000);
 
-    auto arena_size = [&](int scale, uint32_t size) {
+    // Run the original arena initializer and descending allocator using the
+    // New Zealand race's heap bounds. Only the primary reservation may move.
+    auto check_arena = [&](int scale, uint32_t size, bool expanded) {
+        constexpr int32_t heap = int32_t(0x800E3880);
+        constexpr uint32_t top = 0x2EDAE0;
+        const uint32_t primary_top = top - 0x8000 - 2 * 0x3C000;
+        MEM_W(0, int32_t(0x800924A0)) = heap;
+        MEM_W(0, int32_t(0x800924A8)) = 0x4B000;
+        MEM_W(0, int32_t(0x800924AC)) = top;
         wdc::visibility::configure(false, false, scale);
         recomp_context ctx{};
-        ctx.r4 = gpr(size);
-        wdc_frame_arena_size(rdram, &ctx);
-        return uint32_t(ctx.r4);
+        ctx.r29 = int32_t(0x807FF000);
+        ctx.r4 = size; ctx.r5 = 0x3C000; ctx.r6 = 0x8000;
+        func_80025378(rdram, &ctx);
+        assert(ctx.r29 == int32_t(0x807FF000));
+        assert(MEM_W(0, int32_t(0x800B3838)) == ADD32(heap, top - 0x8000));
+        assert(MEM_W(0, int32_t(0x800B3834)) == ADD32(heap, primary_top + 0x3C000));
+        assert(MEM_W(0, int32_t(0x800B3830)) == ADD32(heap, primary_top));
+        assert(uint32_t(MEM_W(0, int32_t(0x8007ED50))) ==
+               (expanded ? 0x80700000u : uint32_t(heap) + primary_top - size));
+        assert(uint32_t(MEM_W(0, int32_t(0x8007ED54))) * 8 == (expanded ? size * 2 : size));
+        assert(uint32_t(MEM_W(0, int32_t(0x800924AC))) == (expanded ? primary_top : primary_top - size));
+        assert(MEM_W(0, int32_t(0x800924A8)) == 0x4B000);
     };
-    assert(arena_size(1, 0x40000) == 0x40000);
-    assert(arena_size(2, 0x40000) == 0x80000);
-    assert(arena_size(8, 0x60000) == 0xC0000);
-    assert(arena_size(16, 0x40000) == 0x80000);
-    assert(arena_size(16, 0x38000) == 0x38000); // menu allocation remains unchanged
+    check_arena(1, 0x40000, false);
+    check_arena(2, 0x40000, true);
+    check_arena(8, 0x60000, true);
+    check_arena(16, 0x40000, true);
+    check_arena(16, 0x38000, false); // menu allocation remains unchanged
     std::cout << "Track: original/detail override, mode remaps, expanded list relocation, wrap and invalid extension\n";
 }

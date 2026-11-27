@@ -45,21 +45,23 @@ extern "C" void wdc_menu_car_visibility(uint8_t* rdram, recomp_context* ctx) {
     if (page == 0 || page == 44) ctx->r15 = 0;
 }
 
-// USA func_80025378 entry, before its frame-arena allocations. a0 is the
-// primary ascending/descending race arena byte size; 0x40000 is the normal
-// race allocation and 0x60000 the larger alternate race allocation.
-// The menu's 0x38000 allocation is unchanged. The hook runs on the game
-// thread during scene setup, before the simple descending heap allocator
-// reserves the block.
-// It only rewrites the register size for enhanced draw distances; ownership,
-// alignment, lifetime, and the original heap remain with the ROM. Doubling
-// this bounded first-8-MiB block keeps BOSS-visible commands in memory its
-// 24-bit DMA path can address. If the setting changes after loading, the
-// existing allocation is intentionally retained until the next scene setup.
-extern "C" void wdc_frame_arena_size(uint8_t*, recomp_context* ctx) {
-    if ((settings() & 0xffu) == 1) return;
+// USA 800253D4 replaces the primary arena's call to the descending ROM
+// allocator on the scene-loading thread, after the prior scene's graphics
+// drain. a0 is the arena size in bytes, v0 is its KSEG0 base, and the saved
+// u32 at sp+0x18 is the size the ROM publishes after this call. The original
+// 4 MiB heap has no bounds check. A larger arena there can push race effects
+// into the framebuffers, where RDP writeback corrupts their guest pointers.
+// Use a port-owned, 16-byte-aligned slice of the Expansion Pak area, inside
+// both BOSS DMA range and the interpolation image. It lasts until scene
+// teardown. Original distance and other arena sizes use the ROM allocator.
+extern "C" bool wdc_reserve_frame_arena(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t base = 0x80700000u;
+    static_assert(base + 0xC0000u <= wdc::visibility::track_section_list);
     const uint32_t size = uint32_t(ctx->r4);
-    if (size == 0x40000u || size == 0x60000u) ctx->r4 = size * 2;
+    if ((settings() & 0xffu) == 1 || (size != 0x40000u && size != 0x60000u)) return false;
+    MEM_W(0x18, ctx->r29) = size * 2;
+    ctx->r2 = int32_t(base);
+    return true;
 }
 
 extern "C" void wdc_car_distance(uint8_t*, recomp_context* ctx) {
@@ -81,8 +83,8 @@ extern "C" void wdc_track_detail(uint8_t*, recomp_context* ctx) {
 // Nodes are game-owned for this render call, with big-endian u32 next/previous
 // links at +0/+4 accessed through word-swapped RDRAM helpers. Read only on the
 // guest thread; never retain a pointer. Generated list accesses are relocated
-// from 800B2880 to host-reserved extended memory at 80FF2880, where 1024
-// pointers fit before mod memory. Validate the original walk before extending
+// from 800B2880 to 807F2880, where 1024 pointers fit inside the 8 MiB
+// interpolation image. Validate the original walk before extending
 // it, avoid duplicate/invalid links, and never exceed that bounded capacity.
 // Invalid original input leaves registers untouched; a bad extension stops at
 // the last valid node. Replace this bridge with a named guest visibility API

@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "name": "new-zealand-arcade-unlimited",
+  "warp": "19:6:arcade",
+  "start": "race",
+  "max_vis": 1200,
+  "input": [{"polls": 90}],
+  "settings": {
+    "graphics.json": {"version": 2, "draw_distance": 16}
+  },
+  "expect": {
+    "min_graphics_tasks": 60,
+    "min_presentations": 60,
+    "races": [
+      {
+        "course": 3,
+        "layout": 0,
+        "car": 6,
+        "mode": 3,
+        "min_samples": 80,
+        "min_peak_visibility_list_count": 64,
+        "min_frame_arena_gap": 65536
+      }
+    ]
+  }
+}

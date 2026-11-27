@@ -86,12 +86,12 @@ unimplemented = ["func_80075474", "func_8007555C"]
 [sizes]
 0x8001A280 = 0xA0
 
-# Host-reserved extended-RDRAM destination for the visible-section list.
+# Port-reserved destination in the Expansion Pak portion of RDRAM.
 # The replacement keeps the low 16 bits so generation only rewrites measured
 # LUI high halves in the two reviewed consumers/producers.
 [visibility]
 list_address = 0x800B2880
-expanded_list_address = 0x80FF2880
+expanded_list_address = 0x807F2880
 original_list_bytes = 0x100
 
 [native]
@@ -160,12 +160,18 @@ func = "func_8000C560"
 before_vram = 0x8000C560
 text = "{ extern void wdc_warp_race(uint8_t*, recomp_context*); wdc_warp_race(rdram, ctx); }"
 
-# Enhanced draw distance needs more of the ROM heap reserved for the race
-# frame arena. The hook is register-only and leaves menu allocations unchanged.
+# Route only the primary arena allocation through the port. Its original
+# delay slot loads a0 at 800253D0 before the bridge runs.
+[[instructions]]
+func = "func_80025378"
+vram = 0x800253CC
+expected = 0x0C00F277 # jal func_8003C9DC
+value = 0
+
 [[hooks]]
 func = "func_80025378"
-before_vram = 0x80025378
-text = "{ extern void wdc_frame_arena_size(uint8_t*, recomp_context*); wdc_frame_arena_size(rdram, ctx); }"
+before_vram = 0x800253D4
+text = "{ extern _Bool wdc_reserve_frame_arena(uint8_t*, recomp_context*); if (!wdc_reserve_frame_arena(rdram, ctx)) func_8003C9DC(rdram, ctx); }"
 
 # Race dispatcher after simulation and before post-draw housekeeping. Route its
 # one draw call through the port, preserving the original NOP delay slot.

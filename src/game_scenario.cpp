@@ -113,10 +113,11 @@ void observe_race(const uint8_t* rdram) {
     entry.last_sample = sample;
 
     // The visibility list count is game-owned at 8007E920. Its entries were
-    // relocated to host-reserved extended memory at 80FF2880; at this dispatcher
+    // relocated to the port's Expansion Pak region; at this dispatcher
     // boundary they describe the most recently culled frame. Read both peaks
     // without retaining guest pointers. Out-of-range counts are loader noise.
-    constexpr uint32_t visibility_count = 0x8007E920, visibility_list = 0x80FF2880;
+    constexpr uint32_t visibility_count = 0x8007E920;
+    constexpr uint32_t visibility_list = wdc::visibility::track_section_list;
     constexpr uint32_t visibility_capacity = wdc::visibility::max_track_sections;
     const auto count = race::word(rdram, visibility_count);
     if (count <= visibility_capacity) {

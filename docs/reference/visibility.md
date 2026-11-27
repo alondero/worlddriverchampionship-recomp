@@ -86,17 +86,13 @@ section-boundary pop-in separately from polygon LOD.
 The original guest list starts at `0x800B2880`; matrix scratch starts at
 `0x800B2980`, so the stock storage has only 64 pointer slots. Generation
 relocates measured list references in the producer `func_8002343C` and car
-consumer `func_800218F0` to host-reserved extended memory at `0x80FF2880`.
-That address is above normal 8 MiB game memory and below `0x81000000`, where
-runtime mod memory and the librecomp heap begin. The replacement keeps the
+consumer `func_800218F0` to port-reserved memory at `0x807F2880`. The list
+fits in the 8 MiB image used by the interpolation renderer. The replacement keeps the
 original low 16 bits, so only measured LUI high halves are patched; the
 scanner fails generation if either function or an unsupported reference
 shape is absent. References anywhere in the original 64-entry range are
 covered, including measured `list+4` forms; matrix scratch at `0x800B2980` is
-not relocated. Runtime patch data starts at `0x80801000`; the reservation
-leaves the top of that gap for this list, so extremely large third-party
-patch data is outside the supported configuration. The 1024-entry list ends
-before `0x80FF3880`.
+not relocated. The 1024-entry list ends before `0x807F3880`.
 
 The hook validates the original linked walk, then alternates forward/backward
 extensions within that capacity, stopping before invalid links or repeated
@@ -112,19 +108,22 @@ BOSS command cursor (`0x8007ED40`) and a descending matrix/packet cursor
 ordinary guest pointers as opcodes and can leave its jump table through an
 unhandled target. The normal race allocation is `0x40000` bytes and the
 larger alternate race allocation is `0x60000`. With enhanced draw distance
-active, the `func_80025378` entry hook doubles either race allocation before
-the ROM heap reserves it. The menu's `0x38000` allocation is unchanged. This remains in
-memory addressable by BOSS's 24-bit DMA path. Original mode retains the ROM
-sizes. Because allocation happens during scene setup, changing the setting
-applies the new arena size from the next scene load.
+active at scene setup, the hook at `0x800253D4` doubles either size and places
+the primary arena at `0x80700000` in the Expansion Pak area. This range is
+addressable by BOSS DMA and available in the interpolation image. Stock
+distance, menu arenas and the secondary packet arenas use the original
+allocator. A distance change applies the new arena size at the next scene load.
 
 Track 10 practice provided the regression evidence. Before expansion, 8x
 finished a neutral-input route with only about 9 KiB of sampled arena headroom;
 Unlimited collided shortly after passing 108 filled section slots and BOSS
-stopped with an unhandled jump target. Doubling the arena left 538 KiB of heap
-unallocated after loading and the checked-in Unlimited scenario completed with
-152 listed sections, 124 filled slots, 248,192 bytes as the smallest sampled
-primary arena gap and 184,176 bytes in the secondary packet arena.
+stopped with an unhandled jump target. The larger arena fits the Track 10
+render workload. Putting it inside the ROM's heap caused New Zealand A Arcade
+to run out of heap space. The unchecked allocator placed car-effect data in a
+framebuffer, and the second rendered frame overwrote an effect pointer before
+the next simulation update. The Expansion Pak reservation leaves the original
+heap available to race assets. The `new-zealand-arcade-unlimited` scenario
+covers this race load and checks that graphics and simulation advance.
 Representative short Unlimited measurements on tracks 1, 10, 20, 30, 40, 50
 and 58 passed with 69 to 152 listed sections, 25 to 91 filled slots and
 290,928 to 420,848 bytes of sampled headroom. That gap is sampled at dispatcher

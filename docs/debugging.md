@@ -34,7 +34,9 @@ before saving. If both requests are pending, load wins.
 
 After restarting, enter the same scene/race setup before loading. A race load
 requires the same participant/model grid, course/layout, mirror, laps, mode,
-dispatcher stack address, live thread/queue layout, and race frame-rate mode.
+dispatcher stack address, live thread/queue layout, race frame-rate mode and
+primary draw arena layout. Recreate checkpoints saved with the old enlarged
+arena in the ROM heap.
 `WDC_WARP` is the convenient way to repeat a setup; a state does not bypass its
 loader. A rejected load leaves RAM alone and logs its reason; a thread-layout
 rejection can be retried with F8.
