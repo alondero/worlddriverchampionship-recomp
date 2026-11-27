@@ -17,15 +17,19 @@ constexpr gpr car = int32_t(0x80400000), scene = int32_t(0x80402000);
 constexpr gpr camera = int32_t(0x80403000), track = int32_t(0x80404000);
 constexpr gpr sections = int32_t(0x80405000), packet = int32_t(0x80410000);
 constexpr gpr visibility_list = int32_t(wdc::visibility::track_section_list);
-int boundary_kind = 0; // car allocation, track detail, track visibility list
+int boundary_kind = 0; // car allocation, track detail, track visibility list, menu, scenery
 int completed_car_lists = 0;
 }
 extern "C" {
 void do_break(uint32_t) { std::abort(); }
+recomp_func_t* get_function(int32_t) { std::abort(); }
 void func_800218F0(uint8_t*, recomp_context*);
 void func_800108B4(uint8_t*, recomp_context*);
 void func_800230D4(uint8_t*, recomp_context*);
 void func_8002343C(uint8_t*, recomp_context*);
+void func_800224F0(uint8_t*, recomp_context*);
+void func_80010DA0(uint8_t*, recomp_context*);
+void func_8002703C(uint8_t*, recomp_context*);
 void func_80025378(uint8_t*, recomp_context*);
 // Inputs are already transformed into camera space. These two update helpers
 // are outside the visibility decision under test.
@@ -33,6 +37,7 @@ void func_8001F7F8(uint8_t*, recomp_context*) {}
 void func_8001FC64(uint8_t*, recomp_context*) {}
 void func_8002D4F4(uint8_t*, recomp_context* ctx) {
     if (boundary_kind == 3) { assert(ctx->r4 == 0x307); ctx->r2 = packet; return; }
+    if (boundary_kind == 4) { assert(ctx->r4 == 0x305); std::longjmp(packet_boundary, 1); }
     if (boundary_kind == 0) std::longjmp(packet_boundary, 1);
     assert(boundary_kind == 1 && ctx->r4 == 0x301);
     ctx->r2 = packet;
@@ -65,6 +70,11 @@ UNEXPECTED(func_8003062C)
 UNEXPECTED(func_8001FBB0)
 UNEXPECTED(func_80022E34)
 UNEXPECTED(func_8001A9BC)
+UNEXPECTED(func_80019F60)
+UNEXPECTED(func_80022660)
+UNEXPECTED(func_8002D378)
+UNEXPECTED(func_80026208)
+UNEXPECTED(func_8006F63C)
 }
 int main(int argc, char** argv) {
 #ifdef _WIN32
@@ -197,6 +207,110 @@ int main(int argc, char** argv) {
     assert(draw(40) == 6);
     assert(draw(201) == -1);
     std::cout << "Enhanced: full car detail, extended distance, retained near/side rejection, live restoration\n";
+
+    // Scenery has a separate radial range. Exercise the original squared
+    // distance calculation and rejection branch up to packet allocation.
+    boundary_kind = 4;
+    constexpr gpr scenery = track + 0x800, position = scenery + 0x40;
+    MEM_W(0x10, scenery) = int32_t(position);
+    auto submit_scenery = [&](float x, float y) {
+        put(position, 0, x);
+        put(position, 4, y);
+        recomp_context ctx{};
+        ctx.f_odd = &ctx.f0.u32h;
+        ctx.r29 = int32_t(0x807FF000);
+        ctx.r4 = scenery;
+        if (setjmp(packet_boundary) != 0) return true;
+        func_800224F0(rdram, &ctx);
+        return false;
+    };
+    assert(submit_scenery(383, 0));
+    assert(!submit_scenery(384, 0));
+    assert(!submit_scenery(300, 300));
+    assert(!submit_scenery(512, 0));
+    wdc::visibility::configure(false, false, 2);
+    assert(submit_scenery(512, 0));
+    assert(submit_scenery(767, 0));
+    assert(!submit_scenery(768, 0));
+    wdc::visibility::configure(false, false, 8);
+    assert(submit_scenery(512, 0));
+    assert(submit_scenery(3071, 0));
+    assert(!submit_scenery(3072, 0));
+    wdc::visibility::configure(false, false, 16);
+    assert(submit_scenery(3072, 0));
+    assert(submit_scenery(24575, 0));
+    assert(!submit_scenery(24576, 0));
+    wdc::visibility::configure(false, true, 1);
+    assert(!submit_scenery(512, 0));
+    wdc::visibility::configure(false, false, 1);
+
+    // Run the ROM's sort-table setup and insert projected track triangles
+    // through its real depth rejection and packet writer.
+    constexpr gpr commands = int32_t(0x80500010), primary_top = int32_t(0x80520000);
+    constexpr gpr secondary_top = int32_t(0x80540000);
+    constexpr gpr render_mesh = int32_t(0x80550000), mesh_ref = render_mesh + 0x40;
+    constexpr gpr mesh = mesh_ref + 0x40, polygon = mesh + 0x40;
+    constexpr gpr vertices = polygon + 0x40, material = vertices + 0x40;
+    MEM_W(0, render_mesh) = int32_t(mesh_ref);
+    MEM_W(4, render_mesh) = int32_t(vertices);
+    MEM_W(0, mesh_ref) = int32_t(mesh);
+    MEM_W(8, mesh) = int32_t(polygon);
+    MEM_W(0xC, mesh) = 1;
+    MEM_W(0x10, mesh) = MEM_W(0x18, mesh) = int32_t(material);
+    MEM_W(0, material) = MEM_W(4, material) = MEM_W(8, material) = int32_t(material + 0x40);
+    MEM_H(0, polygon) = -64; // authored sort bias
+    MEM_H(0xA, polygon) = 1;
+    MEM_H(0xC, polygon) = 2;
+    MEM_H(0xE, polygon) = -1; // triangle
+    MEM_H(2, vertices + 16) = 200;
+    MEM_H(0, vertices + 32) = 200;
+    MEM_W(0, int32_t(0x8007EF48)) = 0;
+    MEM_W(0, int32_t(0x8007EF4C)) = 0;
+    MEM_W(0, int32_t(0x8007EF58)) = 0;
+    put(scene, 0x60, 384);
+
+    auto sort_triangle = [&](int scale, bool race, int depth, int buckets, bool expected) {
+        wdc::visibility::configure(false, false, scale);
+        MEM_W(0, int32_t(0x8007D848)) = int32_t(race ? 0x8000C560 : 0x8004E950);
+        MEM_W(0, int32_t(0x8007ED40)) = int32_t(commands - 8);
+        MEM_W(0, int32_t(0x8007ED84)) = int32_t(commands - 8);
+        MEM_W(0, int32_t(0x8007FE70)) = int32_t(primary_top);
+        MEM_W(0, int32_t(0x8007FE74)) = int32_t(secondary_top);
+        for (int i = 0; i < 3; ++i) MEM_H(0xE, vertices + 16 * i) = depth * 32;
+
+        recomp_context ctx{};
+        ctx.f_odd = &ctx.f0.u32h;
+        ctx.r29 = int32_t(0x807FF000);
+        ctx.r4 = scene;
+        func_80010DA0(rdram, &ctx);
+        const gpr tails = MEM_W(0, int32_t(0x8007ED9C));
+        assert(MEM_W(0, int32_t(0x8007EDA0)) == buckets);
+        assert(MEM_W(0, int32_t(0x8007ED98)) == int32_t(commands));
+        assert(MEM_W(0, int32_t(0x8007ED84)) == int32_t(commands + 4 * buckets));
+        const bool extended = buckets > 1152;
+        assert(tails == (extended ? int32_t(0x807C0000) : primary_top - 4 * buckets));
+        assert(MEM_W(0, int32_t(0x8007FE70)) == int32_t(extended ? primary_top : tails));
+        assert(MEM_W(4 * (buckets - 1), tails) == int32_t(commands + 4 * (buckets - 1)));
+
+        ctx.r4 = render_mesh;
+        ctx.r5 = tails;
+        ctx.r6 = buckets - 1;
+        ctx.r7 = material;
+        func_8002703C(rdram, &ctx);
+        assert(MEM_W(0, int32_t(0x8007FE74)) == int32_t(secondary_top - (expected ? 0x40 : 0)));
+        if (expected) {
+            const int index = buckets - 1 - (3 * depth + 64);
+            assert(MEM_W(4 * index, tails) == int32_t(secondary_top - 0x40));
+        }
+    };
+    sort_triangle(1, true, 350, 1152, true);
+    sort_triangle(1, true, 410, 1152, false);
+    sort_triangle(2, true, 410, 2304, true);
+    sort_triangle(8, true, 960, 4096, true);
+    sort_triangle(16, true, 960, 4096, true);
+    sort_triangle(16, false, 410, 1152, false);
+    sort_triangle(1, true, 410, 1152, false);
+
     // Actual track depth->detail bucket and mode-remapping routines.
     boundary_kind = 1;
     put(camera, 0, 1);

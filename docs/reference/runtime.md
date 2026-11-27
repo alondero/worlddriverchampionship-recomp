@@ -91,7 +91,8 @@ This was an incremental player rebuild, not a clean build or full-race test.
 ## Expansion Pak renderer reservations
 
 The port reserves `0x80700000..0x807BFFFF` for the enlarged primary race draw
-arena and `0x807F2880..0x807F387F` for the track-section list. Both ranges sit
+arena, `0x807C0000..0x807C3FFF` for enlarged depth sort tails, and
+`0x807F2880..0x807F387F` for the track-section list. These ranges sit
 above the ROM's 4 MiB heap and inside the 8 MiB RDRAM copied for interpolated
 draws and development checkpoints. Runtime patch data starts at
 `0x80801000`. See [distance and detail](visibility.md).

@@ -74,6 +74,36 @@ then remaps for mode/secondary views. The index selects the packet detail mask
 (`0x100 << index`) and the near/distant track material root.
 **Full track detail** forces index zero at `0x80023244`, after remapping.
 
+`func_800224F0` submits freestanding course objects. It compares the squared
+camera-to-object distance against a fixed 384-unit radius squared at
+`0x80022520`. Draw distance scales this cutoff by the square of the setting's
+distance multiplier, matching the units of the comparison.
+
+After BOSS projects the geometry, `func_8002703C` rejects track and object
+polygons whose sort keys exceed the view's depth-bucket count. The ROM sets
+that count to three times the truncated scene far distance, rounded down to
+an even number. At Rome A's Colosseum approach it stayed at 1,152 even with
+Unlimited enabled, so the trees beyond the arch appeared only after moving
+closer despite their sections already being visible. The hook at
+`0x80010DD4` scales the count in race views before the ROM sizes and
+initializes the two tables. The enhancement caps the count at 4,096,
+covering the key range from signed 16-bit BOSS depths with room for polygon
+bias, at 16 KiB per table. The BOSS table stays in the secondary command
+stream. The enlarged CPU-side tail table uses `0x807C0000..0x807C3FFF` so
+applying a longer distance mid-race leaves the stock primary arena available
+for BOSS commands. Original distance and menu views keep the ROM count and
+allocation.
+
+The extended range can also reach beyond BOSS's fog table. The projection
+routine at RSP IMEM `1390` and `1394` reads a byte at DMEM `07B0 + index`.
+The signed 256-entry table ends at `082F`. At Rome A, index 231 read graphics
+scratch at `0897`. The resulting vertex alpha changed as the camera moved,
+and the RDP blended the affected trees toward the course's gray fog color.
+The BOSS compilation seam clamps those two lookup indices to -128..127.
+In-range entries retain their original fog and farther geometry uses the
+last entry in the table. This range also matches the independently decoded
+[GLideN64 fog lookup](https://github.com/gonetz/GLideN64/blob/master/src/uCodes/ZSortBOSS.cpp#L330-L332).
+
 `func_8002343C` starts at the camera/car section, reads forward/backward counts
 from section bytes `+0x1C/+0x1D`, and follows u32 links at `+0/+4`.
 Some modes reduce these counts. At `0x80023674`, **Draw distance** scales the
@@ -147,7 +177,9 @@ respects 1x/4x/8x/Unlimited far limits, retains near/side/section rejection
 behavior when disabled. Track checks cover mode remapping, 17 -> 33 -> 129
 section expansion at 4x/8x in a 256-section ring, full-ring Unlimited
 submission, zero-authored-count Unlimited expansion, short-ring deduplication
-and invalid extension links.
+and invalid extension links. The fixture also executes the scenery range
+check, sort-table initialization and the polygon insertion branch that rejected
+geometry at the original sort limit.
 `wdc_camera_rom` checks projection changes; configuration/frontend tests cover
 persistence and independent Apply/Discard behavior.
 
@@ -168,8 +200,8 @@ ctest --test-dir build --output-on-failure
 ```
 
 These options do not promise removal of every scenery transition: the list
-remains bounded at 1024 entries, authored geometry and bounding-box culling
-still apply, and fog is unchanged. Unlimited can submit most or all of a
+remains bounded at 1024 entries, and authored geometry and bounding-box culling
+still apply. Unlimited can submit most or all of a
 course every frame, so CPU, BOSS and GPU cost can be substantial and the very
 large finite far plane can expose depth artifacts.
 All options default to stock behavior. Visual/performance acceptance across

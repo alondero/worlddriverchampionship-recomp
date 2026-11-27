@@ -1,11 +1,17 @@
 #include "game_visibility.h"
+#include "race_globals.h"
 #include "recomp.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <limits>
 
 namespace {
+constexpr uint32_t max_depth_sort_buckets = 4096;
+constexpr uint32_t depth_sort_tails = 0x807C0000u;
+static_assert(depth_sort_tails + max_depth_sort_buckets * sizeof(uint32_t) <= wdc::visibility::track_section_list);
+
 std::atomic<unsigned> policy{1};
 unsigned settings() { return policy.load(std::memory_order_relaxed); }
 bool node_valid(uint32_t address) {
@@ -56,7 +62,7 @@ extern "C" void wdc_menu_car_visibility(uint8_t* rdram, recomp_context* ctx) {
 // teardown. Original distance and other arena sizes use the ROM allocator.
 extern "C" bool wdc_reserve_frame_arena(uint8_t* rdram, recomp_context* ctx) {
     constexpr uint32_t base = 0x80700000u;
-    static_assert(base + 0xC0000u <= wdc::visibility::track_section_list);
+    static_assert(base + 0xC0000u <= depth_sort_tails);
     const uint32_t size = uint32_t(ctx->r4);
     if ((settings() & 0xffu) == 1 || (size != 0x40000u && size != 0x60000u)) return false;
     MEM_W(0x18, ctx->r29) = size * 2;
@@ -73,9 +79,51 @@ extern "C" void wdc_car_detail(uint8_t*, recomp_context* ctx) {
     // Only the comparison operand changes; car+9B0 (size/fade) is preserved.
     if (settings() & 0x100u) ctx->f6.fl = std::numeric_limits<float>::infinity();
 }
+extern "C" void wdc_scenery_distance(uint8_t*, recomp_context* ctx) {
+    // 80022520: f0 holds the squared camera-to-object distance and f4 the
+    // ROM's 384-unit radius squared. Scale only the cutoff, in square world units.
+    const float scale = wdc::visibility::distance_scale();
+    ctx->f4.fl *= scale * scale;
+}
 extern "C" void wdc_track_detail(uint8_t*, recomp_context* ctx) {
     // 80023244: v0 is the detail index AFTER multiplayer/mode remapping.
     if (settings() & 0x200u) ctx->r2 = 0;
+}
+
+// USA 80010DD4, on the guest render thread before allocating a view's
+// sort tables. t0 is the even bucket count, roughly 3 * scene draw distance.
+// Read the game-owned, aligned u32 dispatcher callback at 8007D848 through
+// word-swapped RDRAM. Only races extend the count. The ROM allocates and
+// initializes both tables from this count, then uses it to reject polygons.
+// Track polygon keys sum three signed BOSS depths before shifting right by
+// five, then subtract an authored bias. 4096 covers the raw 0..3071 keys
+// plus up to 1024 buckets of negative bias, with at most 16 KiB per table.
+// Counts already at or above the cap keep the ROM's range.
+extern "C" void wdc_depth_sort_range(uint8_t* rdram, recomp_context* ctx) {
+    namespace race = wdc::render::race;
+    const auto buckets = uint32_t(ctx->r8);
+    const auto scale = uint32_t(wdc::visibility::distance_scale());
+    if (scale == 1 || buckets >= max_depth_sort_buckets ||
+        race::word(rdram, race::callback) != race::race_callback) return;
+    ctx->r8 = std::min(buckets * scale, max_depth_sort_buckets);
+}
+
+// USA 80010E38's allocator call. a0 is the final byte count. sp+0x20
+// holds the scene pointer saved at entry. Re-read the same aligned f32
+// world distance at scene+0x60 that the ROM just used at 80010DB4.
+// Both reads are from game-owned word-swapped RDRAM in the live view.
+// Enlarged u32 tail entries are initialized and consumed by the ROM on the
+// same render thread before it begins another view. Only the separate head
+// table is part of the BOSS command stream. v0 returns the aligned KSEG0
+// base within the 8 MiB render image. Unextended sizes use the ROM allocator.
+extern "C" bool wdc_reserve_depth_sort_tails(uint8_t* rdram, recomp_context* ctx) {
+    const gpr scene = MEM_W(0x20, ctx->r29);
+    const float distance = std::bit_cast<float>(uint32_t(MEM_W(0x60, scene)));
+    const uint32_t stock_buckets = (uint32_t(TRUNC_W_S(distance)) * 3u) & ~1u;
+    const uint32_t buckets = uint32_t(ctx->r4) / sizeof(uint32_t);
+    if (buckets <= stock_buckets || buckets > max_depth_sort_buckets) return false;
+    ctx->r2 = int32_t(depth_sort_tails);
+    return true;
 }
 
 // USA 80023674, before the ROM builds its visibility list. s1 is the current

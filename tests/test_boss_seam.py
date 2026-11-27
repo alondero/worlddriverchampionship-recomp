@@ -92,6 +92,12 @@ class BossSeamTest(unittest.TestCase):
             self.skipTest("src/aspMain.cpp has not been generated yet")
         self.assertIn("DO_DMA_WRITE(", GENERATED.read_text(encoding="utf-8"))
 
+    def test_only_the_two_fog_loads_use_the_fog_table_offset(self) -> None:
+        if not GENERATED.is_file():
+            self.skipTest("src/aspMain.cpp has not been generated yet")
+        source = GENERATED.read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"\bRSP_MEM_B\(0[Xx]7[Bb]0,\s*(r\d+)\)", source), ["r8", "r9"])
+
 
 if __name__ == "__main__":
     unittest.main()

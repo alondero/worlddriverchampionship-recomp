@@ -1,9 +1,9 @@
-// Pins the compile-time seam between the generated BOSS unit and the port.
+// Pins the compile-time seams between the generated BOSS unit and the port.
 //
 // src/aspMain.cpp is produced by RSPRecomp and is not tracked, so it cannot
 // be edited to call the port. The build force-includes src/boss_dma.h into
-// it instead, and that header replaces the runtime's DO_DMA_WRITE macro with
-// the port's wrapper. This file is compiled the same way and repeats the
+// it instead, and that header wraps the runtime's DMA writes and fog loads.
+// This file is compiled the same way and repeats the
 // generated unit's include order, so the seam fails here if the force-
 // include, the header's override, or the runtime header's include guard
 // changes underneath it.
@@ -59,5 +59,25 @@ int main() {
     // tests/test_rsp_dma.cpp checks against the bytes actually written.
     const auto range = wdc_boss_dma_write_range(call.dram_addr, call.length);
     require(range.address == 0x200 && range.bytes == 8, "the port's DMA range does not match the runtime's rounding");
-    std::puts("BOSS DMA seam passed");
+
+    // Simulate the actual signed BOSS loads and put non-fog bytes just past
+    // the table. Index 231 read graphics scratch in the Rome A replay.
+    constexpr uint32_t fog_base = 0x7B0;
+    RSP_MEM_BU(fog_base, -128) = 0x03;
+    RSP_MEM_BU(fog_base, -1) = 0x28;
+    RSP_MEM_BU(fog_base, 127) = 0xF8;
+    RSP_MEM_BU(fog_base, -129) = 0x45;
+    RSP_MEM_BU(fog_base, 128) = 0x90;
+    RSP_MEM_BU(fog_base, 231) = 0xAF;
+    require(RSP_MEM_B(fog_base, -129) == 3, "BOSS fog read before the table");
+    require(RSP_MEM_B(fog_base, -128) == 3, "BOSS fog lower endpoint changed");
+    require(RSP_MEM_B(fog_base, -1) == 40, "in-range BOSS fog changed");
+    require(RSP_MEM_B(fog_base, 127) == -8, "BOSS fog upper endpoint lost sign extension");
+    require(RSP_MEM_B(fog_base, 128) == -8, "BOSS fog read the first byte after the table");
+    require(RSP_MEM_B(fog_base, 231) == -8, "distant BOSS fog read graphics scratch");
+    RSP_MEM_B(0xD, 0x200) = -9;
+    require(RSP_MEM_B(0xD, 0x200) == -9, "ordinary BOSS signed byte accesses changed");
+    RSP_MEM_B(-1, 0) = 7;
+    require(RSP_MEM_BU(0, 0xFFF) == 7, "ordinary BOSS DMEM wrap changed");
+    std::puts("BOSS DMA and fog seams passed");
 }
