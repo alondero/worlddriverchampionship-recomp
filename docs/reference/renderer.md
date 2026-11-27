@@ -79,16 +79,19 @@ both the H split and other differing endpoints; H is not claimed to remain
 unbroken.
 
 After calculating each span's original valid Y interval, H moves outward by
-`(1 + abs(dxhdy)) / 256` native X pixels. M and L use the **same** outward X
-translation, `(1 + max(abs(dxmdy), abs(dxldy))) / 256`, considering only minor
-edges whose Y interval is used by the command. Using the larger slope covers
-both edges' rounding error without separating a continuous minor vertex at
-YM. Any pre-existing M/L discontinuity is preserved, not welded.
+`min(1/8, (1 + abs(dxhdy)) / 256)` native X pixels. M and L share the guard
+computed from the larger slope magnitude of the minor edges used by the
+command. The shared offset preserves both continuous minor vertices and
+pre-existing steps at YM.
 
-These guards bound the relative error from independently rounding X and Y to
-D3D's 8-bit subpixel grid at the supported 1x-or-higher scales. Y endpoints,
-scissor and original attribute planes are unchanged, including intersection
-cuts. Empty spans and collinear commands remain empty. Each guarded
+The slope term accounts for X and Y rounding on D3D's 8-bit subpixel grid
+at 1x or higher. The 1/8-pixel cap limits overdraw when nearly horizontal
+edges would require a large X offset. On the BOSS intro sign, one such
+edge gave its upright neighbour up to 1.33 pixels of padding that varied
+as the camera moved. The regression exercises the same slope disparity
+with a synthetic triangle and both major edge orientations.
+Y endpoints, scissor and original attribute planes are unchanged, including
+intersection cuts. Empty spans and collinear commands remain empty. Each guarded
 trapezoid is triangulated once; the two spans occupy separate Y intervals.
 The correction intentionally adds a thin boundary band and is not exact RDP
 coverage emulation.

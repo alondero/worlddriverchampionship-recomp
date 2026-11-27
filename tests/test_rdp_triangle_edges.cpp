@@ -135,6 +135,25 @@ int main() {
         }
     }
 
+    // The intro billboard pairs an almost vertical side with a nearly
+    // horizontal bottom edge. The old shared X guard pushed the entire
+    // vertical side outward by more than a pixel as the bottom edge tilted.
+    for (bool mirror : {false, true}) {
+        auto x = [mirror](double value) { return mirror ? 320 - value : value; };
+        for (double bottomY : {207.5, 207.75, 208.0}) {
+            const auto sign = decodeTriangleEdges(encode(
+                {Point{x(98), 143}, Point{x(90), 207.25}, Point{x(260), bottomY}}, 16));
+            const double outer = sign.middleX(170);
+            const double outward = mirror ? 1.0 : -1.0;
+            for (double expansion : {0.0, radius}) {
+                const auto mesh = triangulateCoverage(sign, expansion);
+                require(covers(mesh, outer, 170), "Billboard guard removed original coverage");
+                require(!covers(mesh, outer + outward * (0.125 + 2 * expansion + 0.01), 170),
+                        "Almost horizontal edge pushed out the billboard side");
+            }
+        }
+    }
+
     // Exactly coincident H/L coefficients, but splitting H at YM=87 moves
     // its new vertex off the neighbour's unsplit L after GPU snapping.
     // Before the fix, standard 4x MSAA sample (43.625,108.875), with a .75px
