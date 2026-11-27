@@ -21,7 +21,7 @@ namespace wdc::graphics {
 namespace {
 std::mutex mutex;
 Settings current;
-// SDL main-thread state. Set only while a command-line mode is active.
+// Set by the SDL main thread while a command-line mode is active.
 std::optional<bool> saved_fullscreen;
 std::filesystem::path file;
 
@@ -76,6 +76,10 @@ int legacy_custom_target(const Settings& s) {
 Settings snapshot() {
     std::lock_guard lock(mutex);
     return current;
+}
+bool windowed_with_saved_fullscreen() {
+    std::lock_guard lock(mutex);
+    return !current.fullscreen && saved_fullscreen.value_or(false);
 }
 void load(const std::filesystem::path& path, std::optional<bool> initial_fullscreen) {
     file = path;

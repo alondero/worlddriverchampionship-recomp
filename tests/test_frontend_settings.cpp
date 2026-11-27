@@ -15,8 +15,12 @@
 SDL_Window* window = nullptr;
 std::vector<recomp::GameEntry> supported_games;
 static std::optional<wdc::graphics::Settings> requested;
+static bool reset_window_mode_requested;
 namespace wdc::ui {
-void request_settings(graphics::Settings settings) { requested = settings; }
+void request_settings(graphics::Settings settings, bool reset_window_mode) {
+    requested = settings;
+    reset_window_mode_requested = reset_window_mode;
+}
 }
 static void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
@@ -310,6 +314,40 @@ int main() {
         require(wdc::graphics::snapshot().fullscreen != stored_fullscreen, "Apply dropped startup window mode");
         wdc::graphics::load(path);
         require(wdc::graphics::snapshot().fullscreen == stored_fullscreen, "Apply saved the startup override");
+
+        // Restore defaults must stage a change when the launch already uses
+        // the default mode but the saved preference is still fullscreen.
+        wdc::graphics::Settings fullscreen_defaults;
+        fullscreen_defaults.fullscreen = true;
+        require(wdc::graphics::apply(fullscreen_defaults), "cannot seed fullscreen preference");
+        wdc::graphics::load(path, false);
+        page.load_config();
+        requested.reset();
+        const auto fullscreen_file = read(path);
+        wdc::ui::stage_defaults(0);
+        require(page.is_dirty() && !requested && read(path) == fullscreen_file,
+            "Restore defaults must stage a window-mode reset under --windowed");
+        page.revert_temp_config();
+        require(!page.is_dirty() && !requested && read(path) == fullscreen_file,
+            "Discard should leave the saved window mode intact");
+        page.update_option_value("resolution", 3u);
+        require(page.save_config() && requested && !reset_window_mode_requested &&
+            wdc::graphics::apply(*requested, reset_window_mode_requested), "Discard leaked into another Apply");
+        wdc::graphics::load(path);
+        require(wdc::graphics::snapshot().fullscreen, "Unrelated Apply after Discard cleared fullscreen");
+
+        wdc::graphics::load(path, false);
+        page.load_config();
+        requested.reset();
+        wdc::ui::stage_defaults(0);
+        require(page.save_config() && requested && reset_window_mode_requested && !requested->fullscreen &&
+            wdc::graphics::apply(*requested, reset_window_mode_requested), "Apply did not commit the window-mode reset");
+        wdc::graphics::load(path);
+        require(!wdc::graphics::snapshot().fullscreen, "Restored window mode did not survive restart");
+        page.load_config();
+        requested.reset();
+        wdc::ui::stage_defaults(0);
+        require(!page.is_dirty() && !requested, "Restore defaults staged a reset after it was already applied");
 
         // An invalid host file must not be replaced just by loading the UI.
         { std::ofstream out(path); out << "{"; }

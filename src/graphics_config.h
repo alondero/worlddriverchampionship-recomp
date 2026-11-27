@@ -42,6 +42,7 @@ int legacy_custom_target(const Settings& settings);
 // Load selects the save path; apply without one fails before staging any write.
 void load(const std::filesystem::path& path, std::optional<bool> initial_fullscreen = std::nullopt);
 Settings snapshot();
+bool windowed_with_saved_fullscreen();
 void fallback_to_windowed();
 bool apply(Settings settings, bool reset_window_mode = false); // publishes even if saving fails
 std::string describe(const Settings& settings);

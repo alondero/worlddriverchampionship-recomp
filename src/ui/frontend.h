@@ -13,7 +13,7 @@ bool captures_input();
 bool handle_event(const SDL_Event& event);
 void pump();
 void shutdown();
-void request_settings(graphics::Settings settings);
+void request_settings(graphics::Settings settings, bool reset_window_mode = false);
 #else
 inline void install() {}
 inline void set_window(SDL_Window*) {}

@@ -29,7 +29,11 @@ namespace {
 OverlayState overlay;
 bool awaiting_game_start = true;
 std::mutex settings_mutex;
-std::optional<graphics::Settings> pending_settings;
+struct SettingsRequest {
+    graphics::Settings settings;
+    bool reset_window_mode;
+};
+std::optional<SettingsRequest> pending_settings;
 std::string error;
 recompui::Button* restore_defaults{};
 void initialize(plume::RenderInterface* interface, plume::RenderDevice* device) {
@@ -147,15 +151,16 @@ bool handle_event(const SDL_Event& event) {
     input::handle_event(copy);
     return captures_input();
 }
-void request_settings(graphics::Settings settings) {
+void request_settings(graphics::Settings settings, bool reset_window_mode) {
     std::lock_guard lock(settings_mutex);
-    pending_settings = settings;
+    pending_settings = SettingsRequest{settings, reset_window_mode};
 }
 void pump() {
     pump_host_services();
     std::lock_guard lock(settings_mutex);
     if (pending_settings) {
-        const auto result = graphics::apply_window_settings(window, *pending_settings);
+        const auto result = graphics::apply_window_settings(window, pending_settings->settings,
+            pending_settings->reset_window_mode);
         pending_settings.reset();
         if (!result.empty()) error = result;
     }
