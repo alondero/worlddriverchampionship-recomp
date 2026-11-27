@@ -1,4 +1,5 @@
 #include "game_camera.h"
+#include "log.h"
 #include "game_hud.h"
 #include "recomp.h"
 #include "guest_memory.h"
@@ -54,7 +55,7 @@ extern "C" void wdc_align_hud_triangle(uint8_t* rdram, recomp_context* ctx) {
     wdc_require_guest_range(ctx->r2, 0x40, 4);
     const uint32_t width = uint32_t(MEM_W(8, descriptor));
     if (width == 0 || width > max_display_dimension) {
-        std::fprintf(stderr, "[wdc] invalid HUD framebuffer width: %u\n", width);
+        wdc::log(wdc::LogLevel::Warn, "[wdc] invalid HUD framebuffer width: %u\n", width);
         std::abort();
     }
     const float center = float(width) * 2.0f;

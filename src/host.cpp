@@ -1,11 +1,12 @@
 #include <cstdio>
+#include "log.h"
 #include <cstdlib>
 #include "recomp.h"
 #include "guest_memory.h"
 #include "librecomp/game.hpp"
 
 extern "C" [[noreturn]] void wdc_unimplemented(const char* name) {
-    std::fprintf(stderr, "[wdc] unsupported guest operation: %s\n", name);
+    wdc::log(wdc::LogLevel::Error, "[wdc] unsupported guest operation: %s\n", name);
     std::fflush(nullptr);
     std::_Exit(3);
 }

@@ -1,4 +1,5 @@
 #include "boss_rsp.h"
+#include "log.h"
 #include "boss_capture.h"
 #include "boss_dma.h"
 #include "guest_memory.h"
@@ -117,15 +118,15 @@ void finish_recording(const uint8_t* rdram, unsigned final_event) {
     for (; held_dp; --held_dp) call_sink(9);
     call_sink(final_event);
     if (rec->outside_rdram) {
-        std::fprintf(stderr, "[wdc] BOSS capture discarded: DMA write outside 8 MiB RDRAM\n");
+        wdc::log(wdc::LogLevel::Warn, "[wdc] BOSS capture discarded: DMA write outside 8 MiB RDRAM\n");
         return;
     }
     std::string error;
     if (!capture::save(task, rec->path, error)) {
-        std::fprintf(stderr, "[wdc] BOSS capture failed: %s\n", error.c_str());
+        wdc::log(wdc::LogLevel::Error, "[wdc] BOSS capture failed: %s\n", error.c_str());
         return;
     }
-    std::fprintf(stderr, "[wdc] BOSS capture wrote %s: %zu status runs, %zu RDP ranges, %zu bytes journalled\n",
+    wdc::log(wdc::LogLevel::Info, "[wdc] BOSS capture wrote %s: %zu status runs, %zu RDP ranges, %zu bytes journalled\n",
         rec->path.c_str(), task.status_reads.size(), task.output.size(), rec->journal.size());
 }
 }

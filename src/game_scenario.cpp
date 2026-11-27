@@ -1,4 +1,5 @@
 #include "game_scenario.h"
+#include "log.h"
 #include "game_visibility.h"
 #include "race_globals.h"
 #include <algorithm>
@@ -54,7 +55,7 @@ bool in_race, waiting_for_capture;
 std::vector<Race> races;
 
 bool bad_script() {
-    std::fprintf(stderr, "[wdc:scenario] invalid scenario input file\n");
+    wdc::log(wdc::LogLevel::Error, "[wdc:scenario] invalid scenario input file\n");
     return false;
 }
 
@@ -79,7 +80,7 @@ void finish(unsigned consumed) {
     result << "]}\n";
     result.close();
     if (!result) {
-        std::fprintf(stderr, "[wdc:scenario] could not write scenario-native.json\n");
+        wdc::log(wdc::LogLevel::Error, "[wdc:scenario] could not write scenario-native.json\n");
         std::_Exit(4);
     }
     std::fflush(nullptr);
@@ -105,7 +106,7 @@ void observe_race(const uint8_t* rdram) {
             race::word(rdram, config + 8), race::word(rdram, race::scene),
             race::word(rdram, config + 0x80));
         entry.last_sample = sample;
-        std::fprintf(stderr, "[wdc:scenario] race course=%u layout=%u car=%u mode=%u laps=%u\n",
+        wdc::log(wdc::LogLevel::Info, "[wdc:scenario] race course=%u layout=%u car=%u mode=%u laps=%u\n",
                      entry.course, entry.layout, entry.car, entry.mode, entry.laps);
     }
     auto& entry = races.back();
@@ -217,7 +218,7 @@ void dispatcher_tick(const uint8_t* rdram) {
     }
     const auto callback = race::word(rdram, race::callback);
     if (callback != last_callback) {
-        std::fprintf(stderr, "[wdc:scenario] dispatcher callback=%08x\n", callback);
+        wdc::log(wdc::LogLevel::Info, "[wdc:scenario] dispatcher callback=%08x\n", callback);
         last_callback = callback;
     }
     const auto mode = race::word(rdram, race::scene);
@@ -228,7 +229,7 @@ void dispatcher_tick(const uint8_t* rdram) {
     in_race = racing;
     if ((start == Start::Menu && menu) || (start == Start::Race && racing)) {
         if (!started.exchange(true, std::memory_order_release))
-            std::fprintf(stderr, "[wdc:scenario] controller replay started\n");
+            wdc::log(wdc::LogLevel::Info, "[wdc:scenario] controller replay started\n");
     }
     const auto consumed = polls.load(std::memory_order_acquire);
     // Let the final poll pass through the input worker and at least one
@@ -240,7 +241,7 @@ void vi_tick(unsigned vi) {
     if (!enabled()) return;
     vis.store(vi, std::memory_order_relaxed);
     if (vi < max_vis) return;
-    std::fprintf(stderr, "[wdc:scenario] VI budget exhausted at %u (%u/%u input polls)\n",
+    wdc::log(wdc::LogLevel::Error, "[wdc:scenario] VI budget exhausted at %u (%u/%u input polls)\n",
                  vi, polls.load(), runs.back().end);
     std::fflush(nullptr);
     std::_Exit(3);

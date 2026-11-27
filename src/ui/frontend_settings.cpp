@@ -13,6 +13,7 @@ namespace wdc::ui {
 namespace {
 using recomp::config::ConfigValueVariant;
 constexpr const char* graphics_id = "graphics";
+constexpr const char* reset_window_mode_id = "reset_window_mode";
 constexpr const char* enhancements_id = "enhancements";
 constexpr const char* driving_id = "driving-controls";
 constexpr const char* cheats_id = "cheats";
@@ -144,7 +145,9 @@ void apply_graphics() {
     settings.filtering = integer("filtering");
     settings.precision = integer("precision");
     settings.fullscreen = integer("fullscreen") != 0;
-    request_settings(settings);
+    const bool reset_window_mode = std::get<bool>(page.get_option_value(reset_window_mode_id));
+    sync(page, reset_window_mode_id, false);
+    request_settings(settings, reset_window_mode);
 }
 void apply_enhancements() {
     auto& page = recompui::config::get_config(enhancements_id);
@@ -202,6 +205,10 @@ void stage_defaults(int tab_index) {
         }, option.variant);
         page.update_option_value(option.id, value);
     }
+    // The displayed mode can already be Windowed while the saved mode is
+    // Fullscreen. Stage the reset so it follows the usual Apply/Discard flow.
+    if (tab_index == 0 && graphics::windowed_with_saved_fullscreen())
+        page.update_option_value(reset_window_mode_id, true);
 }
 void create_driving_settings() {
     auto& driving = recompui::config::create_config_tab("Driving", driving_id, false);
@@ -231,6 +238,7 @@ void create_settings() {
     page.external_storage = true; // graphics.json remains owned by the SDL host.
     page.add_enum_option("fullscreen", "Window mode", "Fullscreen uses the desktop resolution. Changes apply when you press Apply.",
         {{0, "Windowed"}, {1, "Fullscreen"}}, 0u);
+    page.add_bool_option(reset_window_mode_id, "", "", false, /*hidden=*/true);
     page.add_enum_option("resolution", "Internal resolution", "Auto follows the window. Fixed values multiply the original resolution; higher values require more GPU power.",
         {{0, "Auto"}, {1, "1x"}, {2, "2x"}, {3, "3x"}, {4, "4x"}, {5, "5x"}, {6, "6x"}, {7, "7x"}, {8, "8x"}}, 0u);
     page.add_enum_option("aspect", "Aspect ratio", "Match window widens the camera while preserving proportions. Original keeps the 4:3 view. Narrow windows retain 4:3.",

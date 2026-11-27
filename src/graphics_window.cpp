@@ -1,4 +1,5 @@
 #include "graphics_window.h"
+#include "log.h"
 #include "graphics_config.h"
 #include "game_camera.h"
 #include "game_hud.h"
@@ -63,7 +64,7 @@ void change(SDL_Window* window, SDL_Keycode key) {
     case SDLK_F11: s.fullscreen = !s.fullscreen; break;
     default: return;
     }
-    const auto error = apply_window_settings(window, s);
+    const auto error = apply_window_settings(window, s, key == SDLK_F9);
     if (!error.empty()) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Graphics settings", error.c_str(), window);
 }
 void output_size(SDL_Window* window) {
@@ -74,15 +75,17 @@ void output_size(SDL_Window* window) {
     wdc::hud::set_placement(snapshot().hud);
 }
 }
-std::string apply_window_settings(SDL_Window* window, Settings s) {
+std::string apply_window_settings(SDL_Window* window, Settings s, bool reset_window_mode) {
     std::string error;
     const bool previous = snapshot().fullscreen;
     if (s.fullscreen != previous && SDL_SetWindowFullscreen(window, s.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0)) {
-        std::fprintf(stderr, "[wdc] fullscreen: %s\n", SDL_GetError());
+        wdc::log(wdc::LogLevel::Warn, "[wdc] fullscreen: %s\n", SDL_GetError());
         error = "Could not change window mode. The previous window mode was kept. ";
         s.fullscreen = previous;
+        reset_window_mode = false;
     }
-    if (!apply(s)) error += "Settings applied but could not be saved. Check the user-data directory is writable.";
+    if (!apply(s, reset_window_mode))
+        error += "Settings applied but could not be saved. Check the user-data directory is writable.";
     output_size(window);
     title(window);
     return error;
@@ -90,10 +93,8 @@ std::string apply_window_settings(SDL_Window* window, Settings s) {
 void attach_window(SDL_Window* window) {
     const auto s = snapshot();
     if (s.fullscreen && SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP)) {
-        auto fallback = s;
-        fallback.fullscreen = false;
-        apply(fallback);
-        std::fprintf(stderr, "[wdc] fullscreen: %s\n", SDL_GetError());
+        fallback_to_windowed();
+        wdc::log(wdc::LogLevel::Warn, "[wdc] fullscreen: %s\n", SDL_GetError());
     }
     output_size(window);
     title(window);

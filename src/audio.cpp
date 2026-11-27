@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "log.h"
 #include <SDL.h>
 #include <algorithm>
 #include <cstdio>
@@ -99,18 +100,18 @@ void wdc::audio::pump() {
         if (device) {
             device_frequency = requested_frequency;
             device_period = obtained.samples;
-            if (statistics()) std::fprintf(stderr, "[wdc] audio opened: Hz=%u period=%u reserve=%zu frames\n",
+            if (statistics()) wdc::log(wdc::LogLevel::Info, "[wdc] audio opened: Hz=%u period=%u reserve=%zu frames\n",
                 device_frequency, device_period, reserve());
         }
         else {
             retry_at = now + 1000;
-            std::fprintf(stderr, "[wdc] audio unavailable; retrying: %s\n", SDL_GetError());
+            wdc::log(wdc::LogLevel::Warn, "[wdc] audio unavailable; retrying: %s\n", SDL_GetError());
         }
     }
     device_frames = device ? SDL_GetQueuedAudioSize(device) / 4 : 0;
     if (device && !prime && !device_frames) {
         rebuffer();
-        if (statistics()) std::fprintf(stderr, "[wdc] audio starved; rebuilding PCM reserve\n");
+        if (statistics()) wdc::log(wdc::LogLevel::Info, "[wdc] audio starved; rebuilding PCM reserve\n");
     }
     if (device && !pending.empty()) {
         // A bounded lead absorbs the game's 30 Hz updates. Recover from stalls
@@ -119,7 +120,7 @@ void wdc::audio::pump() {
             rebuffer();
             SDL_ClearQueuedAudio(device);
             device_frames = 0;
-            if (statistics()) std::fprintf(stderr, "[wdc] audio backlog discarded\n");
+            if (statistics()) wdc::log(wdc::LogLevel::Info, "[wdc] audio backlog discarded\n");
         }
         bool failed = false;
         for (const auto& samples : pending) {
@@ -130,19 +131,19 @@ void wdc::audio::pump() {
             if (!failed && report) submitted_frames += samples.size() / 2;
         }
         if (failed) {
-            std::fprintf(stderr, "[wdc] audio submission failed; reopening: %s\n", SDL_GetError());
+            wdc::log(wdc::LogLevel::Warn, "[wdc] audio submission failed; reopening: %s\n", SDL_GetError());
             close_device();
             retry_at = now + 1000;
         } else if (prime && SDL_GetQueuedAudioSize(device) / 4 >= reserve()) {
             SDL_PauseAudioDevice(device, 0);
             prime = false;
-            if (statistics()) std::fprintf(stderr, "[wdc] audio playback started\n");
+            if (statistics()) wdc::log(wdc::LogLevel::Info, "[wdc] audio playback started\n");
         }
     }
     pending.clear(); pending_frames = 0;
     device_frames = device ? SDL_GetQueuedAudioSize(device) / 4 : 0;
     if (report && now >= report_at) {
-        std::fprintf(stderr, "[wdc] audio PCM submitted=%llu frames, playing=%d\n",
+        wdc::log(wdc::LogLevel::Info, "[wdc] audio PCM submitted=%llu frames, playing=%d\n",
                      static_cast<unsigned long long>(submitted_frames), device && !prime);
         submitted_frames = 0;
         report_at = now + 2000;

@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$RomPath = 'World Driver Championship (USA).z64',
-    [string]$Warp
+    [string]$Warp,
+    [switch]$Console
 )
 $ErrorActionPreference = 'Stop'
 Push-Location $PSScriptRoot
@@ -13,6 +14,8 @@ try {
     $rom = (Resolve-Path -LiteralPath $RomPath).Path
     Write-Host 'Enter: Start/pause; X: A/accelerate; Z: B/brake; arrows/WASD: steer; Escape/F1: settings.'
     Write-Host 'Controller Pak saves are enabled on controller port 1.'
-    & $player $rom
+    $playerArgs = @($rom)
+    if ($Console) { $playerArgs += '--console' }
+    & $player @playerArgs | Out-Default
     exit $LASTEXITCODE
 } finally { $env:WDC_WARP = $previousWarp; Pop-Location }

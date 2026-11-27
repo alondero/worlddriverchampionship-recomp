@@ -1,6 +1,7 @@
 // One host block device; the translated SDK owns the Pak filesystem and saves.
 // Adapted from AeroGauge's block-device seam, verified against WDC's USA SDK.
 #include "controller_pak.h"
+#include "log.h"
 #include "recomp.h"
 
 #include <array>
@@ -65,7 +66,7 @@ bool publish(const Image& next) {
     if (!image_path.parent_path().empty()) {
         std::filesystem::create_directories(image_path.parent_path(), error);
         if (error) {
-            std::fprintf(stderr, "[wdc] Cannot create Controller Pak save directory.\n");
+            wdc::log(wdc::LogLevel::Error, "[wdc] Cannot create Controller Pak save directory.\n");
             return false;
         }
     }
@@ -100,7 +101,7 @@ bool publish(const Image& next) {
         if (!transient || attempt + 1 == MaxAttempts) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(1u << (attempt + 1)));
     }
-    std::fprintf(stderr, "[wdc] Controller Pak save failed; previous image retained.\n");
+    wdc::log(wdc::LogLevel::Error, "[wdc] Controller Pak save failed; previous image retained.\n");
     return false;
 }
 }
@@ -119,7 +120,7 @@ void wdc::pak::configure(const std::filesystem::path& path, bool enabled) {
     }
     std::ifstream stream(path, std::ios::binary | std::ios::ate);
     if (error || !stream || stream.tellg() != static_cast<std::streamoff>(image.size())) {
-        std::fprintf(stderr, "[wdc] Cannot load Controller Pak: expected a readable 32 KiB MPK; file preserved.\n");
+        wdc::log(wdc::LogLevel::Error, "[wdc] Cannot load Controller Pak: expected a readable 32 KiB MPK; file preserved.\n");
         return;
     }
     stream.seekg(0);

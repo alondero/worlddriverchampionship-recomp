@@ -1,5 +1,33 @@
 # Configuration
 
+## Command-line options
+
+```powershell
+.\build\worlddriverchampionship_modern.exe --console --verbose --rom "World Driver Championship (USA).z64"
+.\build\worlddriverchampionship_modern.exe --fullscreen --data-dir "profiles/arcade"
+```
+
+| Option | Effect |
+| --- | --- |
+| `--rom PATH` | Load the specified USA ROM. A positional ROM path also works. |
+| `--console` | On Windows, attach to the parent console or open one if the player has no output destination. Ordinary launches from Explorer run without a console. |
+| `--verbose`, `--log-level LEVEL` | Use debug logging or choose `error`, `warn`, `info`, `debug`, or `trace` for port messages. The player defaults to `info`. |
+| `--fullscreen`, `--windowed` | Override the saved window mode for this launch. The last of these options wins. |
+| `--data-dir PATH` | Use a different directory for settings, runtime data, saves, and logs. The default is `build/user-data` under the working directory. |
+| `--portable` | Use `user-data` beside the desktop executable. Choose this or `--data-dir`. |
+| `--controller-pak PATH` | Use this raw 32 KiB Controller Pak image directly for both loading and saving. |
+| `-h`, `--help`, `--version` | Print usage or the version and exit. |
+
+Resolve relative paths against the working directory and quote paths with
+spaces. Value options also accept `--option=value`. Use `--` before a
+positional ROM path that starts with a dash. With no ROM argument, the desktop
+player looks for `World Driver Championship (USA).z64` in the working directory
+and then beside the executable.
+
+On Windows, `./play.ps1 -Console` enables the console when using the PowerShell
+launcher script. See [player logs](debugging.md#player-logs) for the log location
+and redirection behavior.
+
 ## Custom Grid
 
 Open the settings overlay with **Esc** or **F1** and select **Custom Grid**.

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "log.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -11,7 +12,7 @@ inline void wdc_require_guest_range(uint64_t address, uint32_t bytes, uint32_t a
     const uint32_t addr = static_cast<uint32_t>(address);
     if (addr < 0x80000000u || bytes > 0x800000u ||
         addr - 0x80000000u > 0x800000u - bytes || (addr & (alignment - 1))) {
-        std::fprintf(stderr, "[wdc] invalid native guest range: %08x + %x\n", addr, bytes);
+        wdc::log(wdc::LogLevel::Error, "[wdc] invalid native guest range: %08x + %x\n", addr, bytes);
         std::abort();
     }
 }

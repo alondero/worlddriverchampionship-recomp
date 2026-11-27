@@ -4,6 +4,22 @@ This project is the next member of the same N64Recomp port family. The
 AeroGauge and Automobili Lamborghini repositories were compared before this
 scaffold was created.
 
+## Desktop launch options
+
+AeroGauge and Automobili Lamborghini use Windows GUI-subsystem executables,
+with `--console` to attach or allocate a console. Both support `--verbose` and
+`--log-level`, accept a positional ROM path, and write session logs.
+[AeroGauge logging](https://github.com/alondero/aerogauge-recomp/blob/4fe796e6adf7826669a906b316d0331d01738db2/src/aero_log.cpp),
+[Lamborghini logging](https://github.com/alondero/automobililamborghini-recomp/blob/b17dbd326b14a05685a4a891babf9bde82e9d47e/src/lambo_log.cpp).
+
+Lamborghini adds named ROM selection, initial window and launcher modes, profile paths,
+portable mode, direct Controller Pak selection, save import, track patches,
+help, and version. It also accepts `--lambo-debug` as an alias for `--verbose`.
+WDC uses the common logging flags and exposes ROM, window, profile,
+Controller Pak, help, and version options through its startup flow.
+[Lamborghini launch parser](https://github.com/alondero/automobililamborghini-recomp/blob/b17dbd326b14a05685a4a891babf9bde82e9d47e/src/lambo_launch_options.cpp),
+[WDC command-line options](configuration.md#command-line-options).
+
 ## Development RAM checkpoints
 
 Reviewed [Automobili Lamborghini's checkpoint](https://github.com/alondero/automobililamborghini-recomp/blob/39a7188dc5847baa4bb63caeac679995f55ccbab/src/lambo_savestate.c)

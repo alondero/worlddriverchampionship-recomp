@@ -1,4 +1,8 @@
 if(BUILD_TESTING)
+    add_executable(wdc_launch_options_tests tests/test_launch_options.cpp src/launch_options.cpp)
+    target_include_directories(wdc_launch_options_tests PRIVATE src)
+    add_test(NAME wdc_launch_options COMMAND wdc_launch_options_tests)
+
     set(palette_pin "${CMAKE_CURRENT_BINARY_DIR}/rt64-palette-pin.txt")
     set(palette_header "${CMAKE_CURRENT_BINARY_DIR}/pinned_tmem_hasher.h")
     set(palette_script "${CMAKE_CURRENT_LIST_DIR}/PinnedPaletteHeader.cmake")

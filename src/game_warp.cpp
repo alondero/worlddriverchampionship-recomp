@@ -1,4 +1,5 @@
 #include "game_warp.h"
+#include "log.h"
 #include "guest_context.h"
 #include <atomic>
 #include <charconv>
@@ -95,7 +96,7 @@ bool wdc::warp::configure_from_environment() {
         Request r;
         if (colon == std::string_view::npos || !number(text.substr(0, colon), vi) || vi < 1 ||
             !parse(text.substr(colon + 1), r)) {
-            std::fprintf(stderr, "[wdc:warp] invalid WDC_WARP_AT; expected vi:track[:car[:mode[:laps]]], vi 1..2147483647\n");
+            wdc::log(wdc::LogLevel::Error, "[wdc:warp] invalid WDC_WARP_AT; expected vi:track[:car[:mode[:laps]]], vi 1..2147483647\n");
             return false;
         }
         scheduled_vi = unsigned(vi);
@@ -105,7 +106,7 @@ bool wdc::warp::configure_from_environment() {
     if (!value) return true;
     Request r;
     if (!parse(value, r)) {
-        std::fprintf(stderr, "[wdc:warp] invalid WDC_WARP; expected track[:car[:practice|arcade|time-attack[:laps]]], track 1..58, car 0..34, arcade laps 2..5 (0 = default)\n");
+        wdc::log(wdc::LogLevel::Error, "[wdc:warp] invalid WDC_WARP; expected track[:car[:practice|arcade|time-attack[:laps]]], track 1..58, car 0..34, arcade laps 2..5 (0 = default)\n");
         return false;
     }
     return request(r);
@@ -135,7 +136,7 @@ extern "C" void wdc_warp_menu(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void wdc_warp_race(uint8_t* rdram, recomp_context* ctx) {
     if (!rdram || !ctx || MEM_W(0, int32_t(0x8007D848)) != int32_t(0x8000C560)) return;
     if (awaiting_race) {
-        std::fprintf(stderr, "[wdc:warp] race ready: car=%d mode=%d laps=%d\n",
+        wdc::log(wdc::LogLevel::Info, "[wdc:warp] race ready: car=%d mode=%d laps=%d\n",
             MEM_W(config, 8), MEM_W(config, 0x84), MEM_W(config, 0x80));
         awaiting_race = false;
     }
@@ -212,7 +213,7 @@ extern "C" void wdc_warp_load(uint8_t* rdram, recomp_context* ctx) {
     if (r.mode != wdc::warp::Mode::Practice)
         for (int offset = 0; offset < 0xA0; offset += 4)
             MEM_W(offset, int32_t(0x80099B54)) = MEM_W(config, offset);
-    std::fprintf(stderr, "[wdc:warp] loading track=%d car=%d mode=%d laps=%d\n",
+    wdc::log(wdc::LogLevel::Info, "[wdc:warp] loading track=%d car=%d mode=%d laps=%d\n",
         r.track, r.car, int(r.mode), MEM_W(config, 0x80));
     loading = 0;
     awaiting_race = true;
