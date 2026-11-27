@@ -279,9 +279,9 @@ The **Enhancements** tab offers **Quick Race laps**, **Full car detail**, **Full
 Quick Race laps is used when the next Arcade Race or Time Attack is set up.
 The detail and distance options take effect live. Full car detail retains the nearest detail level and prevents the
 lowest-detail row from hiding distant cars. Full track detail retains the
-nearest detail level for visible sections. Draw distance extends the far plane
-and the number of sections shown ahead/behind. Values 2x through 8x scale the
-authored forward/backward section counts. Unlimited follows the section links
+nearest detail level for visible sections. Draw distance extends the far plane,
+scenery range and the number of sections shown ahead and behind. Values 2x
+through 8x scale the authored section counts. Unlimited follows the section links
 until every unique reachable section is submitted or a bounded 1024-entry
 safety cap is reached. It is not a mathematically infinite projection plane:
 the port uses a very large finite range so camera depth calculations remain

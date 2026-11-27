@@ -374,6 +374,25 @@ before_vram = 0x800108D0
 text = "{ extern void wdc_menu_car_visibility(uint8_t*, recomp_context*); wdc_menu_car_visibility(rdram, ctx); }"
 
 [[hooks]]
+func = "func_80010DA0"
+before_vram = 0x80010DD4
+text = "{ extern void wdc_depth_sort_range(uint8_t*, recomp_context*); wdc_depth_sort_range(rdram, ctx); }"
+
+# Pass the original byte-count argument to the sort-tail allocator hook.
+[[instructions]]
+func = "func_80010DA0"
+vram = 0x80010E38
+expected = 0x0C00B384
+value = 0x01002025
+
+[[instructions]]
+func = "func_80010DA0"
+vram = 0x80010E3C
+expected = 0x01002025
+value = 0
+text = "{ extern _Bool wdc_reserve_depth_sort_tails(uint8_t*, recomp_context*); if (!wdc_reserve_depth_sort_tails(rdram, ctx)) func_8002CE10(rdram, ctx); }"
+
+[[hooks]]
 func = "func_800218F0"
 before_vram = 0x800219F0
 text = "{ extern void wdc_car_distance(uint8_t*, recomp_context*); wdc_car_distance(rdram, ctx); }"
@@ -382,6 +401,11 @@ text = "{ extern void wdc_car_distance(uint8_t*, recomp_context*); wdc_car_dista
 func = "func_800218F0"
 before_vram = 0x80021BE8
 text = "{ extern void wdc_car_detail(uint8_t*, recomp_context*); wdc_car_detail(rdram, ctx); }"
+
+[[hooks]]
+func = "func_800224F0"
+before_vram = 0x80022520
+text = "{ extern void wdc_scenery_distance(uint8_t*, recomp_context*); wdc_scenery_distance(rdram, ctx); }"
 
 [[hooks]]
 func = "func_800230D4"
