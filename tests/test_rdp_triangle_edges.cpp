@@ -55,6 +55,16 @@ double distance(const Point& p, const Point& a, const Point& b) {
     return std::hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
 }
 
+bool insideQuad(const Point& p, const std::array<Point, 4>& quad, double margin) {
+    for (unsigned i = 0; i < quad.size(); ++i) {
+        const auto& a = quad[i];
+        const auto& b = quad[(i + 1) % quad.size()];
+        const double cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+        if (cross <= 0 || distance(p, a, b) <= margin) return false;
+    }
+    return true;
+}
+
 // Count GPU sample centres inside a convex quad (at least `margin` pixels from
 // its outline) that neither neighbour covers: the visible seam/pinhole case.
 unsigned holes(const std::vector<EdgeTriangles>& tris, const std::array<Point, 4>& quad, double scale, double margin) {
@@ -62,13 +72,8 @@ unsigned holes(const std::vector<EdgeTriangles>& tris, const std::array<Point, 4
     for (int row = 0; row < 240 * scale; row++) {
         for (int column = 0; column < 320 * scale; column++) {
             const Point p{(column + 0.5) / scale, (row + 0.5) / scale};
-            bool inside = true;
-            for (unsigned e = 0; e < 4 && inside; e++) {
-                const auto& a = quad[e]; const auto& b = quad[(e + 1) % 4];
-                const double cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
-                inside = cross > 0 && distance(p, a, b) > margin;
-            }
-            if (inside && std::none_of(tris.begin(), tris.end(), [&](const auto& t) { return covers(t, p[0], p[1]); })) count++;
+            if (insideQuad(p, quad, margin) &&
+                std::none_of(tris.begin(), tris.end(), [&](const auto& t) { return covers(t, p[0], p[1]); })) count++;
         }
     }
     return count;
@@ -90,6 +95,58 @@ EdgeTriangles snapVertices(EdgeTriangles t, double scale) {
     return t;
 }
 
+void checkNearHorizontalSeam(double opaqueRadius) {
+    // The shared edge is H on the upper triangle and M on the lower one.
+    // Only H splits at Y=64.25. At 4.8x the split vertex rounds away from
+    // the lower triangle's edge and exposes an MSAA sample with the blanket cap.
+    constexpr std::array<Point, 7> samples{{{.5,.5}, {.25,.25}, {.75,.75},
+        {.375,.125}, {.875,.375}, {.125,.625}, {.625,.875}}};
+    for (bool mirror : {false, true}) {
+        for (double shift : {0.0, 20.0 / 256, 36.0 / 256}) {
+            auto point = [mirror, shift](double x, double y) -> Point {
+                return {mirror ? 320 - (x + shift) : x + shift, y};
+            };
+            const Point start = point(-20, 64), end = point(340, 64.5);
+            const Point above = point(263, 64.25), below = point(61, 92);
+            const auto upper = decodeTriangleEdges(encode({start, above, end}, 16));
+            const auto lower = decodeTriangleEdges(encode({start, below, end}, 16));
+            require(upper.dxhdy == lower.dxmdy && std::abs(upper.dxhdy) > 31,
+                    "Near-horizontal fixture lost its shared edge");
+            std::array<Point, 4> quad{start, above, end, below};
+            if (mirror) std::swap(quad[1], quad[3]);
+            for (double scale : {1.0, 2.0, 4.8, 8.0}) {
+                for (double radius : {0.0, opaqueRadius}) {
+                    auto a = triangulateCoverage(upper, radius);
+                    auto b = triangulateCoverage(lower, radius);
+                    for (bool snap : {false, true}) {
+                        if (snap) {
+                            a = snapVertices(a, scale);
+                            b = snapVertices(b, scale);
+                        }
+                        unsigned nearSeam = 0;
+                        for (int column = 0; column < int(320 * scale); ++column) {
+                            const double edgeY = start[1] + ((column - .5) / scale - start[0]) / upper.dxhdy;
+                            const int edgeRow = int(edgeY * scale + .5);
+                            for (int row = edgeRow - 1; row <= edgeRow + 1; ++row) {
+                                for (const auto& sample : samples) {
+                                    const double x = column + sample[0], y = row + sample[1];
+                                    const Point p{(x - .5) / scale, (y - .5) / scale};
+                                    if (!insideQuad(p, quad, .02)) continue;
+                                    nearSeam += distance(p, start, end) <= 1.0 / 256;
+                                    const double sx = snap ? x : p[0], sy = snap ? y : p[1];
+                                    require(covers(a, sx, sy) || covers(b, sx, sy),
+                                            "Near-horizontal shared edge leaves an uncovered sample");
+                                }
+                            }
+                        }
+                        require(nearSeam > 0, "Near-horizontal fixture did not sample the seam");
+                    }
+                }
+            }
+        }
+    }
+}
+
 int main() {
     // Separately rounded neighbouring surfaces can leave a subpixel strip of
     // background exposed when enlarged. Preserve the exact mode gate used by
@@ -98,6 +155,7 @@ int main() {
     require(radius == 0.125, "Opaque AA surfaces did not request seam coverage");
     for (uint32_t mode : {0xc811204du, 0xc811304cu, 0xc811604cu, 0xc8112044u, 0xc811004cu})
         require(opaqueCoverageRadius(mode) == 0, "Non-opaque mode requested seam coverage");
+    checkNearHorizontalSeam(radius);
     const auto seamA = decodeTriangleEdges(encode({Point{10, 10}, Point{30, 30}, Point{10, 30}}, 16));
     const auto seamB = decodeTriangleEdges(encode({Point{10.125, 10}, Point{30.125, 10}, Point{30.125, 30}}, 16));
     require(!covers(triangulateCoverage(seamA), 20.0625, 20) &&

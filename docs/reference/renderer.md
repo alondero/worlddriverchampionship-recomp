@@ -79,20 +79,23 @@ both the H split and other differing endpoints; H is not claimed to remain
 unbroken.
 
 After calculating each span's original valid Y interval, H moves outward by
-`min(1/8, (1 + abs(dxhdy)) / 256)` native X pixels. M and L share the guard
-computed from the larger slope magnitude of the minor edges used by the
-command. The shared offset preserves both continuous minor vertices and
-pre-existing steps at YM.
+`g(dxhdy)` native X pixels, where `g(slope) = (1 + abs(slope)) / 256`.
+For M and L, let `gM = g(dxmdy)` and `gL = g(dxldy)`, using zero for an
+edge whose Y interval is empty. Both spans share
+`shared = min(1/8, max(gM, gL))`. M moves by `max(gM, shared)` and L by
+`max(gL, shared)`, both outward. A shared guard of at most 1/8 pixel
+preserves the original join when both edges fit within that limit.
 
-The slope term accounts for X and Y rounding on D3D's 8-bit subpixel grid
-at 1x or higher. The 1/8-pixel cap limits overdraw when nearly horizontal
-edges would require a large X offset. On the BOSS intro sign, one such
-edge gave its upright neighbour up to 1.33 pixels of padding that varied
-as the camera moved. The regression exercises the same slope disparity
-with a synthetic triangle and both major edge orientations.
+Each edge keeps the slope term for X and Y rounding on D3D's 8-bit subpixel
+grid at 1x or higher. The cap limits how much padding one minor edge
+contributes to the other. On the BOSS intro sign, a nearly horizontal edge
+gave its upright neighbour up to 1.33 pixels of padding that varied as the
+camera moved. The billboard regression checks the upright edge. A second
+regression checks both orientations of a near-horizontal H/M seam at 1x,
+2x, 4.8x and 8x, with and without GPU snapping and the opaque coverage radius.
 Y endpoints, scissor and original attribute planes are unchanged, including
-intersection cuts. Empty spans and collinear commands remain empty. Each guarded
-trapezoid is triangulated once; the two spans occupy separate Y intervals.
+intersection cuts. Empty spans and collinear commands remain empty. Each
+guarded trapezoid is triangulated once; the two spans occupy separate Y intervals.
 The correction intentionally adds a thin boundary band and is not exact RDP
 coverage emulation.
 

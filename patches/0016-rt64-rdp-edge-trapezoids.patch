@@ -340,7 +340,7 @@ diff --git a/src/gbi/rt64_rdp_triangle_edges.h b/src/gbi/rt64_rdp_triangle_edges
 new file mode 100644
 --- /dev/null
 +++ b/src/gbi/rt64_rdp_triangle_edges.h
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,92 @@
 +//
 +// RT64
 +//
@@ -393,24 +393,21 @@ new file mode 100644
 +        if (!(e.yl > e.yh)) return result;
 +        const double side = e.leftMajor ? 1.0 : -1.0;
 +        const double ym = std::clamp(e.ym, e.yh, e.yl);
-+        // D3D rounds X and Y to an 8-bit subpixel grid. A nearly horizontal
-+        // edge can turn that small Y error into an oversized X offset,
-+        // especially when the same offset is shared with an upright edge.
-+        // Limit the displacement to half the RDP's quarter-pixel Y step.
-+        auto horizontalGuard = [side](double slope) {
-+            constexpr double subpixel = 1.0 / 256.0;
-+            constexpr double maxGuard = 1.0 / 8.0;
-+            return side * std::min(maxGuard, subpixel * (1.0 + std::abs(slope)));
++        // The slope term converts D3D's Y rounding error to an X distance.
++        auto roundingGuard = [](double slope) {
++            return (1.0 + std::abs(slope)) / 256.0;
 +        };
-+        const double majorGuard = horizontalGuard(e.dxhdy);
-+        // Use one translation for both minor lines. Separate slope-dependent
-+        // offsets would tear an originally continuous vertex apart at YM.
-+        // Slopes outside the command's Y interval do not contribute.
-+        const double minorSlope = std::max(ym > e.yh ? std::abs(e.dxmdy) : 0.0,
-+                                          ym < e.yl ? std::abs(e.dxldy) : 0.0);
-+        const double minorGuard = horizontalGuard(minorSlope);
++        const double majorGuard = side * roundingGuard(e.dxhdy);
++        const double middleGuard = ym > e.yh ? roundingGuard(e.dxmdy) : 0.0;
++        const double lowGuard = ym < e.yl ? roundingGuard(e.dxldy) : 0.0;
++        // Share small offsets to keep a continuous join at YM. Each span
++        // keeps its own rounding bound, but borrows at most half a native
++        // Y step from the other span. A nearly horizontal edge can need
++        // a large X offset that would visibly stretch an upright edge.
++        const double sharedGuard = std::min(std::max(middleGuard, lowGuard), 1.0 / 8.0);
 +        auto trapezoid = [&](double y0, double y1, auto minorX) {
 +            if (!(y1 > y0)) return;
++            const double minorGuard = side * std::max(y0 < ym ? middleGuard : lowGuard, sharedGuard);
 +            // Span width is linear in y. The RDP draws nothing where the
 +            // minor edge has crossed to the wrong side of H.
 +            const double width0 = side * (minorX(y0) - e.majorX(y0));
