@@ -156,6 +156,10 @@ int main(int argc, char** argv) {
         }
         memory[0x7FE1C] = 1; reject(); memory[0x7FE1C] = 0;
         memory[0x7FDF0] = 1; reject(); memory[0x7FDF0] = 0;
+        MEM_W(0, int32_t(0x8007ED50)) = int32_t(0x80700000); reject();
+        MEM_W(0, int32_t(0x8007ED50)) = 0;
+        MEM_W(0, int32_t(0x8007ED54)) = 0x10000; reject();
+        MEM_W(0, int32_t(0x8007ED54)) = 0;
         thread->queue = int32_t(0x80003000); reject(); thread->queue = 0;
         registry.remove(0x80001000, second); reject(); registry.add(0x80001000, second);
         // A failed temporary-file open must preserve the last working slot.
