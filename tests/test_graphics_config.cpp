@@ -35,19 +35,92 @@ int main() {
         load(path);
         require(snapshot() == Settings{}, "missing file must use defaults");
         Settings s;
-        s.resolution = 4; s.rate = 539.975; s.samples = 4;
+        s.resolution = 4; s.frame_rate = FrameRateMode::InterpolateCustom; s.custom_rate = 539.975; s.samples = 4;
         s.filtering = 2; s.precision = 2; s.fullscreen = true;
         s.hud = 2;
         s.full_car_detail = true; s.full_track_detail = true; s.draw_distance = 8;
         s.quick_race_laps = 15;
-        s.native_60fps = true;
-        s.interpolate_races = true;
         require(apply(s), "save failed");
         load(path);
         require(snapshot() == s, "settings did not survive restart");
         require(apply(Settings{}), "replacing an existing file failed");
         load(path);
         require(snapshot() == Settings{}, "defaults were not persisted");
+        Settings inactive_custom;
+        inactive_custom.custom_rate = 59.94;
+        require(apply(inactive_custom), "inactive custom target save failed");
+        load(path);
+        require(snapshot() == inactive_custom, "inactive custom target did not survive restart");
+        require(apply(s), "restoring full settings failed");
+        const struct {
+            const char* json;
+            FrameRateMode mode;
+            double custom_rate;
+        } migrations[] = {
+            {R"({"version":2,"rate":-1,"interpolate_races":true,"native_60fps":true})",
+                FrameRateMode::InterpolateDisplay, 60},
+            {R"({"version":2,"rate":119.88,"interpolate_races":true})",
+                FrameRateMode::InterpolateCustom, 119.88},
+            {R"({"version":2,"rate":-1})", FrameRateMode::LegacyDisplay, 60},
+            {R"({"version":2,"rate":59.94})", FrameRateMode::LegacyCustom, 60},
+            {R"({"version":2,"rate":144,"native_60fps":true})", FrameRateMode::Native60, 144},
+            {R"({"version":2,"native_60fps":true})", FrameRateMode::Native60, 60},
+            {R"({"version":2,"rate":0,"interpolate_races":true})", FrameRateMode::Original, 60},
+        };
+        for (const auto& migration : migrations) {
+            { std::ofstream out(path); out << migration.json; }
+            load(path);
+            const auto migrated = snapshot();
+            if (migrated.frame_rate != migration.mode || migrated.custom_rate != migration.custom_rate)
+                std::fprintf(stderr, "migration %s produced mode %d rate %.3f\n", migration.json,
+                    int(migrated.frame_rate), migrated.custom_rate);
+            require(migrated.frame_rate == migration.mode && migrated.custom_rate == migration.custom_rate,
+                "legacy frame-rate settings did not migrate to one mode");
+        }
+        auto shortcut = Settings{};
+        shortcut.custom_rate = 59.94;
+        const FrameRateMode cycle[] = {
+            FrameRateMode::Original, FrameRateMode::Native60, FrameRateMode::InterpolateDisplay,
+            FrameRateMode::InterpolateCustom, FrameRateMode::LegacyDisplay, FrameRateMode::LegacyCustom,
+        };
+        for (int i = 0; i < 6; ++i) {
+            shortcut.frame_rate = cycle[i];
+            const auto next = cycle_frame_rate(shortcut);
+            require(next.frame_rate == cycle[(i + 1) % 6] && next.custom_rate == shortcut.custom_rate,
+                "frame-rate shortcut did not cycle unified modes");
+        }
+        auto transition = Settings{};
+        transition.frame_rate = FrameRateMode::InterpolateCustom;
+        transition.custom_rate = 59.94;
+        require(apply(transition), "interpolated custom transition setup failed");
+        transition = cycle_frame_rate(snapshot());
+        require(transition.frame_rate == FrameRateMode::LegacyDisplay && apply(transition),
+            "applying legacy display transition failed");
+        transition = cycle_frame_rate(snapshot());
+        require(transition.frame_rate == FrameRateMode::LegacyCustom && apply(transition),
+            "applying legacy custom transition failed");
+        require(legacy_custom_target(snapshot()) == 60 && snapshot().custom_rate == 59.94,
+            "legacy presentation did not use a separate whole-number target");
+        load(path);
+        require(snapshot().frame_rate == FrameRateMode::LegacyCustom && snapshot().custom_rate == 59.94 &&
+            legacy_custom_target(snapshot()) == 60, "legacy custom target did not survive restart");
+        while (snapshot().frame_rate != FrameRateMode::InterpolateCustom) {
+            require(apply(cycle_frame_rate(snapshot())), "applying frame-rate transition failed");
+        }
+        load(path);
+        require(snapshot().frame_rate == FrameRateMode::InterpolateCustom && snapshot().custom_rate == 59.94,
+            "cycling through legacy custom erased the interpolated target");
+        auto described = Settings{};
+        described.frame_rate = FrameRateMode::Native60;
+        require(describe(described).find("Native 60 fps") != std::string::npos,
+            "window title omits Native 60 fps");
+        described.frame_rate = FrameRateMode::LegacyDisplay;
+        require(describe(described).find("Legacy display rate") != std::string::npos,
+            "window title does not identify legacy display presentation");
+        described.frame_rate = FrameRateMode::LegacyCustom;
+        described.custom_rate = 59.94;
+        require(describe(described).find("Legacy 60 Hz") != std::string::npos,
+            "window title does not use the whole-number legacy target");
         for (int hud : {-1, 0, 1, 2, 3}) {
             { std::ofstream out(path); out << "{\"version\":2,\"hud\":" << hud << "}"; }
             load(path);
@@ -80,8 +153,9 @@ int main() {
         { std::ofstream out(path); out << R"({"resolution":999,"aspect":-3,"rate":1001,"samples":3,"filtering":-1,"precision":99})"; }
         load(path);
         const auto bounded = snapshot();
-        require(bounded.resolution == 8 && bounded.aspect == 1 && bounded.rate == 0 &&
-            bounded.samples == 1 && bounded.filtering == 1 && bounded.precision == 0, "values not bounded");
+        require(bounded.resolution == 8 && bounded.aspect == 1 && bounded.frame_rate == FrameRateMode::Original &&
+            bounded.custom_rate == 60 && bounded.samples == 1 && bounded.filtering == 1 && bounded.precision == 0,
+            "values not bounded");
         for (int distance : {-10, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 15, 16, 17, 100}) {
             auto requested = s;
             requested.draw_distance = distance;

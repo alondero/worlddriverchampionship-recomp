@@ -17,7 +17,7 @@ namespace {
 const char* help =
     "F2: Resolution - Auto, 1x, 2x, 3x, 4x, 6x, 8x\n"
     "F3: Aspect - Match window (wider camera), Original 4:3\n"
-    "F4: Presentation - Original, Display, 60, 120, 144, 240 Hz\n"
+    "F4: Race frame rate - Original, Native 60, interpolated, legacy\n"
     "F5: Anti-aliasing - Off, 2x, 4x, 8x MSAA\n"
     "F6: Output filter - Nearest, Linear, Pixel scaling\n"
     "F7: Framebuffer precision - Auto, Standard, High (restart)\n"
@@ -43,7 +43,7 @@ void title(SDL_Window* window) {
 }
 void change(SDL_Window* window, SDL_Keycode key) {
     auto s = snapshot();
-    const int resolutions[]{0, 1, 2, 3, 4, 6, 8}, rates[]{0, -1, 60, 120, 144, 240};
+    const int resolutions[]{0, 1, 2, 3, 4, 6, 8};
     switch (key) {
     case SDLK_F1:
 #ifdef WDC_ENABLE_FRONTEND
@@ -54,7 +54,7 @@ void change(SDL_Window* window, SDL_Keycode key) {
         return;
     case SDLK_F2: s.resolution = cycle(s.resolution, resolutions); break;
     case SDLK_F3: s.aspect = 1 - s.aspect; break;
-    case SDLK_F4: s.rate = cycle(s.rate, rates); break;
+    case SDLK_F4: s = cycle_frame_rate(s); break;
     case SDLK_F5: s.samples = s.samples == 8 ? 1 : s.samples * 2; break;
     case SDLK_F6: s.filtering = (s.filtering + 1) % 3; break;
     case SDLK_F7: s.precision = (s.precision + 1) % 3; break;

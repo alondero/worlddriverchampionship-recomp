@@ -21,6 +21,30 @@ namespace {
 std::mutex mutex;
 Settings current;
 std::filesystem::path file;
+
+bool custom_mode(FrameRateMode mode) {
+    return mode == FrameRateMode::InterpolateCustom || mode == FrameRateMode::LegacyCustom;
+}
+bool interpolated_mode(FrameRateMode mode) {
+    return mode == FrameRateMode::InterpolateDisplay || mode == FrameRateMode::InterpolateCustom;
+}
+bool valid_mode(FrameRateMode mode) {
+    switch (mode) {
+    case FrameRateMode::Original:
+    case FrameRateMode::Native60:
+    case FrameRateMode::InterpolateDisplay:
+    case FrameRateMode::InterpolateCustom:
+    case FrameRateMode::LegacyDisplay:
+    case FrameRateMode::LegacyCustom:
+        return true;
+    }
+    return false;
+}
+void publish(const Settings& s) {
+    visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
+    framerate::configure(s.frame_rate == FrameRateMode::Native60);
+    laps::configure(s.quick_race_laps);
+}
 }
 Settings normalize(Settings s) {
     if (s.draw_distance != visibility::unlimited_draw_distance)
@@ -28,17 +52,23 @@ Settings normalize(Settings s) {
     s.resolution = std::clamp(s.resolution, 0, 8);
     if (s.aspect < 0 || s.aspect > 1) s.aspect = 1;
     if (s.hud < 0 || s.hud > 2) s.hud = 1;
-    if (s.rate != 0 && s.rate != -1) {
-        if (!std::isfinite(s.rate) || s.rate < 30 || s.rate > render::DisplayRate::max_hz) s.rate = 0;
-        else if (s.interpolate_races) s.rate = std::round(s.rate * 1000) / 1000;
-        else s.rate = std::round(s.rate);
+    if (!valid_mode(s.frame_rate)) s.frame_rate = FrameRateMode::Original;
+    const bool valid_rate = std::isfinite(s.custom_rate) && s.custom_rate >= 30 &&
+        s.custom_rate <= render::DisplayRate::max_hz;
+    if (!valid_rate) {
+        s.custom_rate = 60;
+        if (custom_mode(s.frame_rate)) s.frame_rate = FrameRateMode::Original;
+    } else {
+        s.custom_rate = std::round(s.custom_rate * 1000) / 1000;
     }
-    if (s.rate == 0) s.interpolate_races = false;
     if (s.samples != 1 && s.samples != 2 && s.samples != 4 && s.samples != 8) s.samples = 1;
     if (s.filtering < 0 || s.filtering > 2) s.filtering = 1;
     if (s.precision < 0 || s.precision > 2) s.precision = 0;
     if (!laps::supported(s.quick_race_laps)) s.quick_race_laps = 0;
     return s;
+}
+int legacy_custom_target(const Settings& s) {
+    return int(std::lround(s.custom_rate));
 }
 Settings snapshot() {
     std::lock_guard lock(mutex);
@@ -65,22 +95,57 @@ void load(const std::filesystem::path& path) {
             };
             integer("resolution", s.resolution); integer("aspect", s.aspect);
             integer("hud", s.hud);
+            double stored_rate = 0;
             if (j.contains("rate")) {
                 if (!j.at("rate").is_number()) throw std::runtime_error("rate");
-                s.rate = j.at("rate").get<double>();
+                stored_rate = j.at("rate").get<double>();
+            }
+            double inactive_custom_rate = 60;
+            const bool has_inactive_custom_rate = j.contains("custom_rate");
+            if (has_inactive_custom_rate) {
+                if (!j.at("custom_rate").is_number()) throw std::runtime_error("custom_rate");
+                inactive_custom_rate = j.at("custom_rate").get<double>();
             }
             integer("samples", s.samples);
             integer("filtering", s.filtering); integer("precision", s.precision);
             s.fullscreen = j.value("fullscreen", false);
             s.full_car_detail = j.value("full_car_detail", false);
             s.full_track_detail = j.value("full_track_detail", false);
-            s.native_60fps = j.value("native_60fps", false);
-            s.interpolate_races = j.value("interpolate_races", false);
+            const bool native_60fps = j.value("native_60fps", false);
+            bool interpolate_races = j.value("interpolate_races", false);
             integer("draw_distance", s.draw_distance);
             integer("quick_race_laps", s.quick_race_laps);
             // Version 1 forcibly disabled widescreen, including saved 0 values.
             // Upgrade those preferences to the working camera-aware default.
             if (j.value("version", 1) == 1) s.aspect = 1;
+
+            // Version 2 stored three independent implementation knobs. Fold
+            // them into the effective user-facing mode. Interpolation already
+            // took precedence over native 60 Hz; native 60 takes precedence
+            // over the legacy renderer target because that target cannot add
+            // motion interpolation in WDC.
+            if (stored_rate != 0 && stored_rate != -1 &&
+                (!std::isfinite(stored_rate) || stored_rate < 30 || stored_rate > render::DisplayRate::max_hz))
+                stored_rate = 0;
+            if (stored_rate == 0) interpolate_races = false;
+            if (interpolate_races) {
+                s.frame_rate = stored_rate == -1 ? FrameRateMode::InterpolateDisplay : FrameRateMode::InterpolateCustom;
+            } else if (native_60fps) {
+                s.frame_rate = FrameRateMode::Native60;
+            } else if (stored_rate == -1) {
+                s.frame_rate = FrameRateMode::LegacyDisplay;
+            } else if (stored_rate != 0) {
+                s.frame_rate = FrameRateMode::LegacyCustom;
+            }
+            if (custom_mode(s.frame_rate)) {
+                s.custom_rate = stored_rate;
+                if (s.frame_rate == FrameRateMode::LegacyCustom && !has_inactive_custom_rate)
+                    s.custom_rate = std::round(s.custom_rate);
+            } else {
+                s.custom_rate = inactive_custom_rate;
+                if (s.frame_rate == FrameRateMode::Native60 && !has_inactive_custom_rate && stored_rate > 0)
+                    s.custom_rate = std::round(stored_rate);
+            }
         } else if (std::filesystem::exists(file)) {
             throw std::runtime_error("cannot read settings");
         }
@@ -91,16 +156,12 @@ void load(const std::filesystem::path& path) {
     }
     std::lock_guard lock(mutex);
     current = s;
-    visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
-    framerate::configure(s.native_60fps && !s.interpolate_races);
-    laps::configure(s.quick_race_laps);
+    publish(s);
 }
 bool apply(Settings s) {
     s = normalize(s);
     { std::lock_guard lock(mutex); current = s; }
-    visibility::configure(s.full_car_detail, s.full_track_detail, s.draw_distance);
-    framerate::configure(s.native_60fps && !s.interpolate_races);
-    laps::configure(s.quick_race_laps);
+    publish(s);
     try {
         if (file.empty()) throw std::runtime_error("settings path is not configured");
         nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
@@ -109,10 +170,15 @@ bool apply(Settings s) {
             {"hud", s.hud},
             {"full_car_detail", s.full_car_detail}, {"full_track_detail", s.full_track_detail},
             {"draw_distance", s.draw_distance}, {"quick_race_laps", s.quick_race_laps},
-            {"native_60fps", s.native_60fps},
-            {"interpolate_races", s.interpolate_races}};
+            {"native_60fps", s.frame_rate == FrameRateMode::Native60},
+            {"interpolate_races", interpolated_mode(s.frame_rate)},
+            {"custom_rate", s.custom_rate}};
+        double stored_rate = 0;
+        if (s.frame_rate == FrameRateMode::InterpolateDisplay || s.frame_rate == FrameRateMode::LegacyDisplay)
+            stored_rate = -1;
+        else if (custom_mode(s.frame_rate)) stored_rate = s.custom_rate;
         // Keep whole rates readable by older players with an integer-only setting.
-        j["rate"] = s.rate == std::trunc(s.rate) ? nlohmann::json(int(s.rate)) : nlohmann::json(s.rate);
+        j["rate"] = stored_rate == std::trunc(stored_rate) ? nlohmann::json(int(stored_rate)) : nlohmann::json(stored_rate);
         auto temporary = file;
         temporary += ".tmp";
         std::ofstream out(temporary, std::ios::trunc);
@@ -132,13 +198,42 @@ bool apply(Settings s) {
         return false;
     }
 }
+Settings cycle_frame_rate(Settings settings) {
+    static constexpr FrameRateMode modes[] = {
+        FrameRateMode::Original, FrameRateMode::Native60, FrameRateMode::InterpolateDisplay,
+        FrameRateMode::InterpolateCustom, FrameRateMode::LegacyDisplay, FrameRateMode::LegacyCustom,
+    };
+    for (size_t i = 0; i < std::size(modes); ++i) {
+        if (settings.frame_rate == modes[i]) {
+            settings.frame_rate = modes[(i + 1) % std::size(modes)];
+            return settings;
+        }
+    }
+    settings.frame_rate = FrameRateMode::Original;
+    return settings;
+}
 std::string describe(const Settings& s) {
     std::ostringstream rate;
-    if (s.interpolate_races) rate << "Interpolated ";
-    if (s.rate == 0) rate << "Original rate";
-    else if (s.rate == -1) rate << "Display rate";
-    else rate << s.rate << " Hz";
-    if (s.rate != 0) rate << " (experimental)";
+    switch (s.frame_rate) {
+    case FrameRateMode::Original:
+        rate << "Original rate";
+        break;
+    case FrameRateMode::Native60:
+        rate << "Native 60 fps (experimental)";
+        break;
+    case FrameRateMode::InterpolateDisplay:
+        rate << "Interpolated display rate (experimental)";
+        break;
+    case FrameRateMode::InterpolateCustom:
+        rate << "Interpolated " << s.custom_rate << " Hz (experimental)";
+        break;
+    case FrameRateMode::LegacyDisplay:
+        rate << "Legacy display rate (experimental)";
+        break;
+    case FrameRateMode::LegacyCustom:
+        rate << "Legacy " << legacy_custom_target(s) << " Hz (experimental)";
+        break;
+    }
     return (s.resolution ? std::to_string(s.resolution) + "x" : "Auto resolution") +
         (s.aspect == 0 ? " | 4:3" : " | Window aspect") +
         " | " + rate.str() +

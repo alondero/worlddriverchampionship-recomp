@@ -4,7 +4,7 @@ World Driver Championship builds race geometry from fixed-rate input samples.
 This page describes how the game schedules simulation, rendering and swaps.
 RT64 clipping, aspect and HUD fixes are in the [renderer reference](reference/renderer.md).
 
-Under **Graphics → Presentation rate**, the experimental interpolation modes
+Under **Graphics → Race frame rate**, the experimental interpolation modes
 target the display refresh rate or a custom rate in single-view races with
 stock 30 Hz simulation. If Native 60 fps was active, start a new race to
 switch the input worker to 30 Hz.
@@ -196,7 +196,7 @@ and input divider operate independently of this word.
 Acceptance has not passed. One Windows run reached about 22.8 fps,
 with conditions recorded in the [archived measurements][render-measurements].
 
-Enhancements exposes `native_60fps`, saved in `graphics.json`, default false.
+The unified Graphics race-frame-rate selector exposes Native 60 fps. It is saved in `graphics.json` through the compatibility key `native_60fps`, default false.
 The implementation is `src/game_framerate.cpp`; all instruction boundaries
 are reviewed `[[hooks]]` in `rom-symbols.toml`. The game thread latches the
 preference at `func_8002CB0C` entry. Only the menu `(0,0)` and race
@@ -385,8 +385,8 @@ Any change that lifts the limiter belongs behind an option, as reviewed
 
 ### Above 60 Hz
 
-The ordinary Display and Custom options control RT64 presentation. The
-interpolated variants rebuild race geometry between fixed 30 Hz samples.
+The legacy Display and Custom choices control RT64 presentation. The
+interpolated choices rebuild race geometry between fixed 30 Hz samples.
 At the race draw call (8000C870), the port drains the transform pipeline,
 waits for submitted graphics work, and freezes an 8 MiB snapshot. A copy
 of the guest register context rebinds the odd floating-point register view

@@ -131,9 +131,15 @@ void apply_graphics() {
     settings.resolution = integer("resolution");
     settings.aspect = integer("aspect");
     settings.hud = integer("hud");
-    const int mode = integer("rate_mode");
-    settings.interpolate_races = mode == 3 || mode == 4;
-    settings.rate = mode == 0 ? 0 : (mode == 1 || mode == 3) ? -1 : std::get<double>(page.get_option_value("rate"));
+    switch (integer("rate_mode")) {
+    case 1: settings.frame_rate = graphics::FrameRateMode::Native60; break;
+    case 2: settings.frame_rate = graphics::FrameRateMode::InterpolateDisplay; break;
+    case 3: settings.frame_rate = graphics::FrameRateMode::InterpolateCustom; break;
+    case 4: settings.frame_rate = graphics::FrameRateMode::LegacyDisplay; break;
+    case 5: settings.frame_rate = graphics::FrameRateMode::LegacyCustom; break;
+    default: settings.frame_rate = graphics::FrameRateMode::Original; break;
+    }
+    settings.custom_rate = std::get<double>(page.get_option_value("rate"));
     settings.samples = integer("samples");
     settings.filtering = integer("filtering");
     settings.precision = integer("precision");
@@ -147,7 +153,6 @@ void apply_enhancements() {
     settings.full_track_detail = std::get<bool>(page.get_option_value("full_track_detail"));
     settings.draw_distance = int(std::get<uint32_t>(page.get_option_value("draw_distance")));
     settings.quick_race_laps = int(std::get<uint32_t>(page.get_option_value("quick_race_laps")));
-    settings.native_60fps = std::get<bool>(page.get_option_value("native_60fps"));
     request_settings(settings);
 }
 void seed_cheats() {
@@ -162,9 +167,8 @@ void refresh_settings() {
     sync(page, "resolution", uint32_t(s.resolution));
     sync(page, "aspect", uint32_t(s.aspect));
     sync(page, "hud", uint32_t(s.hud));
-    const unsigned rate_mode = s.rate == 0 ? 0 : s.rate == -1 ? 1 : 2;
-    sync(page, "rate_mode", rate_mode + (s.interpolate_races ? 2u : 0u));
-    sync(page, "rate", double(s.rate > 0 ? s.rate : 60));
+    sync(page, "rate_mode", uint32_t(s.frame_rate));
+    sync(page, "rate", s.custom_rate);
     sync(page, "samples", uint32_t(s.samples));
     sync(page, "filtering", uint32_t(s.filtering));
     sync(page, "precision", uint32_t(s.precision));
@@ -174,7 +178,6 @@ void refresh_settings() {
     sync(enhancements, "full_track_detail", s.full_track_detail);
     sync(enhancements, "draw_distance", uint32_t(s.draw_distance));
     sync(enhancements, "quick_race_laps", uint32_t(s.quick_race_laps));
-    sync(enhancements, "native_60fps", s.native_60fps);
     seed_cheats();
 }
 void stage_defaults(int tab_index) {
@@ -234,10 +237,12 @@ void create_settings() {
         {{0, "Original", "Original 4:3"}, {1, "Window", "Match window"}}, 1u);
     page.add_enum_option("hud", "HUD placement", "Pin race instruments and timing to the edges. Clamp to 16:9 keeps them within easy reach on ultrawide displays. Original keeps the centered layout.",
         {{0, "Original"}, {1, "16:9", "Clamp to 16:9"}, {2, "Full", "Full width"}}, 1u);
-    page.add_enum_option("rate_mode", "Presentation rate", "Interpolated modes draw extra single-player race frames with original 30 Hz gameplay. Start a new race when switching from Native 60 fps.",
-        {{0, "Original"}, {1, "Display"}, {2, "Custom"}, {3, "Interpolate to display (experimental)"}, {4, "Interpolate to custom (experimental)"}}, 0u);
-    page.add_number_option("rate", "Custom presentation target (Hz)", "Target race presentation rate. Higher rates need more rendering time.", 30, render::DisplayRate::max_hz, 0.001, 3, false, 60);
-    page.add_option_hidden_dependency("rate", "rate_mode", 0u, 1u, 3u);
+    page.add_enum_option("rate_mode", "Race frame rate", "Native 60 fps changes gameplay sampling and starts when entering the next race or menu. Interpolated modes keep original 30 Hz gameplay and draw extra single-player race frames. Legacy modes only change renderer presentation and cannot create new motion.",
+        {{0, "Original"}, {1, "Native 60 fps (experimental)"}, {2, "Interpolate to display (experimental)"},
+         {3, "Interpolate to custom (experimental)"}, {4, "Display (legacy, no motion interpolation)"},
+         {5, "Custom (legacy, no motion interpolation)"}}, 0u);
+    page.add_number_option("rate", "Custom presentation target (Hz)", "Target race presentation rate. Interpolation keeps millisecond precision; legacy presentation uses the nearest whole number without erasing it. Higher rates need more rendering time.", 30, render::DisplayRate::max_hz, 0.001, 3, false, 60);
+    page.add_option_hidden_dependency("rate", "rate_mode", 0u, 1u, 2u, 4u);
     page.add_enum_option("samples", "Anti-aliasing", "Smooths edges. Unsupported MSAA falls back to Off; your requested choice is saved.",
         {{1, "Off"}, {2, "2x"}, {4, "4x"}, {8, "8x"}}, 1u);
     page.add_enum_option("filtering", "Output filter", "Filters the final image. This does not replace or enhance the game's texture assets.",
@@ -248,8 +253,6 @@ void create_settings() {
     page.set_save_callback(apply_graphics);
     auto& enhancements = ui::create_config_tab("Enhancements", enhancements_id, true);
     enhancements.external_storage = true;
-    enhancements.add_bool_option("native_60fps", "Native 60 fps (experimental)",
-        "Targets 60 fps racing. Takes effect when starting the next race or returning to the menus. Requires enough performance to finish each frame in 16.7 ms. Replay and ghost playback can run at the wrong speed; lap equivalence has not been validated.", false);
     enhancements.add_bool_option("full_car_detail", "Full car detail",
         "Keeps the nearest car detail level at all visible distances. Draw distance still limits visibility. May reduce performance.", false);
     enhancements.add_bool_option("full_track_detail", "Full track detail",
