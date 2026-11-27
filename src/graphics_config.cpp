@@ -1,4 +1,5 @@
 #include "graphics_config.h"
+#include "log.h"
 #include "render_cadence.h"
 #include "game_visibility.h"
 #include "game_framerate.h"
@@ -20,6 +21,8 @@ namespace wdc::graphics {
 namespace {
 std::mutex mutex;
 Settings current;
+// SDL main-thread state. Set only while a command-line mode is active.
+std::optional<bool> saved_fullscreen;
 std::filesystem::path file;
 
 bool custom_mode(FrameRateMode mode) {
@@ -74,7 +77,7 @@ Settings snapshot() {
     std::lock_guard lock(mutex);
     return current;
 }
-void load(const std::filesystem::path& path) {
+void load(const std::filesystem::path& path, std::optional<bool> initial_fullscreen) {
     file = path;
     Settings s;
     try {
@@ -151,22 +154,42 @@ void load(const std::filesystem::path& path) {
         }
         s = normalize(s);
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "[wdc] graphics settings: %s; using defaults\n", e.what());
+        wdc::log(wdc::LogLevel::Warn, "[wdc] graphics settings: %s; using defaults\n", e.what());
         s = Settings{};
     }
     std::lock_guard lock(mutex);
+    saved_fullscreen.reset();
+    if (initial_fullscreen.has_value()) {
+        saved_fullscreen = s.fullscreen;
+        s.fullscreen = *initial_fullscreen;
+    }
     current = s;
     publish(s);
 }
-bool apply(Settings s) {
+void fallback_to_windowed() {
+    auto fallback = snapshot();
+    fallback.fullscreen = false;
+    if (saved_fullscreen.has_value()) {
+        std::lock_guard lock(mutex);
+        current = fallback;
+    } else {
+        apply(fallback);
+    }
+}
+bool apply(Settings s, bool reset_window_mode) {
     s = normalize(s);
-    { std::lock_guard lock(mutex); current = s; }
+    {
+        std::lock_guard lock(mutex);
+        if (current.fullscreen != s.fullscreen || reset_window_mode) saved_fullscreen.reset();
+        current = s;
+    }
     publish(s);
     try {
         if (file.empty()) throw std::runtime_error("settings path is not configured");
         nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
             {"aspect", s.aspect}, {"samples", s.samples},
-            {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen},
+            {"filtering", s.filtering}, {"precision", s.precision},
+            {"fullscreen", saved_fullscreen.value_or(s.fullscreen)},
             {"hud", s.hud},
             {"full_car_detail", s.full_car_detail}, {"full_track_detail", s.full_track_detail},
             {"draw_distance", s.draw_distance}, {"quick_race_laps", s.quick_race_laps},
@@ -194,7 +217,7 @@ bool apply(Settings s) {
 #endif
         return true;
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "[wdc] could not save graphics settings: %s\n", e.what());
+        wdc::log(wdc::LogLevel::Error, "[wdc] could not save graphics settings: %s\n", e.what());
         return false;
     }
 }

@@ -57,7 +57,7 @@ set(RT64_STATIC TRUE)
 if(WIN32)
     set(SDL2_WIN32_DEPS "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3")
     set(SDL2_INCLUDE_DIRS "${SDL2_WIN32_DEPS}/include")
-    set(SDL2_LIBRARIES SDL2 SDL2main)
+    set(SDL2_LIBRARIES SDL2)
     link_directories("${SDL2_WIN32_DEPS}/lib/x64")
     include(FetchContent)
     FetchContent_Declare(DirectX-Headers
@@ -79,6 +79,12 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64" "${CMAKE_BINARY_DIR}/rt6
 target_include_directories(rt64 PRIVATE "${CMAKE_BINARY_DIR}/rt64/src")
 
 if(WIN32)
+    # The player owns WinMain. RT64's bundled Windows setup adds SDL2main.
+    foreach(property LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+        get_target_property(rt64_libraries rt64 ${property})
+        list(REMOVE_ITEM rt64_libraries SDL2main)
+        set_target_properties(rt64 PROPERTIES ${property} "${rt64_libraries}")
+    endforeach()
     target_link_libraries(plume PRIVATE DirectX-Guids)
     target_link_libraries(rt64 DirectX-Guids dwmapi d3dcompiler)
 endif()
@@ -103,7 +109,7 @@ if(WDC_FUNC_C_SOURCES OR WDC_FUNC_CXX_SOURCES)
         "${N64MR}/N64Recomp/include")
 endif()
 
-set(WDC_SOURCES src/main.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_projection.cpp src/game_hud.cpp src/game_visibility.cpp src/game_framerate.cpp src/game_audio.cpp src/game_driving.cpp src/game_cheats.cpp src/game_cheat_camera.cpp src/game_warp.cpp src/game_laps.cpp
+set(WDC_SOURCES src/main.cpp src/launch_options.cpp src/register_overlays.cpp src/host.cpp src/guest_math.cpp src/game_camera.cpp src/game_projection.cpp src/game_hud.cpp src/game_visibility.cpp src/game_framerate.cpp src/game_audio.cpp src/game_driving.cpp src/game_cheats.cpp src/game_cheat_camera.cpp src/game_warp.cpp src/game_laps.cpp
     src/game_grid.cpp src/game_scenario.cpp
     src/game_render.cpp src/display_rate_draw.cpp src/render_statistics.cpp src/extra_race_draw.cpp src/race_swap.cpp src/race_frame_schedule.cpp src/race_poses.cpp src/race_render_sample.cpp src/render_bank.cpp src/boss_rsp.cpp src/boss_events.cpp src/boss_capture.cpp
     src/audio_ai.cpp src/audio_dma.cpp src/controller_pak.cpp src/rumble.cpp src/savestate.cpp)
@@ -129,11 +135,15 @@ endif()
 if(ANDROID)
     add_library(worlddriverchampionship_modern SHARED ${WDC_SOURCES})
     set_target_properties(worlddriverchampionship_modern PROPERTIES OUTPUT_NAME main)
+elseif(WIN32 AND NOT WDC_HEADLESS)
+    add_executable(worlddriverchampionship_modern WIN32 ${WDC_SOURCES} src/windows_launch.cpp)
+    target_link_libraries(worlddriverchampionship_modern PRIVATE shell32 user32)
 else()
     add_executable(worlddriverchampionship_modern ${WDC_SOURCES})
 endif()
 
 target_compile_options(worlddriverchampionship_modern PRIVATE -fno-strict-aliasing -ggdb)
+target_compile_definitions(worlddriverchampionship_modern PRIVATE WDC_VERSION="${PROJECT_VERSION}")
 target_include_directories(worlddriverchampionship_modern PRIVATE
     "${N64MR}/ultramodern/include"
     "${N64MR}/librecomp/include"

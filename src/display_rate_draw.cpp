@@ -1,4 +1,5 @@
 #include "display_rate_draw.h"
+#include "log.h"
 #include "extra_race_draw.h"
 #include "game_scenario.h"
 #include "guest_context.h"
@@ -42,7 +43,7 @@ DisplayRate requested_rate() {
             error = denominator.ec;
         }
         if (error != std::errc{} || next != end || !result.supported()) {
-            std::fprintf(stderr, "[wdc:render] invalid WDC_EXPERIMENTAL_DISPLAY_HZ\n");
+            wdc::log(wdc::LogLevel::Warn, "[wdc:render] invalid WDC_EXPERIMENTAL_DISPLAY_HZ\n");
             return DisplayRate{0, 1};
         }
         return result;
@@ -121,7 +122,7 @@ extern "C" void wdc_render_dispatcher_tick(uint8_t* rdram) {
         const auto callback = race::word(rdram, race::callback);
         if (callback != previous_callback) {
             previous_callback = callback;
-            std::fprintf(stderr, "[wdc:render] dispatcher callback=%08x\n", callback);
+            wdc::log(wdc::LogLevel::Info, "[wdc:render] dispatcher callback=%08x\n", callback);
         }
     }
 }
@@ -234,7 +235,7 @@ bool RaceDrawer::draw(uint8_t* rdram, recomp_context& caller) {
         // alive for the renderer and retire it permanently for this run.
         failed = true;
         end_race_presentation("graphics fence unavailable");
-        std::fprintf(stderr, "[wdc:render] graphics fence unavailable, retiring render bank\n");
+        wdc::log(wdc::LogLevel::Warn, "[wdc:render] graphics fence unavailable, retiring render bank\n");
     }
     return drawn;
 }

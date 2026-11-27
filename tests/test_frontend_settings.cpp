@@ -298,6 +298,19 @@ int main() {
             !requested->full_track_detail && requested->frame_rate == enhanced.frame_rate && requested->draw_distance == 1 &&
             requested->quick_race_laps == 0 && requested->resolution == enhanced.resolution,
             "defaults Apply lost graphics or retained enhancements");
+        // A startup window override is live and survives unrelated changes
+        // without replacing the saved preference.
+        auto window_override = wdc::graphics::snapshot();
+        const bool stored_fullscreen = window_override.fullscreen;
+        wdc::graphics::load(path, !stored_fullscreen);
+        window_override = wdc::graphics::snapshot();
+        require(window_override.fullscreen != stored_fullscreen, "startup window override was ignored");
+        window_override.resolution = 4;
+        require(wdc::graphics::apply(window_override), "unrelated setting could not be saved");
+        require(wdc::graphics::snapshot().fullscreen != stored_fullscreen, "Apply dropped startup window mode");
+        wdc::graphics::load(path);
+        require(wdc::graphics::snapshot().fullscreen == stored_fullscreen, "Apply saved the startup override");
+
         // An invalid host file must not be replaced just by loading the UI.
         { std::ofstream out(path); out << "{"; }
         requested.reset();

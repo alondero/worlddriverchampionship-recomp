@@ -1,4 +1,5 @@
 #include "input.h"
+#include "../log.h"
 #include "frontend.h"
 #include "game_driving.h"
 #include "rumble.h"
@@ -31,7 +32,7 @@ void load_controller_database(const std::filesystem::path& file) {
     const auto path = file.u8string();
     const auto* utf8 = reinterpret_cast<const char*>(path.c_str());
     if (SDL_GameControllerAddMappingsFromFile(utf8) < 0) {
-        std::fprintf(stderr, "[wdc] Could not load controller mappings from %s: %s\n",
+        wdc::log(wdc::LogLevel::Warn, "[wdc] Could not load controller mappings from %s: %s\n",
                      utf8, SDL_GetError());
     }
 }

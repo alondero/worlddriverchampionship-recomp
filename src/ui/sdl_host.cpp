@@ -1,4 +1,5 @@
 #include "sdl_host.h"
+#include "../log.h"
 #include "recompui/recompui.h"
 #include "util/file.h"
 #include "RmlUi_Platform_SDL.h"
@@ -51,7 +52,7 @@ public:
         text = clipboard;
     }
     bool LogMessage(Rml::Log::Type, const Rml::String& text) override {
-        std::fprintf(stderr, "[wdc-ui] %s\n", text.c_str());
+        wdc::log(wdc::LogLevel::Warn, "[wdc-ui] %s\n", text.c_str());
         return true;
     }
 };

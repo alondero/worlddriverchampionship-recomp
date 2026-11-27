@@ -15,6 +15,7 @@
 #include "controller_pak.h"
 #include "game_warp.h"
 #include "game_scenario.h"
+#include "launch_options.h"
 #include "savestate.h"
 #ifdef WDC_PLAYER
 #include <SDL.h>
@@ -63,11 +64,11 @@ public:
     void send_dl(const OSTask* task) override {
         ++graphics;
         wdc::scenario::graphics_task();
-        std::fprintf(stderr, "[wdc] graphics task: ucode=%08x data=%08x size=%x\n",
+        wdc::log(wdc::LogLevel::Debug, "[wdc] graphics task: ucode=%08x data=%08x size=%x\n",
                      task->t.ucode, task->t.data_ptr, task->t.data_size);
         wdc::rsp::run(rdram, task, [](void*, uint8_t*, uint32_t start, uint32_t end) {
             static unsigned batches = 0;
-            if (++batches < 10) std::fprintf(stderr, "[wdc] RDP output %08x..%08x\n", start, end);
+            if (++batches < 10) wdc::log(wdc::LogLevel::Trace, "[wdc] RDP output %08x..%08x\n", start, end);
         }, nullptr);
         wdc::rsp::signal_dp_complete();
     }
@@ -78,7 +79,56 @@ public:
     float get_resolution_scale() const override { return 1; }
 };
 
-int main(int argc, char** argv) {
+namespace {
+int launch_message(const char* message, bool error) {
+    FILE* stream = error ? stderr : stdout;
+#if defined(_WIN32) && defined(WDC_PLAYER)
+    wdc::open_launch_console(false);
+    if (std::fputs(message, stream) < 0 || std::fflush(stream) != 0)
+        wdc::show_launch_message(message, error);
+#else
+    std::fputs(message, stream);
+#endif
+    return error ? 2 : 0;
+}
+
+int run_player(int argc, char** argv) {
+    wdc::LaunchOptions launch;
+    if (const auto error = wdc::parse_launch_options(argc, argv, launch); !error.empty())
+        return launch_message((error + "\nRun with --help for usage.\n").c_str(), true);
+    if (launch.action == wdc::LaunchAction::Help) return launch_message(wdc::launch_help(), false);
+    if (launch.action == wdc::LaunchAction::Version)
+        return launch_message("worlddriverchampionship_modern " WDC_VERSION "\n", false);
+
+    std::filesystem::path executable_dir;
+#if defined(WDC_PLAYER) && !defined(__ANDROID__)
+    if (char* base = SDL_GetBasePath()) {
+        executable_dir = std::filesystem::path(reinterpret_cast<const char8_t*>(base));
+        SDL_free(base);
+    }
+#endif
+    if (launch.portable && executable_dir.empty())
+        return launch_message("--portable requires a desktop player with a known executable directory.\n", true);
+#ifndef WDC_PLAYER
+    if (launch.fullscreen.has_value())
+        return launch_message("Window mode requires the graphical player.\n", true);
+#endif
+
+    std::error_code config_error;
+    auto config_path = std::filesystem::absolute(
+        launch.data_dir.empty() ? (launch.portable ? executable_dir / "user-data" : "build/user-data")
+                                : launch.data_dir, config_error);
+    if (config_error)
+        return launch_message(("Cannot resolve the data directory: " + config_error.message() + "\n").c_str(), true);
+#if defined(_WIN32) && defined(WDC_PLAYER)
+    if (launch.console) wdc::open_launch_console(true);
+    wdc::open_launch_log(config_path);
+#endif
+#ifdef WDC_PLAYER
+    wdc::log_level = launch.log_level.value_or(wdc::LogLevel::Info);
+#else
+    wdc::log_level = launch.log_level.value_or(wdc::LogLevel::Trace);
+#endif
     if (!wdc::warp::configure_from_environment() || !wdc::scenario::configure()) return 1;
 #ifdef WDC_PLAYER
     SDL_SetMainReady();
@@ -90,33 +140,45 @@ int main(int argc, char** argv) {
     SDL_setenv("SDL_AUDIODRIVER", "wasapi", 0);
 #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER)) {
-        std::fprintf(stderr, "SDL: %s\n", SDL_GetError());
+        wdc::log(wdc::LogLevel::Error, "SDL: %s\n", SDL_GetError());
         return 1;
     }
 #endif
-    const auto rom_path = argc > 1 ? std::filesystem::path(argv[1]) :
-        std::filesystem::path("World Driver Championship (USA).z64");
+    auto rom_path = launch.rom;
+    if (rom_path.empty()) {
+        rom_path = "World Driver Championship (USA).z64";
+        std::error_code error;
+        if (!executable_dir.empty() && !std::filesystem::exists(rom_path, error) && !error)
+            rom_path = executable_dir / rom_path;
+    }
     std::ifstream input(rom_path, std::ios::binary | std::ios::ate);
     if (!input || input.tellg() != 0x1000000) {
-        std::fprintf(stderr, "Supply the 16 MiB USA ROM as the first argument.\n");
+        wdc::log(wdc::LogLevel::Error, "Supply the 16 MiB USA ROM as a positional path or with --rom PATH.\n");
         return 1;
     }
     std::vector<uint8_t> rom(0x1000000);
     input.seekg(0);
-    input.read(reinterpret_cast<char*>(rom.data()), rom.size());
+    if (!input.read(reinterpret_cast<char*>(rom.data()), rom.size())) {
+        wdc::log(wdc::LogLevel::Error, "[wdc] Could not read the complete ROM.\n");
+        return 1;
+    }
     const auto hash = XXH3_64bits(rom.data(), rom.size());
-    std::fprintf(stderr, "[wdc] ROM XXH3=%016llx; experimental recompiled player\n", (unsigned long long)hash);
+    wdc::log(wdc::LogLevel::Info, "[wdc] ROM XXH3=%016llx; experimental recompiled player\n", (unsigned long long)hash);
     register_overlays();
     // The BOSS device posts OS events through this sink. The offline replay
     // tool installs none, so a replay cannot signal the game.
     wdc::rsp::set_game_event_sink(&wdc::rsp::post_game_event);
-    const auto config_path = std::filesystem::current_path() / "build" / "user-data";
-    std::filesystem::create_directories(config_path);
+    std::filesystem::create_directories(config_path, config_error);
+    if (config_error) {
+        wdc::log(wdc::LogLevel::Error, "[wdc] Cannot create the data directory: %s\n", config_error.message().c_str());
+        return 1;
+    }
     recomp::register_config_path(config_path);
-    wdc::pak::configure(config_path / "saves" / "worlddriverchampionship.us.mpk");
+    wdc::pak::configure(launch.controller_pak.empty()
+        ? config_path / "saves" / "worlddriverchampionship.us.mpk" : launch.controller_pak);
     if (!wdc::state::configure(config_path / "wdc_savestate.wstate")) return 1;
 #ifdef WDC_PLAYER
-    wdc::graphics::load(config_path / "graphics.json");
+    wdc::graphics::load(config_path / "graphics.json", launch.fullscreen);
 #endif
     recomp::GameEntry game{};
     game.rom_hash = 0x1BF1E67DCFA21FB8ULL;
@@ -128,23 +190,19 @@ int main(int argc, char** argv) {
     game.entrypoint = recomp_entrypoint;
     game.on_init_callback = [](uint8_t*, recomp_context*) {
         booted = true;
-        std::fprintf(stderr, "[wdc] entering translated ROM entrypoint\n");
+        wdc::log(wdc::LogLevel::Info, "[wdc] entering translated ROM entrypoint\n");
     };
     game.thread_create_callback = [](uint8_t*, recomp_context*) {
-        std::fprintf(stderr, "[wdc] guest thread started: %u\n", ++threads);
+        wdc::log(wdc::LogLevel::Debug, "[wdc] guest thread started: %u\n", ++threads);
     };
     recomp::register_game(game);
-    if (recomp::select_rom(rom_path, game.game_id) != recomp::RomValidationError::Good) return 1;
+    if (recomp::select_rom(rom_path, game.game_id) != recomp::RomValidationError::Good) {
+        wdc::log(wdc::LogLevel::Error, "[wdc] ROM validation failed. Check the USA ROM and data directory.\n");
+        return 1;
+    }
 #ifdef WDC_PLAYER
     wdc::ui::install();
 #ifdef WDC_ENABLE_FRONTEND
-    std::filesystem::path executable_dir;
-#ifndef __ANDROID__
-    if (char* base = SDL_GetBasePath()) {
-        executable_dir = std::filesystem::path(reinterpret_cast<const char8_t*>(base));
-        SDL_free(base);
-    }
-#endif
     wdc::input::initialize_controllers(executable_dir, config_path);
 #endif
 #endif
@@ -186,7 +244,7 @@ int main(int argc, char** argv) {
             if (event.type == SDL_WINDOWEVENT && event.window.windowID == SDL_GetWindowID(window) &&
                 (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
                  event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) && wdc::render::diagnostics()) {
-                std::fprintf(stderr, "[wdc:render] window focus=%s\n",
+                wdc::log(wdc::LogLevel::Info, "[wdc:render] window focus=%s\n",
                     event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED ? "gained" : "lost");
             }
             if (event.type == SDL_KEYDOWN && !event.key.repeat && !captured &&
@@ -260,7 +318,7 @@ int main(int argc, char** argv) {
         wdc::warp::vi_tick(vi);
         wdc::scenario::vi_tick(vi);
     };
-    cfg.error_handling_callbacks.message_box = [](const char* message) { std::fprintf(stderr, "[wdc] %s\n", message); };
+    cfg.error_handling_callbacks.message_box = [](const char* message) { wdc::log(wdc::LogLevel::Error, "[wdc] %s\n", message); };
     cfg.input_callbacks.poll_input = [] {};
     cfg.input_callbacks.get_input = [](int port, uint16_t* buttons, float* x, float* y) {
         *buttons = 0; *x = *y = 0; return port == 0;
@@ -281,7 +339,7 @@ int main(int argc, char** argv) {
     cfg.input_callbacks.get_connected_device_info = wdc::pak::device_info;
     cfg.audio_callbacks.queue_samples = [](int16_t*, size_t) {};
     cfg.audio_callbacks.get_frames_remaining = []() -> size_t { return 0; };
-    cfg.audio_callbacks.set_frequency = [](uint32_t frequency) { std::fprintf(stderr, "[wdc] audio Hz=%u\n", frequency); };
+    cfg.audio_callbacks.set_frequency = [](uint32_t frequency) { wdc::log(wdc::LogLevel::Info, "[wdc] audio Hz=%u\n", frequency); };
 #ifdef WDC_PLAYER
     cfg.audio_callbacks.set_frequency = wdc::audio::set_frequency;
     cfg.audio_callbacks.queue_samples = wdc::audio::queue_samples;
@@ -297,7 +355,7 @@ int main(int argc, char** argv) {
 #endif
     )) std::thread([] {
         std::this_thread::sleep_for(std::chrono::seconds(15));
-        std::fprintf(stderr, "[wdc] diagnostic timeout: boot=%u threads=%u vis=%u graphics=%u\n",
+        wdc::log(wdc::LogLevel::Error, "[wdc] diagnostic timeout: boot=%u threads=%u vis=%u graphics=%u\n",
                      (unsigned)booted.load(), threads.load(), vis.load(), graphics.load());
         std::fflush(nullptr);
         std::_Exit(2);
@@ -313,3 +371,10 @@ int main(int argc, char** argv) {
     return 2;
 #endif
 }
+}
+
+#if defined(_WIN32) && defined(WDC_PLAYER)
+int wdc::application_main(int argc, char** argv) { return run_player(argc, argv); }
+#else
+int main(int argc, char** argv) { return run_player(argc, argv); }
+#endif

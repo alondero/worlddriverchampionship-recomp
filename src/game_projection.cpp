@@ -1,4 +1,5 @@
 #include "game_projection.h"
+#include "log.h"
 
 #include "game_camera.h"
 #include "game_visibility.h"
@@ -44,7 +45,7 @@ float enhanced_aspect(const uint8_t* rdram, gpr descriptor, float viewport_aspec
 
     static std::atomic_flag warned;
     if (!warned.test_and_set())
-        std::fprintf(stderr, "[wdc] invalid camera display size: %d x %d; scaling ROM aspect\n", width, height);
+        wdc::log(wdc::LogLevel::Warn, "[wdc] invalid camera display size: %d x %d; scaling ROM aspect\n", width, height);
     return rom_aspect * wdc::camera::width_scale();
 }
 }

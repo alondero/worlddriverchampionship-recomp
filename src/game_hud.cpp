@@ -1,4 +1,5 @@
 #include "game_hud.h"
+#include "log.h"
 #include "guest_memory.h"
 #include "recomp.h"
 #include <atomic>
@@ -39,7 +40,7 @@ bool emit(uint8_t* rdram, uint32_t payload, unsigned spare = 0) {
 }
 void require(bool emitted) {
     if (emitted) return;
-    std::fprintf(stderr, "[wdc] HUD marker exhausted frame arena\n");
+    wdc::log(wdc::LogLevel::Warn, "[wdc] HUD marker exhausted frame arena\n");
     std::abort();
 }
 bool filling = false;
@@ -130,7 +131,7 @@ extern "C" void wdc_hud_begin(uint8_t* rdram, recomp_context*) {
     wdc_require_guest_range(scene, 16, 4);
     const int32_t x = MEM_W(0, scene), width = MEM_W(8, scene);
     if (x < 0 || width <= 0 || x + int64_t(width) > 4096) {
-        std::fprintf(stderr, "[wdc] invalid HUD viewport\n");
+        wdc::log(wdc::LogLevel::Warn, "[wdc] invalid HUD viewport\n");
         std::abort();
     }
     left = x; right = x + width;

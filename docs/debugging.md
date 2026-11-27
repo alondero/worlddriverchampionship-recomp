@@ -22,6 +22,19 @@ Use the [runtime scenario runner](runtime-verification.md) to reproduce a
 driving or scene transition issue in a fresh profile and retain the input,
 player log and measured result together.
 
+## Player logs
+
+On Windows the player preserves redirected output from launch scripts and
+test runners. When there is no standard error destination, the default
+launch writes a session log to `build/user-data/logs/wdc-<time>-<pid>.log`.
+The log directory follows `--data-dir` or `--portable` when supplied.
+On Linux the player writes to the terminal's standard streams.
+
+Use `--console --verbose` for live Windows output with guest thread startup
+details. Use `--log-level=trace` for additional detail such as VI state.
+The level applies to WDC port messages. The shared runtime and renderer
+control their own output.
+
 ## Development save states
 
 F7 saves a RAM checkpoint; F8 restores it. The default slot is

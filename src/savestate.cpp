@@ -1,4 +1,5 @@
 #include "savestate.h"
+#include "log.h"
 #include "recomp.h"
 #include <array>
 #include <atomic>
@@ -46,7 +47,7 @@ uint32_t checksum(const uint8_t* data, size_t size, uint32_t result = 2166136261
     return result;
 }
 bool fail(const char* operation, const char* reason) {
-    std::fprintf(stderr, "[wdc:state] %s failed: %s\n", operation, reason);
+    wdc::log(wdc::LogLevel::Error, "[wdc:state] %s failed: %s\n", operation, reason);
     return false;
 }
 bool delay(const char* name, unsigned& result) {
@@ -56,7 +57,7 @@ bool delay(const char* name, unsigned& result) {
     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), result);
     if (text.empty() || text.front() < '0' || text.front() > '9' || error != std::errc{} ||
         end != text.data() + text.size() || result > 1000000) {
-        std::fprintf(stderr, "[wdc:state] invalid %s; expected frames 0..1000000\n", name);
+        wdc::log(wdc::LogLevel::Error, "[wdc:state] invalid %s; expected frames 0..1000000\n", name);
         return false;
     }
     return true;
@@ -94,7 +95,7 @@ bool save(uint8_t* rdram, recomp_context* ctx, const std::filesystem::path& path
     ok = std::rename(temporary.c_str(), path.c_str()) == 0;
 #endif
     if (!ok) return fail("save", "publish failed; previous slot retained, new image left in .tmp");
-    std::fprintf(stderr, "[wdc:state] saved %u bytes: %s (scene=%u)\n", ram_size, path.string().c_str(), h.scene);
+    wdc::log(wdc::LogLevel::Info, "[wdc:state] saved %u bytes: %s (scene=%u)\n", ram_size, path.string().c_str(), h.scene);
     return true;
 }
 bool load(uint8_t* rdram, recomp_context* ctx, const std::filesystem::path& path) {
@@ -153,7 +154,7 @@ bool load(uint8_t* rdram, recomp_context* ctx, const std::filesystem::path& path
     clock_bias.store(osGetCount() - h.clock);
     ++restored;
     stable_frames = 0;
-    std::fprintf(stderr, "[wdc:state] loaded %u bytes: %s (scene=%u)\n", ram_size, path.string().c_str(), h.scene);
+    wdc::log(wdc::LogLevel::Info, "[wdc:state] loaded %u bytes: %s (scene=%u)\n", ram_size, path.string().c_str(), h.scene);
     return true;
 }
 }
@@ -168,11 +169,11 @@ bool wdc::state::configure(const std::filesystem::path& default_slot) {
 }
 void wdc::state::request_save() {
     requests.fetch_or(1);
-    std::fprintf(stderr, "[wdc:state] save requested; waiting for a settled frame\n");
+    wdc::log(wdc::LogLevel::Info, "[wdc:state] save requested; waiting for a settled frame\n");
 }
 void wdc::state::request_load() {
     requests.fetch_or(2);
-    std::fprintf(stderr, "[wdc:state] load requested; waiting for a settled frame\n");
+    wdc::log(wdc::LogLevel::Info, "[wdc:state] load requested; waiting for a settled frame\n");
 }
 
 // USA func_80001D88 before 80001D90 reloads the callback. Game dispatcher

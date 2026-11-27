@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <optional>
 #include <string>
 
 namespace wdc::graphics {
@@ -39,9 +40,10 @@ int legacy_custom_target(const Settings& settings);
 // Load/save on SDL main thread. Renderer takes a locked copy at a frame boundary.
 // Invalid files are preserved and defaults used; later explicit changes may save.
 // Load selects the save path; apply without one fails before staging any write.
-void load(const std::filesystem::path& path);
+void load(const std::filesystem::path& path, std::optional<bool> initial_fullscreen = std::nullopt);
 Settings snapshot();
-bool apply(Settings settings); // publishes even if saving fails; reports failure
+void fallback_to_windowed();
+bool apply(Settings settings, bool reset_window_mode = false); // publishes even if saving fails
 std::string describe(const Settings& settings);
 Settings cycle_frame_rate(Settings settings);
 }

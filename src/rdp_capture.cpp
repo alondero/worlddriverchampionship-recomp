@@ -1,4 +1,5 @@
 #include "rdp_capture.h"
+#include "log.h"
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -17,7 +18,7 @@ std::string path;
 unsigned captured = 0;
 
 void fail() {
-    std::fprintf(stderr, "[wdc] RDP capture failed writing %s; removed\n", path.c_str());
+    wdc::log(wdc::LogLevel::Error, "[wdc] RDP capture failed writing %s; removed\n", path.c_str());
     std::fclose(file);
     std::remove(path.c_str());
     file = nullptr;
@@ -27,7 +28,7 @@ void fail() {
 void request() {
     if (!prefix()) return;
     armed.store(true);
-    std::fprintf(stderr, "[wdc] RDP capture armed for the next BOSS task\n");
+    wdc::log(wdc::LogLevel::Info, "[wdc] RDP capture armed for the next BOSS task\n");
 }
 
 void begin_task() {
@@ -35,9 +36,9 @@ void begin_task() {
     // Numbering restarts with each process; an existing file is replaced.
     path = std::string(prefix()) + "-" + std::to_string(captured++) + ".rdp";
     file = std::fopen(path.c_str(), "wb");
-    if (!file) { std::fprintf(stderr, "[wdc] RDP capture could not open %s\n", path.c_str()); return; }
+    if (!file) { wdc::log(wdc::LogLevel::Error, "[wdc] RDP capture could not open %s\n", path.c_str()); return; }
     if (std::fputs("WDCRDP01", file) == EOF) return fail();
-    std::fprintf(stderr, "[wdc] RDP capture writing %s\n", path.c_str());
+    wdc::log(wdc::LogLevel::Info, "[wdc] RDP capture writing %s\n", path.c_str());
 }
 
 void write(const uint8_t* memory, uint32_t start, uint32_t end) {
@@ -61,9 +62,9 @@ void end_task() {
     file = nullptr;
     if (!closed) {
         std::remove(path.c_str());
-        std::fprintf(stderr, "[wdc] RDP capture failed closing %s; removed\n", path.c_str());
+        wdc::log(wdc::LogLevel::Error, "[wdc] RDP capture failed closing %s; removed\n", path.c_str());
         return;
     }
-    std::fprintf(stderr, "[wdc] RDP capture complete\n");
+    wdc::log(wdc::LogLevel::Info, "[wdc] RDP capture complete\n");
 }
 }

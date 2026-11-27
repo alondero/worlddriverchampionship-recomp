@@ -1,4 +1,5 @@
 #include "boss_capture.h"
+#include "log.h"
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -154,7 +155,7 @@ bool load(const std::string& path, Capture& out, std::string& error) {
 void request() {
     if (!prefix()) return;
     armed.store(true);
-    std::fprintf(stderr, "[wdc] BOSS capture armed for the next graphics task\n");
+    wdc::log(wdc::LogLevel::Info, "[wdc] BOSS capture armed for the next graphics task\n");
 }
 
 bool take_request(std::string& path) {

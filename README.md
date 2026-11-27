@@ -17,6 +17,10 @@ Supply your own USA ROM, then run:
 ./play.ps1
 ```
 
+Windows launches without a console by default. Use `./play.ps1 -Console`
+for live diagnostics or see [command-line options](docs/configuration.md#command-line-options)
+for ROM, window mode, and save profile selection.
+
 Gamepads are supported: left stick steers, A accelerates, B brakes, Start pauses,
 and Back/View opens settings (Xbox button labels). Keyboard defaults remain
 Enter for Start/pause, X for A/accelerate, Z for B/brake, and arrows/WASD to steer.

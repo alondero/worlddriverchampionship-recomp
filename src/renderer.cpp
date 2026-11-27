@@ -1,6 +1,7 @@
 // RT64 owns raw RDP decoding and GPU presentation; BOSS RSP remains translated.
 #define HLSL_CPU
 #include "hle/rt64_application.h"
+#include "log.h"
 #include "hle/rt64_state.h"
 #include "hle/rt64_rdp.h"
 #include "render/rt64_shader_library.h"
@@ -150,7 +151,7 @@ class Renderer final : public ultramodern::renderer::RendererContext {
             app->device->getSampleCountsSupported(RT64::RenderTarget::depthBufferFormat());
         if (!(counts & app->userConfig.msaaSampleCount())) {
             app->userConfig.antialiasing = RT64::UserConfiguration::Antialiasing::None;
-            std::fprintf(stderr, "[wdc] requested MSAA unsupported; using no MSAA\n");
+            wdc::log(wdc::LogLevel::Warn, "[wdc] requested MSAA unsupported; using no MSAA\n");
         }
         app->updateUserConfig(true);
         if (old_samples != app->userConfig.antialiasing) app->updateMultisampling();
@@ -211,8 +212,8 @@ public:
         if (result == RT64::Application::SetupResult::Success && (!app->state || !app->device))
             setup_result = ultramodern::renderer::SetupResult::DynamicLibrariesNotFound;
         if (valid() && app->userConfig.msaaSampleCount() != unsigned(settings.samples))
-            std::fprintf(stderr, "[wdc] requested MSAA unsupported; using no MSAA\n");
-        std::fprintf(stderr, "[wdc] RT64 setup=%d\n", int(result));
+            wdc::log(wdc::LogLevel::Warn, "[wdc] requested MSAA unsupported; using no MSAA\n");
+        wdc::log(wdc::LogLevel::Info, "[wdc] RT64 setup=%d\n", int(result));
     }
     bool valid() override { return setup_result == ultramodern::renderer::SetupResult::Success; }
     bool owns_task_interrupts() const override { return true; }
@@ -253,7 +254,7 @@ public:
         uint64_t signature = uint64_t(vi->VI_WIDTH_REG) << 32 | vi->VI_Y_SCALE_REG;
         if (reported != signature && vi->VI_H_START_REG) {
             reported = signature;
-            std::fprintf(stderr, "[wdc] VI status=%x width=%u x=%x y=%x h=%x v=%x\n",
+            wdc::log(wdc::LogLevel::Trace, "[wdc] VI status=%x width=%u x=%x y=%x h=%x v=%x\n",
                 vi->VI_STATUS_REG, vi->VI_WIDTH_REG, vi->VI_X_SCALE_REG,
                 vi->VI_Y_SCALE_REG, vi->VI_H_START_REG, vi->VI_V_START_REG);
         }
