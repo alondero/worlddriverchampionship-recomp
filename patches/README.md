@@ -175,11 +175,11 @@ patch adds `rt64_rdp_triangle_edges.h` to emit the area the RDP edge
 walker fills. The decoder and all geometry tests use one guarded-trapezoid
 path; the earlier unbroken-H fan is removed because its topology fix did not
 cover inverted/cut cases. Original widths determine each span's valid Y
-interval before the guard covers D3D subpixel rounding. Both minor lines use
-one offset based on their maximum used slope, preserving a continuous vertex
-at YM and any original minor-edge jog. Y endpoints and attribute planes stay
-unchanged. Tests include rounded inverted corners, shared YM endpoints,
-bounded added coverage, empty spans and collinear commands. Each output
+interval before the guard covers D3D subpixel rounding. Each active edge keeps
+its slope-based offset. The minor lines share at most 1/8 pixel of padding,
+which keeps a steep edge from stretching an adjoining upright edge.
+Tests include rounded inverted corners, shared YM endpoints, near-horizontal
+seams, bounded added coverage, empty spans and collinear commands. Each output
 triangle is clipped by patch 0014, so 0016 applies after it. The mechanism, measurements and limits are in the
 [renderer reference](../docs/reference/renderer.md#raw-triangle-edge-reconstruction).
 

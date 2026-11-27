@@ -79,17 +79,23 @@ both the H split and other differing endpoints; H is not claimed to remain
 unbroken.
 
 After calculating each span's original valid Y interval, H moves outward by
-`(1 + abs(dxhdy)) / 256` native X pixels. M and L use the **same** outward X
-translation, `(1 + max(abs(dxmdy), abs(dxldy))) / 256`, considering only minor
-edges whose Y interval is used by the command. Using the larger slope covers
-both edges' rounding error without separating a continuous minor vertex at
-YM. Any pre-existing M/L discontinuity is preserved, not welded.
+`g(dxhdy)` native X pixels, where `g(slope) = (1 + abs(slope)) / 256`.
+For M and L, let `gM = g(dxmdy)` and `gL = g(dxldy)`, using zero for an
+edge whose Y interval is empty. Both spans share
+`shared = min(1/8, max(gM, gL))`. M moves by `max(gM, shared)` and L by
+`max(gL, shared)`, both outward. A shared guard of at most 1/8 pixel
+preserves the original join when both edges fit within that limit.
 
-These guards bound the relative error from independently rounding X and Y to
-D3D's 8-bit subpixel grid at the supported 1x-or-higher scales. Y endpoints,
-scissor and original attribute planes are unchanged, including intersection
-cuts. Empty spans and collinear commands remain empty. Each guarded
-trapezoid is triangulated once; the two spans occupy separate Y intervals.
+Each edge keeps the slope term for X and Y rounding on D3D's 8-bit subpixel
+grid at 1x or higher. The cap limits how much padding one minor edge
+contributes to the other. On the BOSS intro sign, a nearly horizontal edge
+gave its upright neighbour up to 1.33 pixels of padding that varied as the
+camera moved. The billboard regression checks the upright edge. A second
+regression checks both orientations of a near-horizontal H/M seam at 1x,
+2x, 4.8x and 8x, with and without GPU snapping and the opaque coverage radius.
+Y endpoints, scissor and original attribute planes are unchanged, including
+intersection cuts. Empty spans and collinear commands remain empty. Each
+guarded trapezoid is triangulated once; the two spans occupy separate Y intervals.
 The correction intentionally adds a thin boundary band and is not exact RDP
 coverage emulation.
 
