@@ -103,6 +103,19 @@ python -B tools/render_split_prototype/run.py --reference-build build --rom "Wor
 
 Use `run.py --help` for the diagnostic modes and gates. The [prototype PR](https://github.com/alondero/worlddriverchampionship-recomp/pull/61) records the experiments, controls and measurements.
 
+To compare a region between two `--capture-frames` runs, choose a frame and draw
+label from both `captures.json` manifests. Use the same starting state, input,
+and output size for both runs.
+
+```powershell
+python -B tools/render_split_prototype/compare_captures.py BASE_RUN CANDIDATE_RUN --frame 60 --draw 0 --crop 300 100 200 120 --output artifacts/present-comparison.png
+```
+
+The PNG shows the baseline, candidate, and absolute RGB difference from left
+to right. The command prints the number of changed pixels and largest channel
+delta. The full swap images and their manifests stay in the original run
+directories.
+
 ## Fixed-rate driving comparison
 
 With a Windows MinGW/Ninja player build and its compile database, run:

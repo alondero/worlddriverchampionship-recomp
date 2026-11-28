@@ -27,6 +27,12 @@ struct Run {
     float x, y;
 };
 struct Position { double x, y, z; };
+struct DistancePeriod {
+    int scale;
+    unsigned samples = 0;
+    uint32_t min_frame_arena_gap = std::numeric_limits<uint32_t>::max();
+    uint32_t min_secondary_frame_arena_gap = std::numeric_limits<uint32_t>::max();
+};
 struct Race {
     uint32_t course, layout, car, mode, laps;
     uint32_t last_sample = 0;
@@ -37,15 +43,22 @@ struct Race {
     uint32_t min_frame_arena_gap = std::numeric_limits<uint32_t>::max();
     uint32_t min_secondary_frame_arena_gap = std::numeric_limits<uint32_t>::max();
     std::optional<Position> origin;
+    std::vector<DistancePeriod> distance_periods;
 };
+struct DrawDistanceChange { unsigned after_polls; int distance; };
 
 // Initialized before runtime threads start and immutable thereafter.
 std::vector<Run> runs;
 unsigned max_vis;
 Start start;
 bool capture_window;
+std::optional<DrawDistanceChange> draw_distance_change;
 std::atomic<bool> started{};
+std::atomic<bool> race_active{};
 std::atomic<unsigned> polls{}, vis{}, tasks{}, presentations{};
+
+// The SDL thread owns delivery of the host setting.
+bool draw_distance_delivered;
 
 // The controller worker owns its cursor. The dispatcher owns observations.
 std::size_t input_run;
@@ -74,7 +87,18 @@ void finish(unsigned consumed) {
                << ",\"peak_visibility_list_count\":" << entry.peak_visibility_list_count
                << ",\"peak_visibility_filled_slots\":" << entry.peak_visibility_filled_slots
                << ",\"frame_arena_gap\":" << entry.min_frame_arena_gap
-               << ",\"secondary_frame_arena_gap\":" << entry.min_secondary_frame_arena_gap << '}';
+               << ",\"secondary_frame_arena_gap\":" << entry.min_secondary_frame_arena_gap
+               << ",\"draw_distance_periods\":[";
+        const char* period_separator = "";
+        for (const auto& period : entry.distance_periods) {
+            result << period_separator << "{\"scale\":" << period.scale << ",\"samples\":" << period.samples;
+            if (period.min_frame_arena_gap != std::numeric_limits<uint32_t>::max())
+                result << ",\"frame_arena_gap\":" << period.min_frame_arena_gap
+                       << ",\"secondary_frame_arena_gap\":" << period.min_secondary_frame_arena_gap;
+            result << '}';
+            period_separator = ",";
+        }
+        result << "]}";
         separator = ",";
     }
     result << "]}\n";
@@ -110,7 +134,8 @@ void observe_race(const uint8_t* rdram) {
                      entry.course, entry.layout, entry.car, entry.mode, entry.laps);
     }
     auto& entry = races.back();
-    if (sample >= entry.last_sample) entry.samples += sample - entry.last_sample;
+    const unsigned samples = sample >= entry.last_sample ? sample - entry.last_sample : 0;
+    entry.samples += samples;
     entry.last_sample = sample;
 
     // The visibility list count is game-owned at 8007E920. Its entries were
@@ -146,6 +171,18 @@ void observe_race(const uint8_t* rdram) {
     const uint32_t secondary_gap = secondary_descending >= secondary_ascending
         ? secondary_descending - secondary_ascending : 0;
     entry.min_secondary_frame_arena_gap = std::min(entry.min_secondary_frame_arena_gap, secondary_gap);
+    if (draw_distance_change) {
+        const auto scale = int(wdc::visibility::distance_scale());
+        if (entry.distance_periods.empty() || entry.distance_periods.back().scale != scale) {
+            // The previous frame's cursors can still belong to the old setting.
+            entry.distance_periods.push_back({scale});
+        } else {
+            auto& period = entry.distance_periods.back();
+            period.samples += samples;
+            period.min_frame_arena_gap = std::min(period.min_frame_arena_gap, gap);
+            period.min_secondary_frame_arena_gap = std::min(period.min_secondary_frame_arena_gap, secondary_gap);
+        }
+    }
     if (race::word(rdram, config) != 1) return;
     const double x = std::bit_cast<float>(race::word(rdram, body + 0x30));
     const double y = std::bit_cast<float>(race::word(rdram, body + 0x34));
@@ -165,13 +202,24 @@ bool configure() {
     script.imbue(std::locale::classic());
     std::string magic, gate;
     int budget;
-    if (!(script >> magic >> gate >> budget) || magic != "WDC_SCENARIO_1" ||
+    if (!(script >> magic >> gate >> budget) || (magic != "WDC_SCENARIO_1" && magic != "WDC_SCENARIO_2") ||
         budget <= 0 || unsigned(budget) > max_budget) return bad_script();
     max_vis = unsigned(budget);
     if (gate == "boot") start = Start::Boot;
     else if (gate == "menu") start = Start::Menu;
     else if (gate == "race") start = Start::Race;
     else return bad_script();
+    if (magic == "WDC_SCENARIO_2") {
+#ifdef WDC_PLAYER
+        int after, distance;
+        if (!(script >> after >> distance) || after <= 0 ||
+            (distance != visibility::unlimited_draw_distance && (distance < 1 || distance > 8)))
+            return bad_script();
+        draw_distance_change = DrawDistanceChange{unsigned(after), distance};
+#else
+        return bad_script();
+#endif
+    }
 
     unsigned end = 0;
     while (script >> std::ws && script.peek() != EOF) {
@@ -183,12 +231,22 @@ bool configure() {
         end += unsigned(count);
         runs.push_back({end, static_cast<uint16_t>(buttons), x, y});
     }
-    if (script.bad() || runs.empty()) return bad_script();
+    if (script.bad() || runs.empty() || (draw_distance_change && draw_distance_change->after_polls >= end))
+        return bad_script();
     started.store(start == Start::Boot);
     return true;
 }
 
 bool enabled() { return !runs.empty(); }
+
+std::optional<int> take_draw_distance_change() {
+    if (!draw_distance_change || draw_distance_delivered ||
+        polls.load(std::memory_order_acquire) < draw_distance_change->after_polls ||
+        !race_active.load(std::memory_order_acquire))
+        return std::nullopt;
+    draw_distance_delivered = true;
+    return draw_distance_change->distance;
+}
 
 // N64ModernRuntime calls get_input on the controller worker while filling
 // the pad array. A run lasts a count of actual port-one reads, independent
@@ -224,6 +282,7 @@ void dispatcher_tick(const uint8_t* rdram) {
     const auto mode = race::word(rdram, race::scene);
     const bool menu = callback == 0x8004E950;
     const bool racing = race::active(rdram) && mode < 0x11 && race::word(rdram, race::cars);
+    if (draw_distance_change) race_active.store(racing, std::memory_order_release);
     if (menu) ++menu_ticks;
     if (racing) observe_race(rdram);
     in_race = racing;

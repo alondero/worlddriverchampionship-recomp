@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "name": "les-gets-live-draw-distance",
+  "warp": "10:0:practice",
+  "start": "race",
+  "max_vis": 1600,
+  "input": [
+    {"polls": 150},
+    {"polls": 180, "buttons": ["A"]},
+    {"polls": 30}
+  ],
+  "draw_distance_at": {"after_polls": 180, "value": 8},
+  "settings": {
+    "graphics.json": {"version": 2, "draw_distance": 1}
+  },
+  "expect": {
+    "min_graphics_tasks": 120,
+    "min_presentations": 120,
+    "races": [
+      {
+        "course": 0,
+        "layout": 0,
+        "car": 0,
+        "mode": 8,
+        "min_displacement": 10,
+        "draw_distance_periods": [
+          {"scale": 1, "min_samples": 60, "min_frame_arena_gap": 16384, "min_secondary_frame_arena_gap": 16384},
+          {"scale": 8, "min_samples": 60, "min_frame_arena_gap": 16384, "min_secondary_frame_arena_gap": 16384}
+        ]
+      }
+    ]
+  }
+}

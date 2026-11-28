@@ -24,6 +24,7 @@ from shadow import build_shadow_renderer, runtime_receive_archive
 from rt64_profile import build_rt64_profile
 from fast_hash_build import build_fast_hash
 from draw_boundary import build_draw_boundary
+from capture_present import read_capture
 from present_audit import build_present_audit, validate_admissions, validate_swaps
 from swap_timing import group_intervals, summarize_swaps
 from present_latency import join_present_latency
@@ -320,7 +321,7 @@ def main():
     config.mkdir(parents=True, exist_ok=True)
     (config / "graphics.json").write_text(json.dumps({"resolution": 1, "native_60fps": False}))
     env = {key: value for key, value in os.environ.items() if not key.startswith("WDC_")}
-    env.update(WDC_WARP=args.warp, WDC_RENDER_PROTOTYPE_MODE=args.mode,
+    env.update(WDC_WARP=args.warp, WDC_LAUNCH_RECORD_LOCAL="1", WDC_RENDER_PROTOTYPE_MODE=args.mode,
                WDC_RENDER_PROTOTYPE_SETTLE=str(args.settle_frames),
                WDC_RENDER_PROTOTYPE_TRIALS=str(args.trials),
                WDC_RENDER_PROTOTYPE_PRESENT_HZ=str(args.present_hz.numerator),
@@ -590,11 +591,10 @@ def main():
             captures = []
             for binding in bindings:
                 path = run_dir / f"present-{binding['id']}-0.ppm"
-                data = path.read_bytes()
-                magic, dimensions, maximum, pixels = data.split(b"\n", 3)
-                width, height = map(int, dimensions.split())
-                if magic != b"P6" or maximum != b"255" or not (0 < width <= 4096 and 0 < height <= 4096) or len(pixels) != width*height*3:
-                    raise SystemExit("Invalid captured image")
+                try:
+                    width, height, pixels = read_capture(path)
+                except ValueError as error:
+                    raise SystemExit(str(error)) from error
                 captures.append(dict(binding, file=path.name, width=width, height=height,
                                      rgb_sha256=hashlib.sha256(pixels).hexdigest()))
             (run_dir / "captures.json").write_text(json.dumps(captures, indent=2))

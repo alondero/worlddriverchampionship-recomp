@@ -122,7 +122,9 @@ int run_player(int argc, char** argv) {
         return launch_message(("Cannot resolve the data directory: " + config_error.message() + "\n").c_str(), true);
 #if defined(_WIN32) && defined(WDC_PLAYER)
     if (launch.console) wdc::open_launch_console(true);
-    wdc::open_launch_log(config_path);
+    const auto log_path = wdc::open_launch_log(config_path);
+#elif defined(WDC_PLAYER) && !defined(__ANDROID__)
+    const std::filesystem::path log_path;
 #endif
 #ifdef WDC_PLAYER
     wdc::log_level = launch.log_level.value_or(wdc::LogLevel::Info);
@@ -200,6 +202,13 @@ int run_player(int argc, char** argv) {
         wdc::log(wdc::LogLevel::Error, "[wdc] ROM validation failed. Check the USA ROM and data directory.\n");
         return 1;
     }
+#if defined(WDC_PLAYER) && !defined(__ANDROID__)
+    const std::filesystem::path invoked(reinterpret_cast<const char8_t*>(argv[0]));
+    const bool local_record = launch.portable || !launch.data_dir.empty() || wdc::scenario::enabled() ||
+        std::getenv("WDC_LAUNCH_RECORD_LOCAL");
+    wdc::write_launch_record(executable_dir.empty() ? invoked : executable_dir / invoked.filename(),
+        rom_path, config_path, log_path, !local_record);
+#endif
 #ifdef WDC_PLAYER
     wdc::ui::install();
 #ifdef WDC_ENABLE_FRONTEND
@@ -235,6 +244,12 @@ int run_player(int argc, char** argv) {
     cfg.gfx_callbacks.update_gfx = [](void*) {
         wdc::audio::pump();
         wdc::ui::pump();
+        if (const auto distance = wdc::scenario::take_draw_distance_change()) {
+            auto settings = wdc::graphics::snapshot();
+            settings.draw_distance = *distance;
+            const auto error = wdc::graphics::apply_window_settings(window, settings);
+            if (!error.empty()) wdc::log(wdc::LogLevel::Warn, "[wdc:scenario] %s\n", error.c_str());
+        }
 #ifdef WDC_ENABLE_FRONTEND
         std::lock_guard input_lock(wdc::input::mutex());
 #endif

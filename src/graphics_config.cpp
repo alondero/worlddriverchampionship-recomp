@@ -180,6 +180,24 @@ void fallback_to_windowed() {
         apply(fallback);
     }
 }
+std::string settings_json(const Settings& s) {
+    nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
+        {"aspect", s.aspect}, {"samples", s.samples},
+        {"filtering", s.filtering}, {"precision", s.precision}, {"fullscreen", s.fullscreen},
+        {"hud", s.hud},
+        {"full_car_detail", s.full_car_detail}, {"full_track_detail", s.full_track_detail},
+        {"draw_distance", s.draw_distance}, {"quick_race_laps", s.quick_race_laps},
+        {"native_60fps", s.frame_rate == FrameRateMode::Native60},
+        {"interpolate_races", interpolated_mode(s.frame_rate)},
+        {"custom_rate", s.custom_rate}};
+    double stored_rate = 0;
+    if (s.frame_rate == FrameRateMode::InterpolateDisplay || s.frame_rate == FrameRateMode::LegacyDisplay)
+        stored_rate = -1;
+    else if (custom_mode(s.frame_rate)) stored_rate = s.custom_rate;
+    // Keep whole rates readable by older players with an integer-only setting.
+    j["rate"] = stored_rate == std::trunc(stored_rate) ? nlohmann::json(int(stored_rate)) : nlohmann::json(stored_rate);
+    return j.dump(2);
+}
 bool apply(Settings s, bool reset_window_mode) {
     s = normalize(s);
     {
@@ -190,26 +208,11 @@ bool apply(Settings s, bool reset_window_mode) {
     publish(s);
     try {
         if (file.empty()) throw std::runtime_error("settings path is not configured");
-        nlohmann::json j = {{"version", 2}, {"resolution", s.resolution},
-            {"aspect", s.aspect}, {"samples", s.samples},
-            {"filtering", s.filtering}, {"precision", s.precision},
-            {"fullscreen", saved_fullscreen.value_or(s.fullscreen)},
-            {"hud", s.hud},
-            {"full_car_detail", s.full_car_detail}, {"full_track_detail", s.full_track_detail},
-            {"draw_distance", s.draw_distance}, {"quick_race_laps", s.quick_race_laps},
-            {"native_60fps", s.frame_rate == FrameRateMode::Native60},
-            {"interpolate_races", interpolated_mode(s.frame_rate)},
-            {"custom_rate", s.custom_rate}};
-        double stored_rate = 0;
-        if (s.frame_rate == FrameRateMode::InterpolateDisplay || s.frame_rate == FrameRateMode::LegacyDisplay)
-            stored_rate = -1;
-        else if (custom_mode(s.frame_rate)) stored_rate = s.custom_rate;
-        // Keep whole rates readable by older players with an integer-only setting.
-        j["rate"] = stored_rate == std::trunc(stored_rate) ? nlohmann::json(int(stored_rate)) : nlohmann::json(stored_rate);
+        s.fullscreen = saved_fullscreen.value_or(s.fullscreen);
         auto temporary = file;
         temporary += ".tmp";
         std::ofstream out(temporary, std::ios::trunc);
-        out << j.dump(2) << '\n';
+        out << settings_json(s) << '\n';
         out.close();
         if (!out) throw std::runtime_error("cannot write settings");
         // Replace only after a complete write, keeping the previous file on failure.

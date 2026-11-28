@@ -35,10 +35,10 @@ void wdc::open_launch_console(bool allow_new_window) {
     if (!has_error) reopen(stderr, L"CONOUT$", L"w");
 }
 
-void wdc::open_launch_log(const std::filesystem::path& data_dir) {
+std::filesystem::path wdc::open_launch_log(const std::filesystem::path& data_dir) {
     const bool has_output = has_handle(STD_OUTPUT_HANDLE);
     const bool has_error = has_handle(STD_ERROR_HANDLE);
-    if (has_error) return;
+    if (has_error) return {};
 
     const auto directory = data_dir / "logs";
     std::error_code error;
@@ -49,12 +49,13 @@ void wdc::open_launch_log(const std::filesystem::path& data_dir) {
                                    std::to_string(GetCurrentProcessId()) + ".log");
     if (error || !reopen(stderr, path.c_str(), L"a")) {
         show_launch_message("Could not open the player log. Check that the data directory is writable.", true);
-        return;
+        return {};
     }
     std::setvbuf(stderr, nullptr, _IONBF, 0);
     // Give stdout a CRT descriptor, then share the log's file position.
     if (!has_output && reopen(stdout, L"NUL", L"w") &&
         _dup2(_fileno(stderr), _fileno(stdout)) == 0) std::setvbuf(stdout, nullptr, _IONBF, 0);
+    return path;
 }
 
 void wdc::show_launch_message(const char* message, bool error) {

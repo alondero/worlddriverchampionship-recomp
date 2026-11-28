@@ -45,6 +45,7 @@ Settings snapshot();
 bool windowed_with_saved_fullscreen();
 void fallback_to_windowed();
 bool apply(Settings settings, bool reset_window_mode = false); // publishes even if saving fails
+std::string settings_json(const Settings& settings);
 std::string describe(const Settings& settings);
 Settings cycle_frame_rate(Settings settings);
 }

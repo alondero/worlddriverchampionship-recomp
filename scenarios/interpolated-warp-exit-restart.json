@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "name": "interpolated-warp-exit-restart",
+  "warp": "1:0:arcade:3",
+  "start": "race",
+  "max_vis": 2400,
+  "input": [
+    {"polls": 230},
+    {"polls": 5, "buttons": ["START"]},
+    {"polls": 30},
+    {"polls": 4, "stick": [0, -1]},
+    {"polls": 16},
+    {"polls": 4, "stick": [0, -1]},
+    {"polls": 16},
+    {"polls": 4, "stick": [0, -1]},
+    {"polls": 16},
+    {"polls": 4, "stick": [0, -1]},
+    {"polls": 16},
+    {"polls": 4, "stick": [0, -1]},
+    {"polls": 16},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 40},
+    {"polls": 4, "stick": [1, 0]},
+    {"polls": 16},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 150},
+    {"polls": 5, "buttons": ["A"]},
+    {"polls": 250}
+  ],
+  "settings": {
+    "graphics.json": {"version": 2, "rate": 90, "interpolate_races": true}
+  },
+  "expect": {
+    "min_menu_ticks": 30,
+    "races": [
+      {"course": 1, "layout": 0, "car": 0, "mode": 3, "laps": 3, "min_samples": 60},
+      {"course": 1, "layout": 0, "car": 6, "mode": 3, "laps": 2, "min_samples": 60}
+    ],
+    "log_in_order": [
+      "[wdc:warp] loading track=1 car=0 mode=3 laps=3",
+      "display target 90/1 Hz",
+      "[wdc:scenario] dispatcher callback=8004e950",
+      "[wdc:scenario] race course=1 layout=0 car=6 mode=3 laps=2",
+      "display target 90/1 Hz"
+    ]
+  }
+}

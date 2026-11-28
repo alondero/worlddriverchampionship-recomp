@@ -23,6 +23,7 @@ BUTTONS = dict(
 )
 COUNTS = ("menu_ticks", "graphics_tasks", "presentations")
 RACE_IDENTITY = ("course", "layout", "car", "mode", "laps")
+DISTANCE_PERIOD_MINIMA = ("min_samples", "min_frame_arena_gap", "min_secondary_frame_arena_gap")
 
 
 def read_json(path):
@@ -51,8 +52,8 @@ def number(value, minimum, maximum, label):
 
 
 def validate(scenario):
-    fields(scenario, ("schema", "name", "warp", "warp_at", "start", "max_vis", "input", "settings", "expect"),
-           "scenario")
+    fields(scenario, ("schema", "name", "warp", "warp_at", "start", "max_vis", "input",
+                      "draw_distance_at", "settings", "expect"), "scenario")
     integer(scenario.get("schema"), 1, 1, "schema")
     name = scenario.get("name")
     if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", name):
@@ -85,6 +86,14 @@ def validate(scenario):
         polls += count
     if polls >= max_vis:
         raise ValueError("max_vis must allow time for input polls and the final dispatcher update")
+    if "draw_distance_at" in scenario:
+        change = scenario["draw_distance_at"]
+        fields(change, ("after_polls", "value"), "draw_distance_at")
+        after = integer(change.get("after_polls"), 1, polls - 1, "after_polls")
+        distance = integer(change.get("value"), 1, 16, "draw distance")
+        if 8 < distance < 16:
+            raise ValueError("draw distance must be 1 through 8, or 16 for Unlimited")
+        lines[0] = f"WDC_SCENARIO_2 {start} {max_vis} {after} {distance}"
 
     settings = scenario.get("settings", {})
     if not isinstance(settings, dict) or any(
@@ -94,7 +103,7 @@ def validate(scenario):
         raise ValueError("settings must map JSON basenames to configuration objects")
 
     expect = scenario.get("expect")
-    fields(expect, (*(f"min_{key}" for key in COUNTS), "races", "log_contains"), "expect")
+    fields(expect, (*(f"min_{key}" for key in COUNTS), "races", "log_contains", "log_in_order"), "expect")
     if not expect:
         raise ValueError("expect must assert at least one game outcome")
     for key in COUNTS:
@@ -106,7 +115,8 @@ def validate(scenario):
         for entry in expect["races"]:
             fields(entry, (*RACE_IDENTITY, "min_samples", "min_displacement",
                         "min_peak_visibility_list_count", "min_peak_visibility_filled_slots",
-                        "min_frame_arena_gap", "min_secondary_frame_arena_gap"), "race expectation")
+                        "min_frame_arena_gap", "min_secondary_frame_arena_gap",
+                        "draw_distance_periods"), "race expectation")
             if not entry:
                 raise ValueError("each expected race must have at least one assertion")
             for key in (*RACE_IDENTITY, "min_samples",
@@ -116,11 +126,22 @@ def validate(scenario):
                     integer(entry[key], 0, 2**32 - 1, key)
             if "min_displacement" in entry:
                 number(entry["min_displacement"], 0, 1e20, "min_displacement")
-    if "log_contains" in expect and (
-        not isinstance(expect["log_contains"], list) or not expect["log_contains"]
-        or any(not isinstance(marker, str) or not marker for marker in expect["log_contains"])
-    ):
-        raise ValueError("log_contains must be a nonempty list of nonempty strings")
+            if "draw_distance_periods" in entry:
+                periods = entry["draw_distance_periods"]
+                if not isinstance(periods, list) or not periods or "draw_distance_at" not in scenario:
+                    raise ValueError("draw_distance_periods requires an ordered list and draw_distance_at")
+                for period in periods:
+                    fields(period, ("scale", *DISTANCE_PERIOD_MINIMA), "draw distance period")
+                    scale = integer(period.get("scale"), 1, 64, "draw distance scale")
+                    if 8 < scale < 64:
+                        raise ValueError("draw distance scale must be 1 through 8, or 64 for Unlimited")
+                    for key in DISTANCE_PERIOD_MINIMA:
+                        if key in period:
+                            integer(period[key], 0, 2**32 - 1, key)
+    for key in ("log_contains", "log_in_order"):
+        if key in expect and (not isinstance(expect[key], list) or not expect[key]
+                              or any(not isinstance(marker, str) or not marker for marker in expect[key])):
+            raise ValueError(f"{key} must be a nonempty list of nonempty strings")
     return "\n".join(lines) + "\n", polls
 
 
@@ -133,6 +154,19 @@ def evaluate(expected, native, polls, log):
         value = observed.get(key)
         if type(value) not in (int, float) or not threshold <= value < float("inf"):
             errors.append(f"{label}: expected at least {threshold}, observed {value}")
+
+    def check_distance_periods(wanted, observed, label):
+        if not isinstance(observed, list) or len(observed) != len(wanted):
+            errors.append(f"{label}: expected {len(wanted)} draw distance periods, observed {observed}")
+            return
+        for index, (expected_period, period) in enumerate(zip(wanted, observed), 1):
+            period_label = f"{label} draw distance period {index}"
+            if not isinstance(period, dict) or period.get("scale") != expected_period["scale"]:
+                errors.append(f"{period_label}: expected scale {expected_period['scale']}, observed {period}")
+                continue
+            for key in DISTANCE_PERIOD_MINIMA:
+                if key in expected_period:
+                    minimum(period, key[4:], expected_period[key], f"{period_label} {key[4:]}")
 
     for key in COUNTS:
         if f"min_{key}" in expected:
@@ -149,11 +183,20 @@ def evaluate(expected, native, polls, log):
                 for key, value in wanted.items():
                     if key.startswith("min_"):
                         minimum(observed, key[4:], value, f"Race {index} {key[4:]}")
+                    elif key == "draw_distance_periods":
+                        check_distance_periods(value, observed.get(key), f"Race {index}")
                     elif observed.get(key) != value:
                         errors.append(f"Race {index} {key}: expected {value}, observed {observed.get(key)}")
     for marker in expected.get("log_contains", []):
         if marker not in log:
             errors.append(f"Missing player log marker {marker!r}")
+    cursor = 0
+    for marker in expected.get("log_in_order", []):
+        match = log.find(marker, cursor)
+        if match == -1:
+            errors.append(f"Missing ordered player log marker {marker!r} after offset {cursor}")
+            break
+        cursor = match + len(marker)
     return errors
 
 

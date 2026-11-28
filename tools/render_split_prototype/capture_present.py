@@ -1,6 +1,18 @@
 """Diagnostic BGRA8 swap-chain capture in a copied Windows RT64 present queue."""
 
 
+def read_capture(path):
+    try:
+        magic, dimensions, maximum, pixels = path.read_bytes().split(b"\n", 3)
+        width, height = map(int, dimensions.split())
+        if (magic == b"P6" and maximum == b"255" and 0 < width <= 4096
+                and 0 < height <= 4096 and len(pixels) == width * height * 3):
+            return width, height, pixels
+    except ValueError:
+        pass
+    raise ValueError(f"Invalid presentation capture: {path}")
+
+
 def patch_capture(source):
     end = source.index("    void PresentQueue::skipInterpolation()")
     source, suffix = source[:end], source[end:]

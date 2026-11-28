@@ -27,7 +27,7 @@ constexpr unsigned settle_frames = 90;
 constexpr int32_t callback_addr = int32_t(0x8007D848), scene_addr = int32_t(0x800923E4);
 std::atomic<unsigned> requests{};
 std::atomic<uint32_t> clock_bias{};
-std::filesystem::path slot, auto_save, auto_load;
+wdc::state::CheckpointPaths checkpoint_paths;
 unsigned save_delay = 0, load_delay = 0, stable_frames = 0;
 uint64_t restored = 0;
 uint32_t last_callback{}, last_scene{};
@@ -162,11 +162,14 @@ bool load(uint8_t* rdram, recomp_context* ctx, const std::filesystem::path& path
 uint64_t wdc::state::restore_generation() { return restored; }
 
 bool wdc::state::configure(const std::filesystem::path& default_slot) {
-    slot = environment_path("WDC_STATE_FILE", default_slot);
-    auto_save = environment_path("WDC_STATE_SAVE");
-    auto_load = environment_path("WDC_STATE_LOAD");
+    checkpoint_paths = {
+        environment_path("WDC_STATE_FILE", default_slot),
+        environment_path("WDC_STATE_SAVE"),
+        environment_path("WDC_STATE_LOAD"),
+    };
     return delay("WDC_STATE_SAVE_DELAY", save_delay) && delay("WDC_STATE_LOAD_DELAY", load_delay);
 }
+const wdc::state::CheckpointPaths& wdc::state::startup_paths() { return checkpoint_paths; }
 void wdc::state::request_save() {
     requests.fetch_or(1);
     wdc::log(wdc::LogLevel::Info, "[wdc:state] save requested; waiting for a settled frame\n");
@@ -198,19 +201,21 @@ extern "C" void wdc_savestate_tick(uint8_t* rdram, recomp_context* ctx) {
     if (stable_frames < settle_frames) ++stable_frames;
     if (stable_frames < settle_frames) return;
     try {
-        if (!auto_load.empty() && callback == race_callback && !load_delay--) {
-            auto path = std::move(auto_load); auto_load.clear();
+        if (!checkpoint_paths.automatic_load.empty() && callback == race_callback && !load_delay--) {
+            auto path = std::move(checkpoint_paths.automatic_load);
+            checkpoint_paths.automatic_load.clear();
             load(rdram, ctx, path);
             return;
         }
-        if (!auto_save.empty() && callback == race_callback && !save_delay--) {
-            auto path = std::move(auto_save); auto_save.clear();
+        if (!checkpoint_paths.automatic_save.empty() && callback == race_callback && !save_delay--) {
+            auto path = std::move(checkpoint_paths.automatic_save);
+            checkpoint_paths.automatic_save.clear();
             save(rdram, ctx, path);
             return;
         }
         const unsigned request = requests.exchange(0);
-        if (request & 2) load(rdram, ctx, slot);
-        else if (request & 1) save(rdram, ctx, slot);
+        if (request & 2) load(rdram, ctx, checkpoint_paths.slot);
+        else if (request & 1) save(rdram, ctx, checkpoint_paths.slot);
     } catch (const std::exception& error) {
         fail("operation", error.what());
     }
