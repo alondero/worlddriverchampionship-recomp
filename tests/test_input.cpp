@@ -38,7 +38,7 @@ static int SDLCALL failed_rumble_callback(void*, Uint16, Uint16) {
     return -1;
 }
 namespace wdc::ui { bool captures_input() { return capture; } }
-namespace wdc::ui { void request_settings(graphics::Settings) {} }
+namespace wdc::ui { void request_settings(graphics::Settings, bool) {} }
 static void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
