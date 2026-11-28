@@ -35,6 +35,24 @@ details. Use `--log-level=trace` for additional detail such as VI state.
 The level applies to WDC port messages. The shared runtime and renderer
 control their own output.
 
+## Last desktop launch
+
+After validating the ROM and before starting the game, the desktop player
+writes `last-launch.json` in its SDL user data directory. On Windows look in
+`%APPDATA%/WDC/World Driver Championship Recompiled`. On Linux look under
+`$XDG_DATA_HOME/WDC/World Driver Championship Recompiled` or
+`~/.local/share/WDC/World Driver Championship Recompiled`. Portable launches,
+explicit `--data-dir` profiles, scenario runs, and the presentation audit
+keep the record in their resolved profile. Other diagnostic launchers can
+set `WDC_LAUNCH_RECORD_LOCAL=1` for the same behavior. The player also uses
+the profile if SDL cannot locate the shared directory.
+
+The record includes the executable and build revision, working directory,
+ROM and data paths, checkpoint paths, warp arguments, and the effective
+startup graphics settings. The `log` field gives the player-owned file path
+when one was opened. Inherited console and redirected streams use the
+launcher's output destination. The record is local diagnostic data.
+
 ## Development save states
 
 F7 saves a RAM checkpoint; F8 restores it. The default slot is

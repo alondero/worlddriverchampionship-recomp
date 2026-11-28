@@ -165,6 +165,18 @@ if(NOT WDC_HEADLESS)
         lib/rt64/src/contrib/hlslpp/include lib/rt64/src/contrib ${SDL2_INCLUDE_DIRS})
     target_compile_definitions(worlddriverchampionship_modern PRIVATE WDC_PLAYER=1 SDL_MAIN_HANDLED NOMINMAX)
     target_link_libraries(worlddriverchampionship_modern PRIVATE ${SDL2_LIBRARIES})
+    if(NOT ANDROID)
+        find_package(Git QUIET)
+        set(WDC_BUILD_REVISION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/wdc_build_revision.h")
+        add_custom_target(wdc_build_revision
+            COMMAND "${CMAKE_COMMAND}" "-DGIT=${GIT_EXECUTABLE}" "-DROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+                "-DOUTPUT=${WDC_BUILD_REVISION_HEADER}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildRevision.cmake"
+            BYPRODUCTS "${WDC_BUILD_REVISION_HEADER}"
+            VERBATIM)
+        add_dependencies(worlddriverchampionship_modern wdc_build_revision)
+        target_sources(worlddriverchampionship_modern PRIVATE src/launch_record.cpp)
+        target_include_directories(worlddriverchampionship_modern PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
     if(WIN32)
         foreach(dll dxcompiler dxil)
             add_custom_command(TARGET worlddriverchampionship_modern POST_BUILD

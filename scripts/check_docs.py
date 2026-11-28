@@ -2,7 +2,9 @@
 """Check required documentation and local Markdown links without a build."""
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -27,13 +29,13 @@ def main() -> int:
         if not (ROOT / name).is_file():
             errors.append(f"missing required document: {name}")
 
-    markdown = sorted(ROOT.rglob("*.md"))
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.md"],
+        cwd=ROOT, check=True, stdout=subprocess.PIPE,
+    ).stdout
+    paths = {ROOT / os.fsdecode(name) for name in listed.split(b"\0") if name}
+    markdown = sorted(path for path in paths if path.is_file())
     for path in markdown:
-        # Dependency submodules are vendored build inputs, not this repository's
-        # documentation contract. Their links and platform examples are owned
-        # upstream and commonly refer to files omitted from a shallow checkout.
-        if any(part in {"build", ".git", "lib", ".claude"} or part.startswith("build-") for part in path.relative_to(ROOT).parts):
-            continue
         contents = path.read_text(encoding="utf-8", errors="replace")
         if DRIVE_PATH_RE.search(contents):
             errors.append(f"machine-specific drive path in {path.relative_to(ROOT)}")

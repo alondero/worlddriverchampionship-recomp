@@ -15,7 +15,9 @@ profile, drives controller 1, and checks the game's reported outcome.
    python -B tools/run_game_scenario.py scenarios/practice-drive.json
    python -B tools/run_game_scenario.py scenarios/menu-to-practice.json
    python -B tools/run_game_scenario.py scenarios/race-transition.json
+   python -B tools/run_game_scenario.py scenarios/interpolated-warp-exit-restart.json
    python -B tools/run_game_scenario.py scenarios/track10-draw-unlimited.json
+   python -B tools/run_game_scenario.py scenarios/les-gets-live-draw-distance.json
    python -B tools/run_game_scenario.py scenarios/new-zealand-arcade-unlimited.json
    ```
 
@@ -27,11 +29,17 @@ profile, drives controller 1, and checks the game's reported outcome.
    Menu to Practice
    drives a normal boot, car selection, and the Quick Race menus into Hawaii
    Practice Laps. Race Transition enters a second layout in Arcade mode and
-   observes the 90 Hz presentation target. Use `--rom PATH` for a local dump
+   observes the 90 Hz presentation target. Interpolated Warp Exit Restart
+   exits a warped Hawaii Arcade race through the pause menu, starts another
+   race from the Arcade menu, and checks that both visits present at 90 Hz.
+   Les Gets Live Draw Distance applies 8× through the desktop settings path
+   while driving and checks simulation progress and both packet arenas before
+   and after the change. Use `--rom PATH` for a local dump
    outside this checkout and `--exe PATH` for a non-default build. Windowed
    scenarios require a graphics session.
 3. Inspect the printed directory under `artifacts/scenarios/`. It contains the
-   scenario, compiled input, player log, native observations, and pass/fail
+   scenario, compiled input, player log, the [desktop launch record](debugging.md#last-desktop-launch) under
+   `build/user-data`, native observations, and pass/fail
    report with executable and ROM SHA-256 hashes. A missing result, mismatch,
    crash, or timeout fails the run. For a behavior change, run the same route on
    the baseline and the changed build when that comparison establishes the fix.
@@ -62,6 +70,9 @@ that would fail if the intended behavior were missing.
 - `settings` seeds JSON files in the fresh profile under `build/user-data`.
   Copy only the settings needed to reproduce the feature. Use the same fixture
   for both sides of a comparison.
+- `draw_distance_at` schedules one desktop settings change during a race.
+  Set `after_polls` to the number of completed controller reads and `value`
+  to 1–8 or 16 for Unlimited. Leave time for simulation and rendering after it.
 - `expect.races` asserts the ordered list of race visits. An entry can match
   `course`, `layout`, `car`, `mode` and `laps` against native guest fields.
   The internal course and layout pair can be read from the run report. Warp
@@ -78,9 +89,14 @@ that would fail if the intended behavior were missing.
   cursor. `min_secondary_frame_arena_gap` does the same for the secondary
   packet arena. These observations are one frame behind the renderer and are
   intended for draw-distance regression scenarios.
+  `draw_distance_periods` checks the exact ordered list of distances observed
+  in a visit with a scripted setting change. Its `scale` is 1–8 or 64 for
+  Unlimited, and each period can require its own samples and arena headroom.
   `min_menu_ticks`, `min_graphics_tasks` and `min_presentations` cover the
   whole run. Presentations count admissions to RT64. Use the presentation
   audit for timing and inspect captures for pixel correctness.
+- `expect.log_in_order` checks markers in sequence. Use repeated markers to
+  verify that the same setting took effect again after a transition.
 
 For a manual route or a host settings change, launch with
 `./play.ps1 -Warp '1:0:practice'` on Windows. Omit `-Warp` for a normal boot.
